@@ -94,6 +94,7 @@ def _docker_inspect(name: str) -> dict | None:
 
 
 def container_status(names: tuple[str, ...]) -> dict:
+    """Optional Docker enrichment. API image has no docker CLI — callers must use HTTP probes."""
     if not docker_available():
         return {
             "ok": False,
@@ -101,7 +102,8 @@ def container_status(names: tuple[str, ...]) -> dict:
             "found": False,
             "name": None,
             "status": "docker unavailable",
-            "detail": "Docker CLI not found on PATH",
+            "detail": None,  # not an error by itself inside the API container
+            "docker_cli": False,
         }
     for name in names:
         info = _docker_inspect(name)
@@ -118,6 +120,7 @@ def container_status(names: tuple[str, ...]) -> dict:
             "started_at": state.get("StartedAt"),
             "health": (state.get("Health") or {}).get("Status"),
             "image": (info.get("Config") or {}).get("Image"),
+            "docker_cli": True,
         }
     return {
         "ok": False,
@@ -126,7 +129,87 @@ def container_status(names: tuple[str, ...]) -> dict:
         "name": None,
         "status": "not found",
         "detail": f"No container matching {', '.join(names)}",
+        "docker_cli": True,
     }
+
+
+def _http_ok(url: str, timeout_s: float = 2.0) -> tuple[bool, str | None]:
+    import urllib.error
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            return 200 <= resp.status < 300, f"HTTP {resp.status}"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _active_pbf_ready() -> bool:
+    try:
+        from paths import DATA
+
+        pbf = DATA / "valhalla" / "active.osm.pbf"
+        return pbf.is_file() and pbf.stat().st_size >= 1000
+    except Exception:
+        return False
+
+
+def kismet_service_status() -> dict:
+    """Host or Docker Kismet — probe HTTP, optionally enrich with docker inspect."""
+    base = (os.getenv("KISMET_URL") or "http://127.0.0.1:2501").rstrip("/")
+    url = f"{base}/system/status.json"
+    ok, detail = _http_ok(url)
+    out = container_status(KISMET_NAMES)
+    out["url"] = base
+    out["http_ok"] = ok
+    if ok:
+        out["ok"] = True
+        out["running"] = True
+        out["found"] = True
+        out["status"] = "reachable"
+        out["detail"] = detail or f"HTTP OK at {base}"
+    elif not out.get("detail"):
+        out["detail"] = (
+            f"Kismet not reachable at {base} — install host packages "
+            "(car_setup) or start wardrivrr-kismet.service"
+        )
+    return out
+
+
+def valhalla_service_status() -> dict:
+    """Probe Valhalla HTTP; do not require Docker CLI inside the API container."""
+    out = container_status(VALHALLA_NAMES)
+    try:
+        from valhalla_client import valhalla_base_url, valhalla_reachable
+
+        url = valhalla_base_url()
+        out["url"] = url
+        http_ok = valhalla_reachable()
+        out["http_ok"] = http_ok
+        out["pbf_ready"] = _active_pbf_ready()
+        if http_ok:
+            out["ok"] = True
+            out["running"] = True
+            out["found"] = True
+            out["status"] = "reachable"
+            out["detail"] = f"HTTP OK at {url}"
+        elif not out["pbf_ready"]:
+            out["ok"] = False
+            out["status"] = "waiting for map"
+            out["detail"] = (
+                "No data/valhalla/active.osm.pbf yet — create a level and run prepare; "
+                "Valhalla starts after that"
+            )
+        elif not out.get("detail"):
+            out["detail"] = (
+                f"Valhalla not reachable at {url} — tiles may still be building "
+                "(docker logs -f wardrivrr_valhalla on the host)"
+            )
+    except Exception as exc:
+        out["http_ok"] = False
+        out["detail"] = str(exc)
+    return out
 
 
 def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
@@ -362,25 +445,33 @@ def collect_system_status(user_id: int | None = None) -> dict:
     mode = deployment_mode()
     expected = deployment_expected(mode)
     db = database_status(user_id=user_id)
-    kismet = container_status(KISMET_NAMES)
+    kismet = kismet_service_status()
+    # PostGIS: DB probe is authoritative; docker inspect is optional
     postgis_container = container_status(POSTGIS_NAMES)
-    valhalla = container_status(VALHALLA_NAMES)
-    try:
-        from valhalla_client import valhalla_base_url, valhalla_reachable
-
-        valhalla["url"] = valhalla_base_url()
-        valhalla["http_ok"] = valhalla_reachable()
-        if valhalla["http_ok"]:
-            valhalla["ok"] = True
-            valhalla["detail"] = valhalla.get("detail") or f"HTTP OK at {valhalla['url']}"
-    except Exception:
-        valhalla["http_ok"] = False
+    if db.get("ok"):
+        postgis_container["ok"] = True
+        postgis_container["running"] = True
+        postgis_container["found"] = True
+        postgis_container["status"] = postgis_container.get("status") or "db ok"
+        if not postgis_container.get("detail") and not postgis_container.get("docker_cli"):
+            postgis_container["detail"] = "PostgreSQL/PostGIS reachable (no Docker CLI in API)"
+    valhalla = valhalla_service_status()
     gps = gpsd_status()
     storage = storage_status(user_id=user_id)
 
     gps = _attach_state(gps, expected=expected["gps"], state=_state_gps(gps, expected["gps"]))
+
+    def _state_kismet(info: dict, exp: bool) -> str:
+        if not exp:
+            return "na"
+        if info.get("http_ok") or info.get("running"):
+            return "ok"
+        if info.get("found"):
+            return "warn"
+        return "down"
+
     kismet = _attach_state(
-        kismet, expected=expected["kismet"], state=_state_container(kismet, expected["kismet"])
+        kismet, expected=expected["kismet"], state=_state_kismet(kismet, expected["kismet"])
     )
 
     def _state_valhalla(info: dict, exp: bool) -> str:
@@ -388,6 +479,8 @@ def collect_system_status(user_id: int | None = None) -> dict:
             return "na"
         if info.get("http_ok") or info.get("running"):
             return "ok"
+        if info.get("pbf_ready") is False:
+            return "warn"  # expected until first level prepare
         if info.get("found"):
             return "warn"
         return "down"
@@ -400,7 +493,9 @@ def collect_system_status(user_id: int | None = None) -> dict:
     postgis_container = _attach_state(
         postgis_container,
         expected=expected["postgis"],
-        state=_state_container(postgis_container, expected["postgis"]),
+        state=_state_db(db, expected["postgis"])
+        if db.get("ok")
+        else _state_container(postgis_container, expected["postgis"]),
     )
     db = _attach_state(db, expected=expected["database"], state=_state_db(db, expected["database"]))
     storage = _attach_state(storage, expected=expected["storage"], state="ok")

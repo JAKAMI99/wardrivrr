@@ -78,27 +78,33 @@ function paintContainer(prefix, info, fallbackTitle) {
     paintNa(badge, title, detail, meta, fallbackTitle, info?.detail);
     return;
   }
-  if (!info?.found) {
-    setBadge(badge, "down", "Missing");
-    title.textContent = fallbackTitle;
-    detail.textContent = info?.detail || "Container not found";
-    fillDl(meta, []);
-    return;
-  }
-  if (info.running) {
-    setBadge(badge, "live", "Running");
+  // Prefer API state (HTTP probes) — API container has no Docker CLI
+  if (info?.state === "ok" || info?.http_ok || info?.running) {
+    setBadge(badge, "live", "OK");
     title.textContent = info.name || fallbackTitle;
-    detail.textContent = info.health ? `Container healthy · ${info.health}` : "Container running";
+    detail.textContent =
+      info.detail ||
+      (info.health ? `Healthy · ${info.health}` : "Reachable");
+  } else if (info?.state === "warn" || info?.status === "waiting for map") {
+    setBadge(badge, "warn", "Waiting");
+    title.textContent = fallbackTitle;
+    detail.textContent = info.detail || info.status || "Not ready yet";
+  } else if (!info?.found && !info?.http_ok) {
+    setBadge(badge, "down", "Down");
+    title.textContent = fallbackTitle;
+    detail.textContent = info?.detail || "Not reachable";
   } else {
     setBadge(badge, "warn", "Stopped");
     title.textContent = info.name || fallbackTitle;
-    detail.textContent = `Status: ${info.status}`;
+    detail.textContent = info.detail || `Status: ${info.status}`;
   }
   fillDl(meta, [
+    ["URL", info.url],
     ["Name", info.name],
     ["Status", info.status],
     ["Image", info.image],
     ["Health", info.health],
+    ["PBF ready", info.pbf_ready == null ? null : String(info.pbf_ready)],
   ]);
 }
 
