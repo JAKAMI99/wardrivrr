@@ -1972,6 +1972,7 @@ async function resolveLevel() {
   state.achievementSounds =
     settings.achievement_sounds !== false &&
     settings.achievement_sounds !== "false";
+  syncMuteIcon();
   const anomalyToggle = document.getElementById("toggleAnomaly");
   if (anomalyToggle) anomalyToggle.checked = state.anomalyAlerts;
   if (settings.active_level_id) {
@@ -2097,6 +2098,33 @@ function syncBuildingsIcon() {
   if (!state.webglOk) btn.disabled = true;
 }
 
+function syncMuteIcon() {
+  const btn = document.getElementById("btnMuteSounds");
+  if (!btn) return;
+  const on = !!state.achievementSounds;
+  btn.classList.toggle("is-on", on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on ? "Sounds on (tap to mute)" : "Sounds muted (tap to enable)";
+  const onIcon = btn.querySelector(".nav-icon-sound-on");
+  const offIcon = btn.querySelector(".nav-icon-sound-off");
+  if (onIcon) onIcon.hidden = !on;
+  if (offIcon) offIcon.hidden = on;
+}
+
+async function setAchievementSounds(on) {
+  state.achievementSounds = !!on;
+  syncMuteIcon();
+  try {
+    await WardAuth.apiFetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ achievement_sounds: state.achievementSounds }),
+    });
+  } catch (_) {
+    /* keep local toggle even if settings POST fails */
+  }
+}
+
 function setBuildingsOn(on) {
   state.buildingsOn = !!on && state.webglOk;
   localStorage.setItem(BUILDINGS_KEY, state.buildingsOn ? "1" : "0");
@@ -2114,11 +2142,8 @@ function bindControls() {
     if (hint) hint.hidden = false;
   }
 
-  document.getElementById("btnZoomIn")?.addEventListener("click", () => {
-    state.map?.zoomIn({ duration: 200 });
-  });
-  document.getElementById("btnZoomOut")?.addEventListener("click", () => {
-    state.map?.zoomOut({ duration: 200 });
+  document.getElementById("btnMuteSounds")?.addEventListener("click", () => {
+    setAchievementSounds(!state.achievementSounds);
   });
   document.getElementById("btnBuildings")?.addEventListener("click", () => {
     setBuildingsOn(!state.buildingsOn);
