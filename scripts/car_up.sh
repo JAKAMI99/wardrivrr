@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Subsequent boots: prefer GHCR pull, then compose up. gpsd stays on host.
+# Subsequent boots: local build by default (FORCE_LOCAL_BUILD=1). Optional GHCR pull.
+# gpsd stays on host.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,26 +21,25 @@ if [[ ! -s deploy/kismet/kismet_site.conf ]]; then
   exit 1
 fi
 
-IMAGE="${WARDRIVRR_IMAGE:-}"
-if [[ -z "$IMAGE" ]]; then
-  REMOTE="$(git remote get-url origin 2>/dev/null || true)"
-  OWNER="$(printf '%s' "$REMOTE" | sed -nE 's#.*github\.com[:/]([^/]+)/.*#\1#p' | tr '[:upper:]' '[:lower:]')"
-  if [[ -z "$OWNER" ]]; then
-    echo "WARDRIVRR_IMAGE is unset and no GitHub owner could be read from origin."
-    echo "Set WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest in .env."
-    exit 1
-  fi
-  IMAGE="ghcr.io/${OWNER}/wardrivrr:latest"
+if ! docker info >/dev/null 2>&1; then
+  echo "Cannot talk to Docker (permission denied on /var/run/docker.sock)."
+  echo "  sudo usermod -aG docker \"\$USER\" && newgrp docker"
+  exit 1
 fi
+
+IMAGE="${WARDRIVRR_IMAGE:-wardrivrr-api:local}"
 if [[ "$IMAGE" == *"/OWNER/"* ]] || [[ "$IMAGE" == *"/owner/"* ]]; then
   echo "WARDRIVRR_IMAGE still contains the OWNER placeholder: $IMAGE"
-  echo "Run ./scripts/car_setup.sh or fix WARDRIVRR_IMAGE in .env."
+  echo "Run ./scripts/car_setup.sh or set WARDRIVRR_IMAGE=wardrivrr-api:local in .env."
   exit 1
 fi
 export WARDRIVRR_IMAGE="$IMAGE"
+# Default local unless .env explicitly sets FORCE_LOCAL_BUILD=0 for GHCR-only boots
+FORCE_LOCAL_BUILD="${FORCE_LOCAL_BUILD:-1}"
 
 echo "=== wardrivrr car_up ==="
 echo "Image: $WARDRIVRR_IMAGE"
+echo "FORCE_LOCAL_BUILD=$FORCE_LOCAL_BUILD"
 echo "Host architecture: $(uname -m)"
 
 # Host gpsd
@@ -55,18 +55,17 @@ COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-fi
 mkdir -p data
 
 PULLED=0
-if [[ "${FORCE_LOCAL_BUILD:-0}" != "1" ]]; then
+if [[ "$FORCE_LOCAL_BUILD" != "1" ]]; then
   if docker pull "$WARDRIVRR_IMAGE"; then
     echo "Using GHCR image (GitHub Actions build)."
     PULLED=1
   else
     echo "GHCR pull failed — local build fallback."
-    echo "For a private package, login with a classic PAT that has read:packages:"
-    echo "  echo \$GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin"
   fi
 fi
 
-if [[ "$PULLED" != "1" ]] || [[ "${FORCE_LOCAL_BUILD:-0}" == "1" ]]; then
+if [[ "$PULLED" != "1" ]]; then
+  echo "Building API image locally…"
   "${COMPOSE[@]}" build api
 fi
 

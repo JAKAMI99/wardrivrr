@@ -9,7 +9,7 @@ Use this on the mini-PC before a real drive. Deeper leftover polish: [SOPHISTICA
 3. **Disk** — `df -h` (kis_db + PostGIS + Valhalla grow fast).
 4. **USB** — Alfa Wi‑Fi, GPS dongle, optional BT. Note tty (`ls /dev/ttyUSB* /dev/ttyACM*`).
 5. **gpsd** — `systemctl status gpsd` then `cgps -s` outdoors until 3D fix.
-6. **Stack** — `./scripts/car_up.sh` (pulls **GHCR** image, starts compose, checks gpsd).
+6. **Stack** — `./scripts/car_up.sh` (**local Docker build** by default, starts compose, checks gpsd). Optional GHCR pull if you set `FORCE_LOCAL_BUILD=0`.
 7. **Status UI** — `http://<mini-ip>:8000/status` → GPS ok, Kismet running, DB ok, Valhalla up.
 8. **Kismet** — `http://<mini-ip>:2501/` → devices appearing on Alfa iface (not empty).
 9. **Drive** — phone browser → `/navigate` → map follows GPS without tapping Follow; auto-explore when level ready.
@@ -39,41 +39,19 @@ docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env u
 
 API reaches host gpsd / Kismet via `host.docker.internal` (`extra_hosts: host-gateway`).
 
-## Trusted image (GHCR) — verify CI, don’t hand-build by default
+## Docker image — local build by default
 
-Images are published by [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml) to:
+`car_setup.sh` / `car_up.sh` **build on the mini** (`WARDRIVRR_IMAGE=wardrivrr-api:local`, `FORCE_LOCAL_BUILD=1`).
 
-`ghcr.io/<owner>/wardrivrr`
-
-Tags: `latest` (default branch), `sha-<short>`, semver from `v*` tags.
-The published manifest contains **`linux/amd64` and `linux/arm64`**. This costs
-extra CI time/storage, but the mini-PC pulls its native image (`uname -m` is
-printed by `car_up.sh`) instead of emulating another CPU.
+Your user must reach the Docker socket (otherwise `permission denied … docker.sock`):
 
 ```bash
-# Private repo packages need auth
-echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
-docker pull ghcr.io/<owner>/wardrivrr:latest
-docker image inspect ghcr.io/<owner>/wardrivrr:latest --format '{{.RepoDigests}}'
-# Compare digest to the GitHub Actions “Docker publish” run / Packages UI
-
-# Optional: verify the keyless GitHub Actions signature (install cosign first)
-cosign verify \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp \
-  'https://github.com/<owner>/wardrivrr/.github/workflows/docker-publish.yml@refs/(heads|tags)/.*' \
-  ghcr.io/<owner>/wardrivrr@sha256:<digest>
+sudo usermod -aG docker "$USER"
+newgrp docker   # or log out and back in
+docker info     # must work without sudo
 ```
 
-`.env`:
-
-```bash
-WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
-# For a drive, optionally freeze the exact tested image:
-# WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr@sha256:<digest>
-```
-
-`car_up.sh` / `car_setup.sh` **pull GHCR first**. Local build only if pull fails or `FORCE_LOCAL_BUILD=1`. `car_up.sh` now rejects the `OWNER` placeholder, checks the generated Kismet config and merged Compose config, and waits up to 90 seconds for API health.
+Optional later: CI images from [`.github/workflows/docker-publish.yml`](../.github/workflows/docker-publish.yml) → `ghcr.io/<owner>/wardrivrr` (amd64+arm64). Opt in during setup (“Prefer GHCR?”) or set `FORCE_LOCAL_BUILD=0` + `WARDRIVRR_IMAGE=ghcr.io/…` in `.env`.
 
 ## GPS / Kismet notes
 
