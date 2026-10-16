@@ -33,19 +33,23 @@ services:
       dockerfile: backend/Dockerfile
     container_name: wardrivrr_api
     restart: unless-stopped
+    # Host network: API reaches gpsd+Kismet on 127.0.0.1 (Docker bridge often
+    # cannot; Status was false-negative while host curl worked).
+    network_mode: host
     env_file:
       - ./.env
     environment:
-      DB_HOST: postgis
+      # postgis/valhalla publish ports on the host in this mode
+      DB_HOST: 127.0.0.1
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME:-wardriving}
       DB_USER: ${DB_USER:-explorer}
       DB_PASS: ${DB_PASS:-secure_password_here}
-      VALHALLA_URL: http://valhalla:8002
-      GPSD_HOST: ${GPSD_HOST:-host.docker.internal}
+      VALHALLA_URL: http://127.0.0.1:8002
+      GPSD_HOST: 127.0.0.1
       GPSD_PORT: ${GPSD_PORT:-2947}
       GPSD_ENABLED: ${GPSD_ENABLED:-1}
-      KISMET_URL: ${KISMET_URL:-http://host.docker.internal:2501}
+      KISMET_URL: http://127.0.0.1:2501
       KISMET_USER: ${KISMET_USER:-wardrivrr}
       KISMET_PASSWORD: ${KISMET_PASSWORD:-changeme}
       KISMET_LIVE: ${KISMET_LIVE:-1}
@@ -53,13 +57,9 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
       WARDRIVRR_MODE: ${WARDRIVRR_MODE:-full}
       DATA_ROOT: /app/data
-    ports:
-      - "8000:8000"
     volumes:
       - ./data:/app/data
       - ./data/kismet_logs:/data/kismet_logs:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       postgis:
         condition: service_healthy

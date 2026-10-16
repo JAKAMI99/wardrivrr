@@ -12,7 +12,8 @@ server_description=teslian car mini-PC
 # Web UI + API live ingest (phone / Docker host.docker.internal:2501)
 httpd_bind_address=0.0.0.0
 httpd_port=2501
-httpd_username=wardrivrr
+# Must match wardrivrr .env KISMET_USER / KISMET_PASSWORD
+httpd_username=jakami
 httpd_password=CHANGE_ME_TO_MATCH_DOT_ENV
 
 # GPS via host gpsd (must listen with -G for Docker; localhost is fine for host Kismet)
