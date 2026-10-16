@@ -23,6 +23,24 @@ cd ~/wardrivrr   # or your clone path
 ./scripts/car_up.sh      # every boot
 ```
 
+### Auto-start on boot
+
+Compose services use `restart: unless-stopped` (containers come back after reboot **if Docker itself starts**):
+
+```bash
+sudo systemctl enable --now docker
+sudo systemctl enable --now gpsd
+sudo systemctl enable --now wardrivrr-kismet   # host Kismet
+# Optional: full stack via car_up on boot
+sudo cp deploy/wardrivrr-stack.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now wardrivrr-stack
+```
+
+### Kismet config
+
+Leave `/etc/kismet/kismet.conf` mostly stock. Put **all** car overrides in `/etc/kismet/kismet_site.conf` (see `deploy/kismet/kismet_site.conf.teslian`). Remove duplicate `source=` / `gps=` lines from `kismet.conf` so they don’t fight the site file.
+
 Compose:
 
 ```bash

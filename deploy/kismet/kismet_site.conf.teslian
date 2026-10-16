@@ -1,0 +1,36 @@
+# wardrivrr — put this at /etc/kismet/kismet_site.conf
+# Overrides kismet.conf. Do NOT put permanent sources/gps in kismet.conf.
+#
+# After copying:
+#   sudo cp deploy/kismet/kismet_site.conf.teslian /etc/kismet/kismet_site.conf
+#   # match passwords to ~/wardrivrr/.env  KISMET_USER / KISMET_PASSWORD
+#   sudo systemctl restart wardrivrr-kismet   # or: kismet --no-ncurses
+
+server_name=wardrivrr
+server_description=teslian car mini-PC
+
+# Web UI + API live ingest (phone / Docker host.docker.internal:2501)
+httpd_bind_address=0.0.0.0
+httpd_port=2501
+httpd_username=wardrivrr
+httpd_password=CHANGE_ME_TO_MATCH_DOT_ENV
+
+# GPS via host gpsd (must listen with -G for Docker; localhost is fine for host Kismet)
+gps=gpsd:host=127.0.0.1,port=2947
+
+# Alfa USB Wi-Fi (monitor) — from your machine: wlx00c0cab49fa8
+source=wlx00c0cab49fa8:name=AlfaMonitor:type=linuxwifi
+
+# Built-in / USB Bluetooth
+source=hci0:name=linuxbt:type=linuxbluetooth
+
+# Logs where wardrivrr API can see them (compose mounts ./data → /app/data)
+# Keep this path; KISMET_LOG_DIR in .env should be /data/kismet_logs inside API.
+log_prefix=/home/jakami/wardrivrr/data/kismet_logs/wardrivrr
+log_types=kismet,kis_db
+log_title_timestamp=true
+
+# Hopping defaults (fine for wardriving)
+channel_hop=true
+channel_hop_speed=5/sec
+retry_on_source_error=true
