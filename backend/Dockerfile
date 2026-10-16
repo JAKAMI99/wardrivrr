@@ -2,11 +2,26 @@
 #   docker build -f backend/Dockerfile -t wardrivrr-api .
 FROM python:3.11-slim
 
+# docker CLI: API seeds/clips PBFs then recreates Valhalla via host docker.sock (car overlay).
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
     osm2pgsql \
     libpq-dev \
     gcc \
     curl \
+    ca-certificates \
+    && DOCKER_ARCH="$(uname -m)" \
+    && case "${TARGETARCH:-}" in \
+         amd64) DOCKER_ARCH=x86_64 ;; \
+         arm64) DOCKER_ARCH=aarch64 ;; \
+         arm) DOCKER_ARCH=armhf ;; \
+       esac \
+    && case "$DOCKER_ARCH" in \
+         x86_64|aarch64|armhf) \
+           curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-27.3.1.tgz" \
+             | tar -xz --strip-components=1 -C /usr/local/bin docker/docker ;; \
+         *) echo "WARN: no static docker CLI for $DOCKER_ARCH — Valhalla restart from API disabled" ;; \
+       esac \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

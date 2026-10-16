@@ -57,13 +57,20 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
       WARDRIVRR_MODE: ${WARDRIVRR_MODE:-full}
       DATA_ROOT: /app/data
+      # HOST_DATA_ROOT = mini-PC path to ./data (docker run -v from API).
+      # WARDRIVRR_COMPOSE_ROOT = in-container mount of the git checkout.
+      HOST_DATA_ROOT: ${HOST_DATA_ROOT:-}
+      WARDRIVRR_COMPOSE_ROOT: /host/project
     volumes:
       - ./data:/app/data
       - ./data/kismet_logs:/data/kismet_logs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Compose files + .env for Valhalla recreate from API after first PBF / level clip
+      - ${HOST_PROJECT:-.}:/host/project:ro
     depends_on:
       postgis:
         condition: service_healthy
-      # Valhalla is optional until data/valhalla/active.osm.pbf exists (level prepare).
+      # Valhalla is optional until a regional pack seeds data/valhalla/active.osm.pbf.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
       interval: 20s

@@ -253,10 +253,40 @@ mkdir -p postgis/init
 chmod a+rx postgis postgis/init 2>/dev/null || true
 chmod a+r postgis/init/*.sql 2>/dev/null || true
 
-mkdir -p data/valhalla
+mkdir -p data/valhalla data/pbf
 if [[ -d data/valhalla/active.osm.pbf ]]; then
   echo "Removing bogus directory data/valhalla/active.osm.pbf…"
   rm -rf data/valhalla/active.osm.pbf
+fi
+
+# So API can clip/restart Valhalla via host Docker
+set_env HOST_PROJECT "$ROOT"
+set_env HOST_DATA_ROOT "$ROOT/data"
+set_env WARDRIVRR_COMPOSE_ROOT "/host/project"
+set_env VALHALLA_URL "http://127.0.0.1:8002"
+
+# Seed Valhalla feed from regional pack name (never "active" on disk in data/pbf)
+pick_regional_pbf() {
+  local f best="" best_sz=0 sz
+  shopt -s nullglob
+  for f in data/pbf/*.osm.pbf data/pbf/*.pbf; do
+    [[ -f "$f" ]] || continue
+    sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
+    if [[ "$sz" -gt "$best_sz" && "$sz" -ge 1000 ]]; then
+      best="$f"
+      best_sz=$sz
+    fi
+  done
+  shopt -u nullglob
+  [[ -n "$best" ]] && printf '%s' "$best"
+}
+REGIONAL="$(pick_regional_pbf || true)"
+if [[ -n "${REGIONAL:-}" ]] && [[ ! -f data/valhalla/active.osm.pbf ]]; then
+  echo "Seeding data/valhalla/active.osm.pbf from $REGIONAL"
+  if ! ln "$REGIONAL" data/valhalla/active.osm.pbf 2>/dev/null; then
+    cp -f "$REGIONAL" data/valhalla/active.osm.pbf
+  fi
+  printf '%s\n' "{\"mode\":\"seed\",\"source_pbf\":\"$REGIONAL\"}" >data/valhalla/active.json
 fi
 
 COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
@@ -269,7 +299,7 @@ SERVICES=(api postgis)
 if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
   SERVICES+=(valhalla)
 else
-  echo "Valhalla: skipped until a level PBF clip exists."
+  echo "Valhalla: skipped until a regional pack exists in data/pbf/."
 fi
 "${COMPOSE[@]}" up -d "${SERVICES[@]}"
 

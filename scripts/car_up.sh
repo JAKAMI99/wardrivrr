@@ -44,8 +44,17 @@ FORCE_LOCAL_BUILD="${FORCE_LOCAL_BUILD:-1}"
 echo "=== wardrivrr car_up ==="
 echo "Image: $WARDRIVRR_IMAGE  arch=$(uname -m)  FORCE_LOCAL_BUILD=$FORCE_LOCAL_BUILD"
 
+# Host paths so the API container can docker-run osmium / compose-up Valhalla.
+# HOST_* are paths on the mini-PC; WARDRIVRR_COMPOSE_ROOT is the in-container mount.
+fix_env_kv HOST_PROJECT "$ROOT"
+fix_env_kv HOST_DATA_ROOT "$ROOT/data"
+fix_env_kv WARDRIVRR_COMPOSE_ROOT "/host/project"
+fix_env_kv VALHALLA_URL "http://127.0.0.1:8002"
+# shellcheck disable=SC1091
+set -a; source .env; set +a
+
 # --- Host dirs / perms (idempotent) ---
-mkdir -p data/kismet_logs/wardrivrr data/valhalla data/incoming
+mkdir -p data/kismet_logs/wardrivrr data/valhalla data/pbf data/incoming
 sudo chown -R jakami:jakami data 2>/dev/null || true
 chmod -R a+rwX data/kismet_logs 2>/dev/null || true
 chmod a+rx postgis postgis/init 2>/dev/null || true
@@ -54,6 +63,57 @@ if [[ -d data/valhalla/active.osm.pbf ]]; then
   echo "Removing bogus data/valhalla/active.osm.pbf directory…"
   sudo rm -rf data/valhalla/active.osm.pbf 2>/dev/null || rm -rf data/valhalla/active.osm.pbf || true
 fi
+
+# Regional packs are data/pbf/{GeofabrikId}.osm.pbf (e.g. Arnsberg…).
+# Valhalla only mounts data/valhalla/ — seed active.osm.pbf from the largest pack.
+pick_regional_pbf() {
+  local f best="" best_sz=0 sz
+  shopt -s nullglob
+  for f in data/pbf/*.osm.pbf data/pbf/*.pbf; do
+    [[ -f "$f" ]] || continue
+    sz=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo 0)
+    if [[ "$sz" -gt "$best_sz" && "$sz" -ge 1000 ]]; then
+      best="$f"
+      best_sz=$sz
+    fi
+  done
+  shopt -u nullglob
+  [[ -n "$best" ]] && printf '%s' "$best"
+}
+
+seed_active_from_regional() {
+  local src="$1"
+  [[ -n "$src" && -f "$src" ]] || return 1
+  mkdir -p data/valhalla
+  if [[ -f data/valhalla/active.osm.pbf ]]; then
+    local asz ssz
+    asz=$(stat -c%s data/valhalla/active.osm.pbf 2>/dev/null || echo 0)
+    ssz=$(stat -c%s "$src" 2>/dev/null || echo 0)
+    # Keep an existing level clip (usually smaller than the regional pack)
+    if [[ -f data/valhalla/active.json ]] && grep -q '"mode": "clip"' data/valhalla/active.json 2>/dev/null; then
+      echo "Valhalla: keeping level clip active.osm.pbf"
+      return 0
+    fi
+    if [[ "$asz" == "$ssz" && "$asz" -ge 1000 ]]; then
+      echo "Valhalla: active.osm.pbf already seeded from regional pack"
+      return 0
+    fi
+  fi
+  echo "Valhalla: seeding active.osm.pbf from $src"
+  rm -f data/valhalla/active.osm.pbf
+  if ln "$src" data/valhalla/active.osm.pbf 2>/dev/null; then
+    :
+  else
+    cp -f "$src" data/valhalla/active.osm.pbf
+  fi
+  cat >data/valhalla/active.json <<EOF
+{"mode": "seed", "source_pbf": "$src", "updated_at": $(date +%s)}
+EOF
+  # Full tile rebuild from the new feed
+  rm -rf data/valhalla/valhalla_tiles
+  docker volume rm -f wardrivrr_valhalla_data >/dev/null 2>&1 || true
+  return 0
+}
 
 # --- gpsd (TCP for Status / API on host net) ---
 if [[ ! -f /etc/default/gpsd ]] || ! grep -q -- '-G' /etc/default/gpsd 2>/dev/null; then
@@ -108,11 +168,17 @@ if [[ "$PULLED" != "1" ]]; then
   "${COMPOSE[@]}" build api
 fi
 
+REGIONAL="$(pick_regional_pbf || true)"
+if [[ -n "${REGIONAL:-}" ]]; then
+  seed_active_from_regional "$REGIONAL" || true
+fi
+
 SERVICES=(api postgis)
 if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
   SERVICES+=(valhalla)
+  echo "Valhalla: starting (feed data/valhalla/active.osm.pbf)."
 else
-  echo "Valhalla: skipped (no active.osm.pbf — prepare a level when ready)."
+  echo "Valhalla: skipped (no pack in data/pbf/*.osm.pbf yet — download a region first)."
   "${COMPOSE[@]}" stop valhalla >/dev/null 2>&1 || true
 fi
 

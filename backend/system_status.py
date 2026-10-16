@@ -163,10 +163,18 @@ def _http_ok(
 
 def _active_pbf_ready() -> bool:
     try:
-        from paths import DATA
+        from valhalla_prep import active_pbf_ready
 
-        pbf = DATA / "valhalla" / "active.osm.pbf"
-        return pbf.is_file() and pbf.stat().st_size >= 1000
+        return active_pbf_ready()
+    except Exception:
+        return False
+
+
+def _regional_pbf_ready() -> bool:
+    try:
+        from valhalla_prep import list_regional_pbfs
+
+        return bool(list_regional_pbfs())
     except Exception:
         return False
 
@@ -208,18 +216,26 @@ def valhalla_service_status() -> dict:
         http_ok = valhalla_reachable()
         out["http_ok"] = http_ok
         out["pbf_ready"] = _active_pbf_ready()
+        out["regional_pbf"] = _regional_pbf_ready()
         if http_ok:
             out["ok"] = True
             out["running"] = True
             out["found"] = True
             out["status"] = "reachable"
             out["detail"] = f"HTTP OK at {url}"
+        elif not out["pbf_ready"] and out["regional_pbf"]:
+            out["ok"] = False
+            out["status"] = "waiting for seed"
+            out["detail"] = (
+                "Regional pack in data/pbf/ — run ./scripts/car_up.sh (or re-download) "
+                "to seed active.osm.pbf and rebuild Valhalla"
+            )
         elif not out["pbf_ready"]:
             out["ok"] = False
             out["status"] = "waiting for map"
             out["detail"] = (
-                "No data/valhalla/active.osm.pbf yet — create a level and run prepare; "
-                "Valhalla starts after that"
+                "No map pack yet — download a Geofabrik region (lands in data/pbf/*.osm.pbf); "
+                "Valhalla then builds from data/valhalla/active.osm.pbf"
             )
         elif not out.get("detail"):
             out["detail"] = (
