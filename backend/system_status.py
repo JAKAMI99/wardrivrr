@@ -232,11 +232,39 @@ def valhalla_service_status() -> dict:
     return out
 
 
+def _gpsd_configured_device() -> str:
+    """Best-effort device path from env or /etc/default/gpsd."""
+    env_dev = (os.getenv("GPSD_DEVICE") or "").strip()
+    if env_dev:
+        return env_dev
+    try:
+        text = Path("/etc/default/gpsd").read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("DEVICES="):
+                raw = line.split("=", 1)[1].strip().strip("\"'")
+                # first path token
+                for part in raw.replace(",", " ").split():
+                    if part.startswith("/dev/"):
+                        return part
+    except OSError:
+        pass
+    return "/dev/ttyACM0"
+
+
 def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
     host = host or os.getenv("GPSD_HOST", "127.0.0.1")
     if host in {"host.docker.internal", "docker.for.mac.localhost"}:
         host = "127.0.0.1"
     port = int(port or os.getenv("GPSD_PORT", "2947"))
+    device = _gpsd_configured_device()
+    device_present = Path(device).exists()
+    # Also note common USB GPS nodes for Status meta
+    usb_nodes = [
+        p
+        for p in ("/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1")
+        if Path(p).exists()
+    ]
     result = {
         "ok": False,
         "reachable": False,
@@ -249,6 +277,9 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
         "satellites": None,
         "host": host,
         "port": port,
+        "device": device,
+        "device_present": device_present,
+        "usb_gps_nodes": usb_nodes,
         "detail": None,
     }
     try:
@@ -282,14 +313,25 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
                     if tpv:
                         break
             except TimeoutError:
-                # Connected but device silent / no fix yet — not "offline"
                 pass
             except socket.timeout:
                 pass
             if not tpv:
-                result["detail"] = (
-                    "gpsd listening — no fix yet (check /dev/ttyACM0, go outdoors)"
-                )
+                if not device_present:
+                    result["detail"] = (
+                        f"gpsd running — plug in GPS receiver "
+                        f"(configured {device} is missing)"
+                    )
+                elif usb_nodes and device not in usb_nodes:
+                    result["detail"] = (
+                        f"gpsd running — {device} missing; saw {', '.join(usb_nodes)} "
+                        "(update /etc/default/gpsd DEVICES=…)"
+                    )
+                else:
+                    result["detail"] = (
+                        f"gpsd running, {device} present — waiting for satellites "
+                        "(go outdoors / wait for warm start)"
+                    )
                 return result
             mode = int(tpv.get("mode") or 0)
             result["mode"] = mode
@@ -308,7 +350,7 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
                 result["detail"] = "no fix (waiting for satellites)"
             return result
     except OSError as exc:
-        result["detail"] = str(exc)
+        result["detail"] = f"{exc} (gpsd host {host}:{port}, device {device})"
         return result
 
 

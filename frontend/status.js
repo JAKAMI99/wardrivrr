@@ -44,20 +44,38 @@ function paintGps(gps) {
     setBadge(badge, "down", "Offline");
     title.textContent = "GPS";
     detail.textContent = gps?.detail || `gpsd not reachable at ${gps?.host}:${gps?.port}`;
-    fillDl(meta, [["Host", `${gps?.host}:${gps?.port}`]]);
+    fillDl(meta, [
+      ["Host", `${gps?.host}:${gps?.port}`],
+      ["Device", gps?.device],
+      ["Device present", gps?.device_present == null ? null : String(gps.device_present)],
+    ]);
     return;
   }
   if (gps.fix) {
     setBadge(badge, "live", "Fix");
     title.textContent = "GPS fix";
     detail.textContent = `Mode ${gps.mode} · ${fmtCoord(gps.lat)}, ${fmtCoord(gps.lon)}`;
+  } else if (gps.device_present === false) {
+    setBadge(badge, "warn", "No dongle");
+    title.textContent = "GPS waiting";
+    detail.textContent =
+      gps.detail || `Plug in receiver (${gps.device || "/dev/ttyACM0"})`;
   } else {
     setBadge(badge, "warn", "No fix");
     title.textContent = "GPS listening";
     detail.textContent =
-      gps.detail || "gpsd up — waiting for satellites / ttyACM0 data";
+      gps.detail || "gpsd up — waiting for satellites";
   }
   fillDl(meta, [
+    ["Host", `${gps?.host}:${gps?.port}`],
+    ["Device", gps?.device],
+    ["Device present", gps?.device_present == null ? null : String(gps.device_present)],
+    [
+      "USB GPS nodes",
+      Array.isArray(gps?.usb_gps_nodes) && gps.usb_gps_nodes.length
+        ? gps.usb_gps_nodes.join(", ")
+        : "none",
+    ],
     ["Latitude", fmtCoord(gps.lat)],
     ["Longitude", fmtCoord(gps.lon)],
     ["Altitude", gps.alt != null ? `${Number(gps.alt).toFixed(1)} m` : null],
