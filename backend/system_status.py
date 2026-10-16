@@ -252,36 +252,44 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
         "detail": None,
     }
     try:
-        with socket.create_connection((host, port), timeout=1.5) as sock:
-            sock.settimeout(1.5)
+        with socket.create_connection((host, port), timeout=2.0) as sock:
+            result["reachable"] = True
+            sock.settimeout(2.5)
             sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
             buf = b""
             tpv = None
             sky = None
-            for _ in range(40):
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                buf += chunk
-                while b"\n" in buf:
-                    line, buf = buf.split(b"\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        msg = json.loads(line.decode("utf-8", errors="replace"))
-                    except json.JSONDecodeError:
-                        continue
-                    cls = msg.get("class")
-                    if cls == "TPV" and tpv is None:
-                        tpv = msg
-                    elif cls == "SKY" and sky is None:
-                        sky = msg
-                if tpv:
-                    break
-            result["reachable"] = True
+            try:
+                for _ in range(50):
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line.decode("utf-8", errors="replace"))
+                        except json.JSONDecodeError:
+                            continue
+                        cls = msg.get("class")
+                        if cls == "TPV" and tpv is None:
+                            tpv = msg
+                        elif cls == "SKY" and sky is None:
+                            sky = msg
+                    if tpv:
+                        break
+            except TimeoutError:
+                # Connected but device silent / no fix yet — not "offline"
+                pass
+            except socket.timeout:
+                pass
             if not tpv:
-                result["detail"] = "gpsd reachable, no TPV yet"
+                result["detail"] = (
+                    "gpsd listening — no fix yet (check /dev/ttyACM0, go outdoors)"
+                )
                 return result
             mode = int(tpv.get("mode") or 0)
             result["mode"] = mode
@@ -297,7 +305,7 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
                 result["satellites"] = len(sats)
                 result["satellites_used"] = sum(1 for s in sats if s.get("used"))
             if mode < 2:
-                result["detail"] = "no fix"
+                result["detail"] = "no fix (waiting for satellites)"
             return result
     except OSError as exc:
         result["detail"] = str(exc)
