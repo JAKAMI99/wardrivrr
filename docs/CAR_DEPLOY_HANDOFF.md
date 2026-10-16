@@ -82,6 +82,18 @@ First level generate on a phone hotspot can take **tens of minutes** and burn da
 3. Copy `data/pbf/` (+ optional cities DBs) to the mini before the trip.
 4. If Valhalla is empty, Drive won’t route until prepare finishes — wait on Status / Navigate overlay.
 
+## PostGIS init “Permission denied”
+
+If logs show `psql: …/01_schema.sql: Permission denied`, the container user cannot read `postgis/init/*.sql` on the host. Fix and **recreate the empty volume** (init only runs once):
+
+```bash
+chmod a+rx postgis postgis/init
+chmod a+r postgis/init/*.sql
+docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env down
+docker volume rm wardrivrr_pgdata
+docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
+```
+
 ## DB wipe note (this machine)
 
 Backups were confirmed under `backups/` before `docker compose down -v` during cleanup. If you wipe again: export from Settings first, copy zips off-box, then `down -v`.

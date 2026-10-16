@@ -75,6 +75,10 @@ if [[ -s /etc/kismet/kismet_site.conf ]] || [[ -s deploy/kismet/kismet_site.conf
   fi
 fi
 
+# Ensure PostGIS can read ./postgis/init on first volume create
+chmod a+rx postgis postgis/init 2>/dev/null || true
+chmod a+r postgis/init/*.sql 2>/dev/null || true
+
 COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
 "${COMPOSE[@]}" config --quiet
 mkdir -p data
