@@ -11,6 +11,14 @@ services:
   postgis:
     env_file:
       - ./.env
+    # Mini-PC friendly memory (override the base compose if it was higher)
+    command: postgres -c shared_buffers=128MB -c work_mem=16MB -c maintenance_work_mem=64MB -c effective_cache_size=512MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
   valhalla:
     env_file:

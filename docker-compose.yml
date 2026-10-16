@@ -17,12 +17,14 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgis/init:/docker-entrypoint-initdb.d
-    command: postgres -c shared_buffers=512MB -c work_mem=64MB -c maintenance_work_mem=256MB -c effective_cache_size=2GB
+    # Conservative defaults for mini-PCs; override in deploy/compose.car.yml if needed
+    command: postgres -c shared_buffers=128MB -c work_mem=16MB -c maintenance_work_mem=64MB -c effective_cache_size=512MB
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-explorer} -d ${DB_NAME:-wardriving}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 8
+      retries: 30
+      start_period: 90s
 
   # Builds tiles from data/valhalla/active.osm.pbf (clipped to the loaded level via
   # POST /api/navigate/prepare). Host API: VALHALLA_URL=http://127.0.0.1:8002
