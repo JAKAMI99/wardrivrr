@@ -5,12 +5,12 @@
     { href: "/levels", label: "Levels", match: ["/levels"] },
     { href: "/discover", label: "Discover", match: ["/discover"] },
     { href: "/database", label: "Database", match: ["/database"] },
+    { href: "/status", label: "Status", match: ["/status"] },
   ];
 
   const ACCOUNT = [
     { href: "/stats", label: "Stats" },
     { href: "/achievements", label: "Achievements" },
-    { href: "/status", label: "Status" },
     { href: "/api", label: "API" },
     { href: "/settings", label: "Settings" },
   ];

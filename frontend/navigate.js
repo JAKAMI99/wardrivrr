@@ -2135,11 +2135,15 @@ function setBuildingsOn(on) {
 }
 
 function bindControls() {
-  if (DEBUG_NAV) {
-    const dbg = document.getElementById("navDebugToolbar");
-    if (dbg) dbg.hidden = false;
-    const hint = document.getElementById("navHint");
-    if (hint) hint.hidden = false;
+  const dbg = document.getElementById("navDebugToolbar");
+  if (dbg) {
+    // Always force-hide unless ?debug=1 (CSS display:flex used to ignore [hidden])
+    dbg.hidden = !DEBUG_NAV;
+    dbg.style.display = DEBUG_NAV ? "" : "none";
+  }
+  const hint = document.getElementById("navHint");
+  if (hint && !DEBUG_NAV) {
+    hint.hidden = true;
   }
 
   document.getElementById("btnMuteSounds")?.addEventListener("click", () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Subsequent boots: local build by default (FORCE_LOCAL_BUILD=1). Optional GHCR pull.
-# gpsd stays on host.
+# Fire-and-forget boot: host gpsd + Kismet, local API image, compose up.
+# gpsd/Kismet stay on the host; API uses host networking (see deploy/compose.car.yml).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,115 +10,125 @@ if [[ ! -f .env ]]; then
   echo "Missing .env — run ./scripts/car_setup.sh first."
   exit 1
 fi
+
 # shellcheck disable=SC1091
 set -a
 # shellcheck source=/dev/null
 source .env
 set +a
 
-if [[ ! -s deploy/kismet/kismet_site.conf ]]; then
-  echo "Missing deploy/kismet/kismet_site.conf — run ./scripts/car_setup.sh first."
-  exit 1
-fi
+# Normalize leftover Docker-bridge hostnames (host-network API needs localhost)
+fix_env_kv() {
+  local key="$1" val="$2"
+  if grep -qE "^${key}=" .env 2>/dev/null; then
+    sed -i.bak -E "s|^${key}=.*|${key}=${val}|" .env && rm -f .env.bak
+  else
+    echo "${key}=${val}" >>.env
+  fi
+}
+fix_env_kv GPSD_HOST 127.0.0.1
+fix_env_kv KISMET_URL "http://127.0.0.1:2501"
+fix_env_kv FORCE_LOCAL_BUILD "${FORCE_LOCAL_BUILD:-1}"
+# shellcheck disable=SC1091
+set -a; source .env; set +a
 
 if ! docker info >/dev/null 2>&1; then
-  echo "Cannot talk to Docker (permission denied on /var/run/docker.sock)."
-  echo "  sudo usermod -aG docker \"\$USER\" && newgrp docker"
+  echo "Cannot talk to Docker. Fix once: sudo usermod -aG docker \"\$USER\" && newgrp docker"
   exit 1
 fi
 
 IMAGE="${WARDRIVRR_IMAGE:-wardrivrr-api:local}"
-if [[ "$IMAGE" == *"/OWNER/"* ]] || [[ "$IMAGE" == *"/owner/"* ]]; then
-  echo "WARDRIVRR_IMAGE still contains the OWNER placeholder: $IMAGE"
-  echo "Run ./scripts/car_setup.sh or set WARDRIVRR_IMAGE=wardrivrr-api:local in .env."
-  exit 1
-fi
 export WARDRIVRR_IMAGE="$IMAGE"
-# Default local unless .env explicitly sets FORCE_LOCAL_BUILD=0 for GHCR-only boots
 FORCE_LOCAL_BUILD="${FORCE_LOCAL_BUILD:-1}"
 
 echo "=== wardrivrr car_up ==="
-echo "Image: $WARDRIVRR_IMAGE"
-echo "FORCE_LOCAL_BUILD=$FORCE_LOCAL_BUILD"
-echo "Host architecture: $(uname -m)"
+echo "Image: $WARDRIVRR_IMAGE  arch=$(uname -m)  FORCE_LOCAL_BUILD=$FORCE_LOCAL_BUILD"
 
-# Host gpsd
-if systemctl is-active --quiet gpsd 2>/dev/null || pgrep -x gpsd >/dev/null 2>&1; then
-  echo "gpsd: running"
-else
-  echo "gpsd: NOT running — starting…"
-  sudo systemctl start gpsd 2>/dev/null || sudo service gpsd start 2>/dev/null || true
-fi
-
-# Host Kismet (not a Docker service by default)
-mkdir -p data/kismet_logs
-if [[ -s /etc/kismet/kismet_site.conf ]] || [[ -s deploy/kismet/kismet_site.conf ]]; then
-  if [[ -f deploy/kismet/kismet_site.conf ]]; then
-    sudo mkdir -p /etc/kismet
-    sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf 2>/dev/null || true
-  fi
-  if systemctl list-unit-files wardrivrr-kismet.service >/dev/null 2>&1; then
-    if systemctl is-active --quiet wardrivrr-kismet; then
-      echo "kismet: wardrivrr-kismet running"
-    else
-      echo "kismet: starting wardrivrr-kismet…"
-      sudo systemctl start wardrivrr-kismet 2>/dev/null || true
-    fi
-  elif command -v kismet >/dev/null 2>&1; then
-    if pgrep -x kismet >/dev/null 2>&1; then
-      echo "kismet: process running"
-    else
-      echo "kismet: no systemd unit — start manually: kismet --no-ncurses &"
-    fi
-  else
-    echo "kismet: not installed (host apt). Stack continues without RF until you install it."
-  fi
-fi
-
-# Ensure PostGIS can read ./postgis/init on first volume create
+# --- Host dirs / perms (idempotent) ---
+mkdir -p data/kismet_logs/wardrivrr data/valhalla data/incoming
+chmod -R a+rwX data/kismet_logs 2>/dev/null || true
 chmod a+rx postgis postgis/init 2>/dev/null || true
 chmod a+r postgis/init/*.sql 2>/dev/null || true
+if [[ -d data/valhalla/active.osm.pbf ]]; then
+  echo "Removing bogus data/valhalla/active.osm.pbf directory…"
+  sudo rm -rf data/valhalla/active.osm.pbf 2>/dev/null || rm -rf data/valhalla/active.osm.pbf
+fi
+
+# --- gpsd (TCP for Status / API on host net) ---
+if [[ ! -f /etc/default/gpsd ]] || ! grep -q -- '-G' /etc/default/gpsd 2>/dev/null; then
+  GPS_DEV="/dev/ttyACM0"
+  [[ -e /dev/ttyUSB0 ]] && GPS_DEV="/dev/ttyUSB0"
+  [[ -e /dev/ttyACM0 ]] && GPS_DEV="/dev/ttyACM0"
+  echo "Configuring gpsd ($GPS_DEV, -G)…"
+  sudo tee /etc/default/gpsd >/dev/null <<EOF
+DEVICES="$GPS_DEV"
+GPSD_OPTIONS="-n -G"
+USBAUTO="true"
+START_DAEMON="true"
+EOF
+fi
+sudo systemctl disable --now gpsd.socket 2>/dev/null || true
+sudo systemctl enable gpsd 2>/dev/null || true
+sudo systemctl restart gpsd 2>/dev/null || sudo systemctl start gpsd 2>/dev/null || true
+echo "gpsd: $(systemctl is-active gpsd 2>/dev/null || echo unknown)"
+
+# --- Kismet site conf + package service ---
+if [[ -s deploy/kismet/kismet_site.conf ]]; then
+  sudo mkdir -p /etc/kismet
+  sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf
+elif [[ -s /etc/kismet/kismet_site.conf ]]; then
+  :
+else
+  echo "WARNING: no kismet_site.conf — RF UI may be empty until car_setup."
+fi
+if command -v kismet >/dev/null 2>&1; then
+  sudo systemctl disable --now wardrivrr-kismet 2>/dev/null || true
+  sudo systemctl enable kismet 2>/dev/null || true
+  sudo systemctl restart kismet 2>/dev/null || sudo systemctl start kismet 2>/dev/null || true
+  echo "kismet: $(systemctl is-active kismet 2>/dev/null || echo unknown)"
+else
+  echo "kismet: not installed (run car_setup later)"
+fi
 
 COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
 "${COMPOSE[@]}" config --quiet
-mkdir -p data
 
 PULLED=0
 if [[ "$FORCE_LOCAL_BUILD" != "1" ]]; then
   if docker pull "$WARDRIVRR_IMAGE"; then
-    echo "Using GHCR image (GitHub Actions build)."
+    echo "Using GHCR image."
     PULLED=1
   else
-    echo "GHCR pull failed — local build fallback."
+    echo "GHCR pull failed — local build."
   fi
 fi
-
 if [[ "$PULLED" != "1" ]]; then
   echo "Building API image locally…"
   "${COMPOSE[@]}" build api
 fi
 
-mkdir -p data/valhalla
-# Fix classic Docker trap: missing file bind → host directory named *.osm.pbf
-if [[ -d data/valhalla/active.osm.pbf ]]; then
-  echo "Removing bogus directory data/valhalla/active.osm.pbf (Docker empty-bind artifact)…"
-  rm -rf data/valhalla/active.osm.pbf
-fi
-
-# Core stack without Valhalla unless a real PBF clip is present
 SERVICES=(api postgis)
 if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
   SERVICES+=(valhalla)
 else
-  echo "Valhalla: skipped (no data/valhalla/active.osm.pbf yet — create a level / prepare first)."
+  echo "Valhalla: skipped (no active.osm.pbf — prepare a level when ready)."
   "${COMPOSE[@]}" stop valhalla >/dev/null 2>&1 || true
 fi
 
-"${COMPOSE[@]}" up -d "${SERVICES[@]}"
+"${COMPOSE[@]}" up -d --remove-orphans "${SERVICES[@]}"
+
+# Ensure stack + gpsd + kismet survive reboot
+if [[ -f deploy/wardrivrr-stack.service ]]; then
+  sudo cp -f deploy/wardrivrr-stack.service /etc/systemd/system/wardrivrr-stack.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable wardrivrr-stack docker gpsd kismet 2>/dev/null || true
+fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-echo "API: http://${IP:-127.0.0.1}:8000/"
+echo "API:    http://${IP:-127.0.0.1}:8000/"
+echo "Status: http://${IP:-127.0.0.1}:8000/status"
 echo "Kismet: http://${IP:-127.0.0.1}:2501/"
+
 if command -v curl >/dev/null 2>&1; then
   echo -n "Waiting for API health"
   HEALTHY=0
@@ -139,4 +149,4 @@ if command -v curl >/dev/null 2>&1; then
     exit 1
   fi
 fi
-echo "Tip: cgps -s  |  docker compose -f docker-compose.yml -f deploy/compose.car.yml ps"
+echo "Boot complete."

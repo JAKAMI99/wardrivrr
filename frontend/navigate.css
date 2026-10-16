@@ -244,6 +244,13 @@ html[data-theme="crt"] .nav-maneuver-dist {
   background: none;
 }
 
+/* display:flex above would otherwise ignore the HTML hidden attribute */
+.nav-toolbar[hidden],
+.nav-debug-toolbar[hidden],
+.nav-hint[hidden] {
+  display: none !important;
+}
+
 .nav-toolbar .btn,
 .nav-toolbar .nav-toggle,
 .nav-toolbar .nav-km {
