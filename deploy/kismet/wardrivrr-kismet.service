@@ -1,0 +1,16 @@
+[Unit]
+Description=wardrivrr host Kismet (RF capture)
+After=network.target gpsd.service
+Wants=gpsd.service
+
+[Service]
+Type=simple
+User=root
+# Site overrides live in /etc/kismet/kismet_site.conf (installed by car_setup.sh)
+ExecStart=/usr/bin/kismet --no-ncurses --daemonize=false
+Restart=on-failure
+RestartSec=5
+# Logs: log_prefix from kismet_site.conf (repo data/kismet_logs)
+
+[Install]
+WantedBy=multi-user.target

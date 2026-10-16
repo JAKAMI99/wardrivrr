@@ -32,7 +32,7 @@ docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env u
 | Service | Port | Notes |
 |---------|------|--------|
 | API + UI | **8000** | Prefer `ghcr.io/<owner>/wardrivrr` from GitHub Actions |
-| Kismet | **2501** | `network_mode: host`, privileged |
+| Kismet | **2501** | **host apt + systemd** (`wardrivrr-kismet`) — not Docker |
 | PostGIS | 5432 | internal + host publish |
 | Valhalla | 8002 | tiles from `data/valhalla/active.osm.pbf` |
 | **gpsd** | **2947** | **host systemd only** — not a container |
@@ -57,7 +57,8 @@ Optional later: CI images from [`.github/workflows/docker-publish.yml`](../.gith
 
 - **gpsd on host** — car_setup writes `/etc/default/gpsd` for the chosen tty. Heading = TPV `track` (held when parked).
 - **Snap-to-road (rail / GPS lag)** — Backend [`gps_snap.py`](../backend/gps_snap.py) projects fixes onto level `road_segments` within **`GPS_SNAP_THRESHOLD_M` (default 8 m, hard max 10; alias `SNAP_TO_ROAD_M`)**. The 10 m cap also applies to direct caller overrides. Heading bias (`GPS_SNAP_HEADING_PREF_DEG`, default 55°) prefers edges aligned with travel, and car levels reject non-car highway classes. **Snapped lat/lon are used for the Navigate vehicle icon and for fog/tile unlock** (`unlock_near_point` in gpsd poller + `POST /api/gps/fix`). Beyond threshold: hold the last good snap only while still nearby and for at most 6 seconds (`GPS_SNAP_HOLD_MAX_S`, hard max 8), then use **raw GPS**. Frontend route polish remains **8 m**. Disable: `GPS_SNAP_ENABLED=0`. Do **not** widen above 10 m.
-- **Kismet live** — API probes status/auth, reuses a session cookie when Kismet supplies one, and polls version-tolerant REST endpoints on `:2501` → `live_ingest`. REST and `.kismet` / `kis_db` fallback watermarks persist in `user_settings`; the in-memory dedup cache is bounded. Setup writes matching Kismet/API credentials.
+- **Kismet on host** — there is **no** working public `kismetwireless/kismet` Docker Hub image. `car_setup.sh` installs Kismet from [kismetwireless apt](https://www.kismetwireless.app/packages/) and enables `wardrivrr-kismet.service`. Compose does not pull a Kismet container by default (`profiles: [kismet-docker]` only). API talks to `host.docker.internal:2501`.
+- **Kismet live** — API polls REST on `:2501` → `live_ingest`. File `.kismet` / `kis_db` under `data/kismet_logs/` is fallback + post-drive import.
 - **Wrong iface** — internal `wlan0` vs Alfa ruins capture; setup prompt is mandatory; confirm devices in Kismet UI.
 - **Curl smoke** (after Kismet user exists):
 

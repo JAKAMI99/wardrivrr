@@ -50,6 +50,31 @@ else
   sudo systemctl start gpsd 2>/dev/null || sudo service gpsd start 2>/dev/null || true
 fi
 
+# Host Kismet (not a Docker service by default)
+mkdir -p data/kismet_logs
+if [[ -s /etc/kismet/kismet_site.conf ]] || [[ -s deploy/kismet/kismet_site.conf ]]; then
+  if [[ -f deploy/kismet/kismet_site.conf ]]; then
+    sudo mkdir -p /etc/kismet
+    sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf 2>/dev/null || true
+  fi
+  if systemctl list-unit-files wardrivrr-kismet.service >/dev/null 2>&1; then
+    if systemctl is-active --quiet wardrivrr-kismet; then
+      echo "kismet: wardrivrr-kismet running"
+    else
+      echo "kismet: starting wardrivrr-kismet…"
+      sudo systemctl start wardrivrr-kismet 2>/dev/null || true
+    fi
+  elif command -v kismet >/dev/null 2>&1; then
+    if pgrep -x kismet >/dev/null 2>&1; then
+      echo "kismet: process running"
+    else
+      echo "kismet: no systemd unit — start manually: kismet --no-ncurses &"
+    fi
+  else
+    echo "kismet: not installed (host apt). Stack continues without RF until you install it."
+  fi
+fi
+
 COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
 "${COMPOSE[@]}" config --quiet
 mkdir -p data
