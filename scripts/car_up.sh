@@ -46,12 +46,13 @@ echo "Image: $WARDRIVRR_IMAGE  arch=$(uname -m)  FORCE_LOCAL_BUILD=$FORCE_LOCAL_
 
 # --- Host dirs / perms (idempotent) ---
 mkdir -p data/kismet_logs/wardrivrr data/valhalla data/incoming
+sudo chown -R jakami:jakami data 2>/dev/null || true
 chmod -R a+rwX data/kismet_logs 2>/dev/null || true
 chmod a+rx postgis postgis/init 2>/dev/null || true
 chmod a+r postgis/init/*.sql 2>/dev/null || true
 if [[ -d data/valhalla/active.osm.pbf ]]; then
   echo "Removing bogus data/valhalla/active.osm.pbf directory…"
-  sudo rm -rf data/valhalla/active.osm.pbf 2>/dev/null || rm -rf data/valhalla/active.osm.pbf
+  sudo rm -rf data/valhalla/active.osm.pbf 2>/dev/null || rm -rf data/valhalla/active.osm.pbf || true
 fi
 
 # --- gpsd (TCP for Status / API on host net) ---

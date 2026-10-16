@@ -1,20 +1,21 @@
 [Unit]
 Description=wardrivrr Docker stack (api + postgis + optional valhalla)
 Requires=docker.service
-After=docker.service network-online.target gpsd.service
-Wants=network-online.target gpsd.service
+After=docker.service network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-User=jakami
-Group=docker
 WorkingDirectory=/home/jakami/wardrivrr
 Environment=FORCE_LOCAL_BUILD=1
-# car_up: gpsd + kismet + api/postgis (+valhalla if PBF exists)
+Environment=HOME=/home/jakami
+# Run as root so docker/gpsd/kismet sudo bits in car_up always work on the car box
 ExecStart=/bin/bash /home/jakami/wardrivrr/scripts/car_up.sh
 ExecStop=/usr/bin/docker compose -f /home/jakami/wardrivrr/docker-compose.yml -f /home/jakami/wardrivrr/deploy/compose.car.yml --env-file /home/jakami/wardrivrr/.env stop
-TimeoutStartSec=600
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
