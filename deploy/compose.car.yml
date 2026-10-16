@@ -1,0 +1,78 @@
+# Car mini-PC overlay — use with root compose:
+#   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
+#
+# Prefer GHCR image from GitHub Actions (trusted). Local build only if pull fails
+# or WARDRIVRR_IMAGE is unset / FORCE_LOCAL_BUILD=1.
+#
+# gpsd stays on the HOST (systemd). API reaches it via host-gateway.
+# Kismet uses network_mode: host so USB Wi-Fi/BT and host gpsd work.
+
+services:
+  postgis:
+    env_file:
+      - ./.env
+
+  valhalla:
+    env_file:
+      - ./.env
+
+  api:
+    # WARDRIVRR_IMAGE may be a tag or an immutable digest, for example:
+    # ghcr.io/owner/wardrivrr@sha256:...
+    image: ${WARDRIVRR_IMAGE:-ghcr.io/OWNER/wardrivrr:latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: wardrivrr_api
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: postgis
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-wardriving}
+      DB_USER: ${DB_USER:-explorer}
+      DB_PASS: ${DB_PASS:-secure_password_here}
+      VALHALLA_URL: http://valhalla:8002
+      GPSD_HOST: ${GPSD_HOST:-host.docker.internal}
+      GPSD_PORT: ${GPSD_PORT:-2947}
+      GPSD_ENABLED: ${GPSD_ENABLED:-1}
+      KISMET_URL: ${KISMET_URL:-http://host.docker.internal:2501}
+      KISMET_USER: ${KISMET_USER:-wardrivrr}
+      KISMET_PASSWORD: ${KISMET_PASSWORD:-changeme}
+      KISMET_LIVE: ${KISMET_LIVE:-1}
+      KISMET_LOG_DIR: /data/kismet_logs
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
+      WARDRIVRR_MODE: ${WARDRIVRR_MODE:-full}
+      DATA_ROOT: /app/data
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - kismet_logs:/data/kismet_logs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgis:
+        condition: service_healthy
+      valhalla:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 45s
+
+  kismet:
+    image: kismetwireless/kismet:latest
+    container_name: wardrivrr_kismet
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    volumes:
+      - ./deploy/kismet/kismet_site.conf:/etc/kismet/kismet_site.conf:ro
+      - kismet_logs:/home/kismet/logs
+
+volumes:
+  kismet_logs:

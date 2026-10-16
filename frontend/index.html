@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <title>wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/themes.css?v=5" />
+    <script src="/static/theme.js?v=7"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
+        <div class="site-links">
+          <a class="active" href="/">Home</a>
+          <a href="/database">Database</a>
+          <a href="/stats">Stats</a>
+          <a href="/levels">Levels</a>
+          <a href="/discover">Discover</a>
+          <a href="/navigate">Navigate</a>
+          <a href="/api">API</a>
+          <a href="/status">Status</a>
+          <a href="/settings">Settings</a>
+        </div>
+      </nav>
+
+      <main class="home-main">
+        <header class="home-hero">
+          <p class="home-kicker">Main feature</p>
+          <h1>Go collect signals<em>.</em></h1>
+          <p>
+            Drive, explore unread streets, and gather Wi‑Fi and Bluetooth as you go —
+            guided routes on a pitched map, one corridor at a time.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary btn-lg" href="/navigate">Start driving</a>
+            <a class="btn btn-ghost" href="/levels">Load a level</a>
+          </div>
+        </header>
+
+        <a class="drive-spotlight" href="/navigate">
+          <div class="drive-spotlight-copy">
+            <span class="module-kicker">Drive</span>
+            <h2>Drive &amp; explore</h2>
+            <p>Hit the road, clear new streets, and collect signals along the way.</p>
+          </div>
+          <span class="drive-spotlight-cta">Open Drive →</span>
+        </a>
+
+        <section class="service-strip" aria-label="Service status" id="serviceStrip">
+          <a class="service-chip" id="chipDb" href="/status"><span class="dot"></span>Database …</a>
+          <a class="service-chip" id="chipGps" href="/status"><span class="dot"></span>GPS …</a>
+          <a class="service-chip" id="chipKismet" href="/status"><span class="dot"></span>Kismet …</a>
+          <a class="service-chip" id="chipRouting" href="/status"><span class="dot"></span>Routing …</a>
+        </section>
+
+        <a class="xp-strip" id="xpStrip" href="/achievements" hidden>
+          <div class="xp-strip-meta">
+            <span class="xp-level" id="xpLevel">Level —</span>
+            <span class="xp-points" id="xpPoints">— XP</span>
+          </div>
+          <div class="xp-bar" aria-hidden="true">
+            <div class="xp-bar-fill" id="xpBarFill" style="width:0%"></div>
+          </div>
+          <span class="xp-next" id="xpNext">— to next</span>
+        </a>
+
+        <section class="stat-strip" aria-label="Radio totals">
+          <div class="stat">
+            <span class="label">Wi‑Fi</span>
+            <div class="value" id="statWifi">—</div>
+            <div class="hint">networks</div>
+          </div>
+          <div class="stat">
+            <span class="label">Bluetooth</span>
+            <div class="value" id="statBt">—</div>
+            <div class="hint">classic BT</div>
+          </div>
+          <div class="stat">
+            <span class="label">BLE</span>
+            <div class="value" id="statBle">—</div>
+            <div class="hint">low energy</div>
+          </div>
+          <div class="stat">
+            <span class="label">Samples</span>
+            <div class="value" id="statSamples">—</div>
+            <div class="hint" id="statSamplesHint">raw sightings</div>
+          </div>
+        </section>
+
+        <div class="section-head" id="modules">
+          <div>
+            <h2>Modules</h2>
+            <p>What you can open today — and what’s next.</p>
+          </div>
+        </div>
+
+        <section class="module-grid" aria-label="Modules">
+          <a class="module module-featured" href="/navigate">
+            <div class="module-top">
+              <span class="module-kicker">Drive</span>
+              <span class="badge live">Main</span>
+            </div>
+            <h3>Drive</h3>
+            <p>
+              Go out, explore, and collect signals — turn-by-turn into streets you haven’t covered yet.
+            </p>
+            <span class="module-foot">Open drive →</span>
+          </a>
+
+          <a class="module" href="/levels">
+            <div class="module-top">
+              <span class="module-kicker">Packs</span>
+              <span class="badge live">Live</span>
+            </div>
+            <h3>Levels</h3>
+            <p>City and district packs — generate, switch, and clip routing to where you play.</p>
+            <span class="module-foot">Open levels →</span>
+          </a>
+
+          <a class="module" href="/discover">
+            <div class="module-top">
+              <span class="module-kicker">Map</span>
+              <span class="badge live">Live</span>
+            </div>
+            <h3>Discover</h3>
+            <p>Locked vs driven road grid for your active level — overview, not turn-by-turn.</p>
+            <span class="module-foot">Open discover →</span>
+          </a>
+
+          <a class="module" href="/database">
+            <div class="module-top">
+              <span class="module-kicker">Signals</span>
+              <span class="badge live">Live</span>
+            </div>
+            <h3>Database</h3>
+            <p>Search Wi‑Fi, Bluetooth and BLE on the map — filters, time, encryption.</p>
+            <span class="module-foot">Open explorer →</span>
+          </a>
+
+          <a class="module" href="/achievements">
+            <div class="module-top">
+              <span class="module-kicker">Progress</span>
+              <span class="badge live">Live</span>
+            </div>
+            <h3>Achievements</h3>
+            <p>Night owl, mountain climber, memelord — badges for how you explore.</p>
+            <span class="module-foot">Open achievements →</span>
+          </a>
+        </section>
+
+        <div class="toast" id="toast" hidden></div>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=2"></script>
+    <script src="/static/home.js?v=2"></script>
+  </body>
+</html>

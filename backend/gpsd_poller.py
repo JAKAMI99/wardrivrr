@@ -1,0 +1,270 @@
+"""
+Background gpsd client → gps_state.set_fix(source=gpsd).
+
+Runs on the API process. gpsd itself stays on the host; use
+GPSD_HOST=host.docker.internal (Linux host-gateway) or 127.0.0.1 when
+the API is on the host.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import threading
+import time
+from typing import Any
+
+_poller_started = False
+_lock = threading.Lock()
+_last_heading: float | None = None
+_heading_moving = False
+_session_started_at: dict[int, str] = {}
+_navigation_active_users: set[int] = set()
+_last_unlock_at: dict[int, float] = {}
+
+
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _target_user_ids() -> list[int]:
+    global _navigation_active_users
+    pinned = os.getenv("GPSD_USER_ID", "").strip()
+    if pinned.isdigit():
+        return [int(pinned)]
+    try:
+        from db import connect_dict
+
+        conn = connect_dict()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT user_id
+                    FROM user_settings
+                    WHERE key = 'navigation_active' AND lower(value) = 'true'
+                    """
+                )
+                rows = cur.fetchall() or []
+                ids = [int(r["user_id"]) for r in rows if r.get("user_id") is not None]
+                active = set(ids)
+                for user_id in active - _navigation_active_users:
+                    _session_started_at.pop(user_id, None)
+                    try:
+                        from gps_snap import clear_last_good
+
+                        clear_last_good(user_id)
+                    except Exception:
+                        pass
+                _navigation_active_users = active
+                if ids:
+                    return ids
+                # Car default: bootstrap admin / first user
+                cur.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1")
+                row = cur.fetchone()
+                if row and row.get("id") is not None:
+                    return [int(row["id"])]
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return [1]
+
+
+def _parse_tpv(msg: dict[str, Any]) -> dict[str, Any] | None:
+    global _heading_moving, _last_heading
+    mode = int(msg.get("mode") or 0)
+    if mode < 2:
+        return None
+    lat = msg.get("lat")
+    lon = msg.get("lon")
+    if lat is None or lon is None:
+        return None
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return None
+
+    speed = msg.get("speed")
+    try:
+        speed_mps = float(speed) if speed is not None else None
+    except (TypeError, ValueError):
+        speed_mps = None
+
+    track = msg.get("track")
+    heading = None
+    try:
+        if track is not None:
+            heading = float(track)
+    except (TypeError, ValueError):
+        heading = None
+
+    # gpsd track is junk when parked. Separate start/stop thresholds prevent
+    # speed noise around 0.4 m/s from repeatedly accepting random headings.
+    if speed_mps is not None:
+        if _heading_moving and speed_mps <= 0.3:
+            _heading_moving = False
+        elif not _heading_moving and speed_mps >= 0.6:
+            _heading_moving = True
+    if heading is not None and _heading_moving:
+        _last_heading = heading
+    elif _last_heading is not None:
+        heading = _last_heading
+    else:
+        heading = None
+
+    return {
+        "lat": lat_f,
+        "lon": lon_f,
+        "heading_deg": heading,
+        "speed_mps": speed_mps,
+        "accuracy_m": 12.0,
+        "mode": mode,
+    }
+
+
+def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
+    from gps_snap import resolve_level_id, snap_to_road
+    from gps_state import get_fix, set_fix
+
+    if user_id not in _session_started_at:
+        from datetime import datetime, timezone
+
+        _session_started_at[user_id] = datetime.now(timezone.utc).isoformat()
+
+    prev = get_fix(user_id)
+    # Keep an active WASD debug session stable unless GPSD_USER_ID explicitly
+    # pins this user to the hardware receiver.
+    if (
+        not os.getenv("GPSD_USER_ID", "").strip()
+        and prev
+        and prev.get("source") == "sim"
+        and time.time() - float(prev.get("updated_at") or 0) < 5.0
+    ):
+        return
+
+    level_id = resolve_level_id(user_id)
+    snap = snap_to_road(
+        fix["lon"],
+        fix["lat"],
+        level_id,
+        user_id=user_id,
+        heading_deg=fix.get("heading_deg"),
+    )
+    use_lat = snap["lat"]
+    use_lon = snap["lon"]
+
+    set_fix(
+        user_id,
+        lat=use_lat,
+        lon=use_lon,
+        heading_deg=fix["heading_deg"],
+        speed_mps=fix["speed_mps"],
+        accuracy_m=fix["accuracy_m"],
+        source="gpsd",
+        level_id=level_id,
+        session_started_at=_session_started_at[user_id],
+        raw_lat=fix["lat"],
+        raw_lon=fix["lon"],
+        snap=snap,
+    )
+    try:
+        from achievements import record_drive_step
+
+        record_drive_step(
+            user_id,
+            lat=use_lat,
+            lon=use_lon,
+            prev_lat=prev.get("lat") if prev else None,
+            prev_lon=prev.get("lon") if prev else None,
+            prev_ts=prev.get("updated_at") if prev else None,
+            now_ts=time.time(),
+        )
+    except Exception:
+        pass
+    unlock_interval = max(1.0, float(os.getenv("GPSD_UNLOCK_INTERVAL", "2.5")))
+    now_mono = time.monotonic()
+    if now_mono - _last_unlock_at.get(user_id, 0.0) >= unlock_interval:
+        try:
+            from levels import unlock_near_point
+
+            if level_id is not None:
+                unlock_near_point(
+                    int(level_id),
+                    use_lon,
+                    use_lat,
+                    accuracy_m=fix.get("accuracy_m") or 12.0,
+                    heading_deg=fix.get("heading_deg"),
+                )
+                _last_unlock_at[user_id] = now_mono
+        except Exception:
+            pass
+
+
+def _read_loop(host: str, port: int, interval: float) -> None:
+    last_applied = 0.0
+    while True:
+        try:
+            with socket.create_connection((host, port), timeout=2.0) as sock:
+                sock.settimeout(2.0)
+                sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
+                buf = b""
+                while True:
+                    chunk = sock.recv(8192)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            msg = json.loads(line.decode("utf-8", errors="replace"))
+                        except json.JSONDecodeError:
+                            continue
+                        if msg.get("class") != "TPV":
+                            continue
+                        fix = _parse_tpv(msg)
+                        if not fix:
+                            continue
+                        now_mono = time.monotonic()
+                        if now_mono - last_applied < interval:
+                            continue
+                        last_applied = now_mono
+                        for uid in _target_user_ids():
+                            try:
+                                _apply_fix(uid, fix)
+                            except Exception:
+                                pass
+        except OSError:
+            time.sleep(3.0)
+        except Exception:
+            time.sleep(2.0)
+
+
+def start_gpsd_poller() -> None:
+    """Idempotent: spawn daemon thread if GPSD_ENABLED."""
+    global _poller_started
+    if not _env_bool("GPSD_ENABLED", True):
+        return
+    with _lock:
+        if _poller_started:
+            return
+        _poller_started = True
+    host = os.getenv("GPSD_HOST", "127.0.0.1")
+    port = int(os.getenv("GPSD_PORT", "2947"))
+    interval = float(os.getenv("GPSD_POLL_INTERVAL", "1.0"))
+    t = threading.Thread(
+        target=_read_loop,
+        args=(host, port, interval),
+        name="gpsd-poller",
+        daemon=True,
+    )
+    t.start()
+    print(f"[gpsd] poller started → {host}:{port}")

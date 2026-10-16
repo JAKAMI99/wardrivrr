@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <title>Login · wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/themes.css?v=5" />
+    <script src="/static/theme.js?v=7"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
+      </nav>
+      <main class="home-main settings-main">
+        <header class="home-hero settings-hero">
+          <h1>Sign in</h1>
+          <p>Invite-only home server.</p>
+        </header>
+        <section class="tools-panel settings-form-panel">
+          <form id="loginForm" class="settings-form">
+            <label>
+              Username
+              <input name="username" id="username" autocomplete="username" required />
+            </label>
+            <label>
+              Password
+              <input type="password" name="password" id="password" autocomplete="current-password" required />
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="keep_logged_in" id="keepLoggedIn" />
+              Keep me logged in (up to 30 days)
+            </label>
+            <div class="tools-row">
+              <button class="btn btn-primary" type="submit">Sign in</button>
+            </div>
+          </form>
+          <div class="toast" id="toast" hidden></div>
+        </section>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=2"></script>
+    <script>
+      const toast = document.getElementById("toast");
+      function showToast(msg, isError = false) {
+        toast.hidden = false;
+        toast.textContent = msg;
+        toast.classList.toggle("error", isError);
+      }
+      (async () => {
+        try {
+          const res = await fetch("/api/auth/me", { credentials: "same-origin" });
+          if (res.ok) {
+            const next = new URLSearchParams(location.search).get("next") || "/";
+            location.href = next;
+          }
+        } catch (_) {}
+      })();
+      document.getElementById("loginForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
+        const keep_logged_in = document.getElementById("keepLoggedIn").checked;
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password, keep_logged_in }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(body.detail || "Login failed", true);
+          return;
+        }
+        WardAuth.setToken(body.access_token, !!body.keep_logged_in);
+        const next = new URLSearchParams(location.search).get("next") || "/";
+        location.href = next;
+      });
+    </script>
+  </body>
+</html>

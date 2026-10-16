@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <title>Settings · wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css?v=8" />
+    <link rel="stylesheet" href="/static/themes.css?v=5" />
+    <script src="/static/theme.js?v=7"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
+        <div class="site-links"></div>
+      </nav>
+
+      <main class="home-main settings-main">
+        <header class="home-hero settings-hero">
+          <h1>Settings</h1>
+          <p>
+            Account, localization, and data. Theme is the palette icon next to your profile.
+            Live health lives on <a href="/status">Status</a>.
+          </p>
+          <p class="muted" id="whoami"></p>
+        </header>
+
+        <div class="settings-layout">
+          <nav class="settings-subnav" aria-label="Settings sections">
+            <button type="button" class="settings-nav-btn is-active" data-section="account">
+              Account
+            </button>
+            <button type="button" class="settings-nav-btn" data-section="preferences">
+              Preferences
+            </button>
+            <button type="button" class="settings-nav-btn" data-section="data">
+              Data
+            </button>
+            <button type="button" class="settings-nav-btn" data-section="advanced">
+              Advanced
+            </button>
+            <button type="button" class="settings-nav-btn" data-section="admin" id="adminNavBtn" hidden>
+              Admin
+            </button>
+          </nav>
+
+          <div class="settings-panels">
+            <section
+              class="tools-panel settings-form-panel settings-panel is-active"
+              id="panel-account"
+              data-section="account"
+              aria-label="Account"
+            >
+              <h2>Account</h2>
+              <p class="muted">Change how you sign in — display name and password.</p>
+
+              <div class="xp-strip settings-xp" id="settingsXp" hidden>
+                <div class="xp-strip-meta">
+                  <span class="xp-level" id="settingsXpLevel">Level —</span>
+                  <span class="xp-points" id="settingsXpPoints">— XP</span>
+                </div>
+                <div class="xp-bar" aria-hidden="true">
+                  <div class="xp-bar-fill" id="settingsXpFill" style="width:0%"></div>
+                </div>
+                <p class="muted settings-hint" id="settingsXpBlurb">Explorer progress from achievements.</p>
+              </div>
+
+              <form id="usernameForm" class="settings-form">
+                <label>
+                  Username
+                  <input
+                    type="text"
+                    id="accountUsername"
+                    name="username"
+                    autocomplete="username"
+                    minlength="2"
+                    maxlength="64"
+                    pattern="[A-Za-z0-9_.\-]+"
+                    required
+                  />
+                </label>
+                <p class="muted settings-hint">Letters, numbers, <code>_</code> <code>.</code> <code>-</code> — no spaces.</p>
+                <div class="tools-row">
+                  <button class="btn btn-primary" type="submit">Save username</button>
+                </div>
+              </form>
+
+              <hr class="settings-divider" />
+
+              <form id="passwordForm" class="settings-form">
+                <h3 class="settings-subhead">Password</h3>
+                <label>
+                  Current password
+                  <input
+                    type="password"
+                    id="currentPassword"
+                    autocomplete="current-password"
+                    required
+                  />
+                </label>
+                <label>
+                  New password
+                  <input
+                    type="password"
+                    id="newPassword"
+                    autocomplete="new-password"
+                    minlength="4"
+                    required
+                  />
+                </label>
+                <label>
+                  Confirm new password
+                  <input
+                    type="password"
+                    id="confirmPassword"
+                    autocomplete="new-password"
+                    minlength="4"
+                    required
+                  />
+                </label>
+                <div class="tools-row">
+                  <button class="btn btn-primary" type="submit">Change password</button>
+                </div>
+              </form>
+
+              <hr class="settings-divider" />
+
+              <h3 class="settings-subhead">API keys</h3>
+              <p class="muted">For edge / second instance uploads: <code>X-API-Key: wr_…</code> → <code>POST /api/v1/ingest/upload</code></p>
+              <div class="tools-row">
+                <input id="keyName" placeholder="key name" value="default" />
+                <button class="btn" type="button" id="createKey">Create key</button>
+              </div>
+              <pre id="newKey" class="code-block" hidden></pre>
+              <div id="keysList" class="keys-list"></div>
+            </section>
+
+            <section
+              class="tools-panel settings-form-panel settings-panel"
+              id="panel-preferences"
+              data-section="preferences"
+              aria-label="Preferences"
+              hidden
+            >
+              <h2>Preferences</h2>
+              <form id="settingsForm" class="settings-form">
+                <label>
+                  Default localization mode
+                  <select name="default_localization_mode" id="localizationMode">
+                    <option value="2d">2D (fast, default)</option>
+                    <option value="3d">3D (prefer height in estimates)</option>
+                  </select>
+                </label>
+                <label>
+                  Default precision
+                  <select id="precision">
+                    <option value="fast">Fast</option>
+                    <option value="balanced" selected>Balanced</option>
+                    <option value="precise">Precise</option>
+                  </select>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="nightly" />
+                  Run full calculation nightly
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="anomalyAlerts" checked />
+                  Special detections
+                  <span class="muted"> — Flipper, Starlink, trains… toasts &amp; Starlink XP</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="achievementSounds" checked />
+                  Achievement &amp; detection sounds
+                  <span class="muted"> — short Web Audio cues (mute anytime)</span>
+                </label>
+                <label>
+                  Units
+                  <select id="units">
+                    <option value="metric" selected>Metric (km, m)</option>
+                    <option value="imperial">Imperial (mi, ft)</option>
+                  </select>
+                </label>
+                <div class="tools-row">
+                  <button class="btn btn-primary" type="submit">Save preferences</button>
+                  <button class="btn" type="button" id="recomputeNow">Run full calculation now</button>
+                </div>
+              </form>
+            </section>
+
+            <section
+              class="tools-panel settings-form-panel settings-panel"
+              id="panel-data"
+              data-section="data"
+              aria-label="Data"
+              hidden
+            >
+              <h2>Import capture file</h2>
+              <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV — same pipeline as the ingest API.</p>
+              <input type="file" id="uploadFile" accept=".kismet,.csv,.wiglecsv,.db" />
+              <div class="tools-row">
+                <button class="btn btn-primary btn-busyable" type="button" id="uploadBtn">
+                  <span class="btn-label">Upload &amp; ingest</span>
+                  <span class="btn-spinner" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="job-progress" id="uploadProgress" hidden>
+                <div class="job-progress-bar" id="uploadProgressBar"></div>
+                <span class="job-progress-text" id="uploadProgressText">Uploading…</span>
+              </div>
+
+              <hr class="settings-divider" />
+
+              <h2>Export / import</h2>
+              <label>
+                Export kind
+                <select id="exportKind">
+                  <option value="user_calculated">User + calculated (default)</option>
+                  <option value="full">Full backup</option>
+                  <option value="calculated_only">Calculated only</option>
+                  <option value="raw_only">Raw only</option>
+                </select>
+              </label>
+              <div class="tools-row">
+                <button class="btn btn-busyable" type="button" id="exportBtn">
+                  <span class="btn-label">Download export</span>
+                  <span class="btn-spinner" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="job-progress" id="exportProgress" hidden>
+                <div class="job-progress-bar" id="exportProgressBar"></div>
+                <span class="job-progress-text" id="exportProgressText">Preparing…</span>
+              </div>
+              <label>
+                Import mode
+                <select id="importMode">
+                  <option value="merge">Merge</option>
+                  <option value="replace">Replace (destructive)</option>
+                </select>
+              </label>
+              <input type="file" id="importFile" accept=".zip" />
+              <div class="tools-row">
+                <button class="btn btn-busyable" type="button" id="importBtn">
+                  <span class="btn-label">Import backup</span>
+                  <span class="btn-spinner" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="job-progress" id="importProgress" hidden>
+                <div class="job-progress-bar" id="importProgressBar"></div>
+                <span class="job-progress-text" id="importProgressText">Working…</span>
+              </div>
+            </section>
+
+            <section
+              class="tools-panel settings-form-panel settings-panel"
+              id="panel-advanced"
+              data-section="advanced"
+              aria-label="Advanced tools"
+              hidden
+            >
+              <h2>Advanced</h2>
+              <p>
+                Ingest always uses fast 2D localization. Start a full 3D recalculation only when you can
+                wait — altitude stays stored either way.
+              </p>
+              <div class="tools-row">
+                <span class="mode-pill" id="locMode">2d</span>
+                <span class="mode-pill" id="deployMode">full</span>
+                <button class="btn" type="button" id="recompute3d">Recalculate locations in 3D</button>
+              </div>
+            </section>
+
+            <section
+              class="tools-panel settings-form-panel settings-panel"
+              id="panel-admin"
+              data-section="admin"
+              aria-label="Admin"
+              hidden
+            >
+              <h2>Admin · invite user</h2>
+              <form id="inviteForm" class="settings-form">
+                <label>Username <input id="inviteUser" required /></label>
+                <label>Password <input type="password" id="invitePass" required /></label>
+                <label class="checkbox-row"><input type="checkbox" id="inviteAdmin" /> Admin</label>
+                <button class="btn btn-primary" type="submit">Create user</button>
+              </form>
+            </section>
+          </div>
+        </div>
+
+        <div class="toast" id="toast" hidden></div>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=2"></script>
+    <script src="/static/settings.js?v=7"></script>
+  </body>
+</html>

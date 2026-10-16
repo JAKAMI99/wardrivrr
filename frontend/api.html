@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <title>API · wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/themes.css?v=5" />
+    <script src="/static/theme.js?v=7"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
+        <div class="site-links">
+          <a href="/">Home</a>
+          <a href="/database">Database</a>
+          <a href="/stats">Stats</a>
+          <a href="/levels">Levels</a>
+          <a href="/discover">Discover</a>
+          <a href="/navigate">Navigate</a>
+          <a class="active" href="/api">API</a>
+          <a href="/status">Status</a>
+          <a href="/settings">Settings</a>
+        </div>
+      </nav>
+
+      <main class="home-main settings-main api-main">
+        <header class="home-hero settings-hero">
+          <h1>Triangulated DB API</h1>
+          <p>
+            Search MAC, SSID, place or ZIP — same endpoints for curl and this page.
+            Interactive OpenAPI: <a href="/api/docs" target="_blank" rel="noopener">/api/docs</a>
+          </p>
+        </header>
+
+        <section class="tools-panel settings-form-panel" aria-label="Auth">
+          <h2>Auth</h2>
+          <p class="muted">
+            Uses your session, or paste an API key from
+            <a href="/settings">Settings</a> for curl examples.
+          </p>
+          <label>
+            API key (optional for curl snippet)
+            <input id="apiKeyInput" placeholder="wr_…" autocomplete="off" />
+          </label>
+        </section>
+
+        <section class="tools-panel settings-form-panel" aria-label="Search">
+          <h2>Search</h2>
+          <form id="searchForm" class="settings-form api-search-form">
+            <div class="api-grid">
+              <label>
+                SSID / name
+                <input id="ssid" placeholder="e.g. GuestWiFi" />
+              </label>
+              <label>
+                MAC / BSSID
+                <input id="mac" placeholder="AA:BB:CC or full" />
+              </label>
+              <label>
+                Place
+                <input id="place" placeholder="Berlin" />
+              </label>
+              <label>
+                ZIP / postal code
+                <input id="postalcode" placeholder="10115" />
+              </label>
+              <label>
+                Country
+                <input id="country" value="de" maxlength="2" />
+              </label>
+              <label>
+                Type
+                <select id="type">
+                  <option value="">Any</option>
+                  <option value="WIFI">WIFI</option>
+                  <option value="BT">BT</option>
+                  <option value="BLE">BLE</option>
+                </select>
+              </label>
+              <label>
+                Near (lat,lon)
+                <input id="near" placeholder="52.520,13.405" />
+              </label>
+              <label>
+                Radius (m)
+                <input id="radius" type="number" value="500" min="1" max="50000" />
+              </label>
+              <label>
+                Limit
+                <input id="limit" type="number" value="50" min="1" max="1000" />
+              </label>
+            </div>
+            <label class="checkbox-row">
+              <input type="checkbox" id="reverse" />
+              Reverse-geocode each result (slower)
+            </label>
+            <div class="tools-row">
+              <button class="btn btn-primary" type="submit">Search</button>
+              <button class="btn" type="button" id="copyCurl">Copy curl</button>
+              <a class="btn" href="/api/docs" target="_blank" rel="noopener" id="openSwagger" title="Opens Swagger already authorized with your login">Open Swagger</a>
+            </div>
+          </form>
+          <pre class="code-block" id="curlBox"></pre>
+          <div class="toast" id="toast" hidden></div>
+        </section>
+
+        <section class="tools-panel" aria-label="Results">
+          <h2>Results <span class="muted" id="resultMeta"></span></h2>
+          <div id="geocodeHint" class="muted"></div>
+          <div class="api-table-wrap">
+            <table class="api-table" id="resultTable">
+              <thead>
+                <tr>
+                  <th>SSID</th>
+                  <th>MAC</th>
+                  <th>Type</th>
+                  <th>±m</th>
+                  <th>Address</th>
+                  <th>Samples</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="tools-row">
+            <button class="btn" type="button" id="nextPage" hidden>Next page</button>
+          </div>
+          <pre class="code-block" id="rawJson" hidden></pre>
+        </section>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=2"></script>
+    <script src="/static/api.js"></script>
+  </body>
+</html>

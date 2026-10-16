@@ -1,0 +1,25 @@
+# Prefer the compose file at the repo root.
+# This file stays for `cd postgis && docker compose up -d`.
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: wardrivrr_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wardriving
+      POSTGRES_USER: explorer
+      POSTGRES_PASSWORD: secure_password_here
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    command: postgres -c shared_buffers=512MB -c work_mem=64MB -c maintenance_work_mem=256MB -c effective_cache_size=2GB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U explorer -d wardriving"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+
+volumes:
+  pgdata:

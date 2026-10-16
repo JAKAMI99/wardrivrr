@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <title>Levels · wardrivrr</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="/static/styles.css?v=5" />
+    <link rel="stylesheet" href="/static/themes.css?v=5" />
+    <script src="/static/theme.js?v=7"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
+        <div class="site-links">
+          <a href="/">Home</a>
+          <a href="/database">Database</a>
+          <a href="/stats">Stats</a>
+          <a href="/api">API</a>
+          <a class="active" href="/levels">Levels</a>
+          <a href="/discover">Discover</a>
+          <a href="/navigate">Navigate</a>
+          <a href="/status">Status</a>
+          <a href="/settings">Settings</a>
+        </div>
+      </nav>
+
+      <main class="home-main settings-main">
+        <header class="home-hero settings-hero">
+          <h1>Levels</h1>
+          <p>Pick a place you want to explore — we handle the map data for you.</p>
+        </header>
+
+        <section class="tools-panel wizard-panel" aria-label="Create level wizard">
+          <div class="wizard-steps" id="wizardSteps" aria-hidden="true">
+            <span data-step="1" class="active">Place</span>
+            <span data-step="2">Area</span>
+            <span data-step="3">Setup</span>
+            <span data-step="4">Confirm</span>
+            <span data-step="5">Build</span>
+          </div>
+
+          <!-- Step 1: Search -->
+          <div class="wizard-pane" id="step1">
+            <h2>Where do you want to play?</h2>
+            <p class="muted">Cities and towns only — e.g. <em>Berlin, Germany</em> (not streets or neighbourhoods)</p>
+            <form id="searchForm" class="settings-form">
+              <label>
+                Place
+                <input id="placeQuery" placeholder="Berlin, Germany" autocomplete="off" required />
+              </label>
+              <div class="tools-row">
+                <button class="btn btn-primary" type="submit" id="searchBtn">Search</button>
+              </div>
+            </form>
+            <div id="placeResults" class="levels-search-results"></div>
+          </div>
+
+          <!-- Step 2: Download outlines + choose city / district -->
+          <div class="wizard-pane" id="step2" hidden>
+            <h2 id="previewTitle">Choose your area</h2>
+            <p class="muted" id="previewSub">Preparing map data…</p>
+            <div class="level-preview-wrap" id="previewWrap">
+              <div id="previewMap" class="level-preview-map is-loading" role="img" aria-label="Area preview"></div>
+              <div class="level-preview-overlay" id="previewOverlay" hidden>
+                <p id="prepareStatus">Downloading regional map data…</p>
+                <div class="level-progress">
+                  <div class="level-progress-track">
+                    <div class="level-progress-fill" id="prepareFill"></div>
+                  </div>
+                  <div class="level-progress-meta">
+                    <span id="preparePct">0%</span>
+                    <span id="prepareEta">—</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="areaChoices" class="area-choices" hidden></div>
+            <div class="tools-row wizard-nav">
+              <button class="btn" type="button" data-back="1">Back</button>
+              <button class="btn btn-primary" type="button" id="areaNextBtn" data-next="3" disabled>
+                Next
+              </button>
+            </div>
+          </div>
+
+          <!-- Step 3: Profile -->
+          <div class="wizard-pane" id="step3" hidden>
+            <h2>How will you explore?</h2>
+            <p class="muted">This sets which roads are included.</p>
+            <form class="settings-form" id="setupForm">
+              <p class="level-name-fixed">
+                Level name
+                <strong id="levelNameDisplay">—</strong>
+              </p>
+              <input type="hidden" id="levelName" />
+              <fieldset class="profile-picks">
+                <legend>Mode</legend>
+                <label class="profile-card">
+                  <input type="radio" name="profile" value="foot" />
+                  <span class="profile-icon profile-icon-foot" data-kidcore-skip aria-hidden="true">
+                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                        d="M8.2 21c.4-2.2 1.1-3.6 2.2-4.4 1.4-1 3.1-.6 4.2.2 1 .7 1.6 1.8 1.9 3.2"/>
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                        d="M7.5 14.5c-.2-1.8.3-3.4 1.4-4.3 1.2-1 2.9-1.1 4.2-.2 1.1.7 1.8 2 2 3.5"/>
+                      <circle class="profile-svg-dot" cx="10.2" cy="7.2" r="1.15" fill="currentColor"/>
+                      <circle class="profile-svg-dot" cx="13.6" cy="6.4" r="1" fill="currentColor"/>
+                      <circle class="profile-svg-dot" cx="16.2" cy="8.1" r=".85" fill="currentColor"/>
+                      <circle class="profile-svg-dot" cx="8.4" cy="9.6" r=".9" fill="currentColor"/>
+                    </svg>
+                  </span>
+                  <span class="profile-label">On foot</span>
+                </label>
+                <label class="profile-card">
+                  <input type="radio" name="profile" value="bicycle" />
+                  <span class="profile-icon profile-icon-bicycle" data-kidcore-skip aria-hidden="true">
+                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
+                      <circle class="profile-svg-body" cx="6.2" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <circle class="profile-svg-body" cx="17.8" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                        d="M6.2 16.2 10.5 9.2h3.2l2.6 7M10.5 9.2 12.8 16.2M13.7 9.2h3.4M14.2 6.4h2.6"/>
+                    </svg>
+                  </span>
+                  <span class="profile-label">Bicycle</span>
+                </label>
+                <label class="profile-card">
+                  <input type="radio" name="profile" value="car" checked />
+                  <span class="profile-icon profile-icon-car" data-kidcore-skip aria-hidden="true">
+                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                        d="M4.2 14.5h15.6M6 14.5l1.4-4.2c.3-.9 1.1-1.5 2-1.5h5.2c.9 0 1.7.6 2 1.5l1.4 4.2"/>
+                      <circle class="profile-svg-body" cx="7.4" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <circle class="profile-svg-body" cx="16.6" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                        d="M9.2 9h5.6"/>
+                    </svg>
+                  </span>
+                  <span class="profile-label">Car</span>
+                </label>
+              </fieldset>
+            </form>
+            <div class="tools-row wizard-nav">
+              <button class="btn" type="button" data-back="2">Back</button>
+              <button class="btn btn-primary" type="button" data-next="4">Next</button>
+            </div>
+          </div>
+
+          <!-- Step 4: Confirm download -->
+          <div class="wizard-pane" id="step4" hidden>
+            <h2>Ready to generate</h2>
+            <div class="confirm-card" id="confirmCard">
+              <p id="confirmPlace"></p>
+              <p class="confirm-size" id="confirmSize"></p>
+              <p class="muted" id="confirmHint">
+                The regional map pack is kept on disk and reused. Roads are clipped to the boundary you
+                picked above.
+              </p>
+              <details class="confirm-details">
+                <summary>Technical details</summary>
+                <p id="confirmTech" class="muted"></p>
+              </details>
+            </div>
+            <div class="tools-row wizard-nav">
+              <button class="btn" type="button" data-back="3">Back</button>
+              <button class="btn btn-primary" type="button" id="generateBtn">Generate level</button>
+            </div>
+          </div>
+
+          <!-- Step 5: Progress -->
+          <div class="wizard-pane" id="step5" hidden>
+            <h2 id="progressTitle">Building your level…</h2>
+            <p class="muted" id="progressMessage">Starting…</p>
+            <div class="level-progress">
+              <div class="level-progress-track">
+                <div class="level-progress-fill" id="progressFill"></div>
+              </div>
+              <div class="level-progress-meta">
+                <span id="progressPct">0%</span>
+                <span id="progressEta">—</span>
+              </div>
+            </div>
+            <ul class="level-stage-list" id="stageList">
+              <li data-stage="extract">Find roads</li>
+              <li data-stage="roads">Build playable segments</li>
+              <li data-stage="finish">Finish up</li>
+            </ul>
+          </div>
+
+          <!-- Done -->
+          <div class="wizard-pane wizard-done" id="stepDone" hidden>
+            <div class="done-burst" aria-hidden="true"></div>
+            <h2>You’re set</h2>
+            <p id="doneText" class="muted">Level ready to explore.</p>
+            <div class="tools-row">
+              <button class="btn btn-primary" type="button" id="doneLoad">Load level</button>
+              <button class="btn" type="button" id="doneAnother">Create another</button>
+            </div>
+          </div>
+
+          <div class="toast" id="toast" hidden></div>
+        </section>
+
+        <section class="tools-panel" aria-label="Your levels">
+          <h2>Your levels</h2>
+          <div id="levelsList" class="levels-list">Loading…</div>
+        </section>
+      </main>
+    </div>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=2"></script>
+    <script src="/static/levels.js?v=4"></script>
+  </body>
+</html>

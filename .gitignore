@@ -1,0 +1,56 @@
+# Secrets / local env
+.env
+deploy/.env
+deploy/kismet/kismet_site.conf
+
+# Python
+venv/
+.venv/
+backend/venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Docker / local DB volume bind leftovers
+pgdata/
+
+# Capture / OSM blobs
+*.osm.pbf
+*.kismet
+*.kis_db
+
+# Local backups (keep off git)
+backups/
+
+# Drive sim caches
+tools/drive_sim/track_cache*.json
+
+# Runtime data (placeholders may be force-added)
+data/incoming/*
+!data/incoming/.gitkeep
+data/users/
+data/valhalla/active.json
+data/valhalla/active.osm.pbf
+data/valhalla/tiles/
+data/cities/*.sqlite
+data/cities/*.sqlite.building
+data/cities/SOURCE.txt
+data/cities/boundaries/
+data/cities/geofabrik_shp/
+data/pbf/
+data/geocode/*.sqlite
+data/geocode/*.sqlite.building
+data/geocode/address_packs.json
+data/geocode_reverse_cache.json
+data/geofabrik-index-v1.json
+
+# Node / editor junk
+node_modules/
+dist/
+.offline-markdown-preview/
+.DS_Store
+Thumbs.db
+*.swp
+*~

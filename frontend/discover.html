@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <title>Discover · wardrivrr</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/themes.css?v=5" />
+    <script src="/static/theme.js?v=7"></script>
+  </head>
+  <body class="discover-body">
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell discover-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
+        <div class="site-links">
+          <a href="/">Home</a>
+          <a href="/database">Database</a>
+          <a href="/stats">Stats</a>
+          <a href="/levels">Levels</a>
+          <a class="active" href="/discover">Discover</a>
+          <a href="/navigate">Navigate</a>
+          <a href="/api">API</a>
+          <a href="/status">Status</a>
+          <a href="/settings">Settings</a>
+        </div>
+      </nav>
+
+      <main class="discover-main">
+        <header class="discover-bar">
+          <div>
+            <h1 id="discoverTitle">Discover</h1>
+            <p class="muted" id="discoverSub">Road grid — locked vs driven (not turn-by-turn)</p>
+          </div>
+          <div class="discover-legend" aria-label="Legend">
+            <span class="legend-item"><i class="swatch locked"></i> Locked</span>
+            <span class="legend-item"><i class="swatch explored"></i> Explored</span>
+          </div>
+          <a class="btn" href="/levels">Back to levels</a>
+        </header>
+        <div id="discoverMap" class="discover-map" role="img" aria-label="Level road map"></div>
+        <p class="muted discover-status" id="discoverStatus">Loading…</p>
+      </main>
+    </div>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=2"></script>
+    <script src="/static/discover.js"></script>
+  </body>
+</html>

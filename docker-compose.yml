@@ -1,0 +1,48 @@
+# Base stack: PostGIS + Valhalla.
+# Car mini-PC (API + Kismet + GHCR image): also use deploy/compose.car.yml
+#   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
+# Prefer GHCR: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest (see scripts/car_up.sh)
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: wardrivrr_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-wardriving}
+      POSTGRES_USER: ${DB_USER:-explorer}
+      POSTGRES_PASSWORD: ${DB_PASS:-secure_password_here}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgis/init:/docker-entrypoint-initdb.d
+    command: postgres -c shared_buffers=512MB -c work_mem=64MB -c maintenance_work_mem=256MB -c effective_cache_size=2GB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-explorer} -d ${DB_NAME:-wardriving}"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+
+  # Builds tiles from data/valhalla/active.osm.pbf (clipped to the loaded level via
+  # POST /api/navigate/prepare). Host API: VALHALLA_URL=http://127.0.0.1:8002
+  valhalla:
+    image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+    container_name: wardrivrr_valhalla
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      tile_urls: ${VALHALLA_TILE_URL:-}
+      use_tiles_ignore_pbf: "False"
+      build_elevation: "False"
+      build_admins: "False"
+      build_time_zones: "False"
+      serve_tiles: "True"
+    volumes:
+      - valhalla_data:/custom_files
+      - ./data/valhalla/active.osm.pbf:/custom_files/active.osm.pbf:ro
+
+volumes:
+  pgdata:
+  valhalla_data:

@@ -1,0 +1,562 @@
+/* Site-wide themes — Classic Sleek · Kidcore · CRT */
+@import url("https://fonts.googleapis.com/css2?family=Bubblegum+Sans&family=Fredoka:wght@400;500;600;700&display=swap");
+
+:root,
+html[data-theme="classic"] {
+  --bg: #111315;
+  --bg-elevated: #14181e;
+  --panel: #1a1f27;
+  --line: #2a313b;
+  --text: #f5f6f8;
+  --muted: #8e95a0;
+  --accent: #00e5ff;
+  --accent-dim: rgba(0, 229, 255, 0.12);
+  --danger: #e82127;
+  --ok: #3dd68c;
+  --warn: #f5a524;
+  --font-display: "Syne", sans-serif;
+  --font-body: "Outfit", system-ui, sans-serif;
+  --theme-glow-a: rgba(0, 229, 255, 0.14);
+  --theme-glow-b: rgba(232, 33, 39, 0.08);
+  --radius: 14px;
+  color-scheme: dark;
+}
+
+/* —— KIDCORE: plastic toys, pacifiers, pastel Y2K chaos —— */
+html[data-theme="kidcore"],
+html[data-theme="kawaii"] {
+  --bg: #ff9ec8;
+  --bg-elevated: #ffc2e0;
+  --panel: #fff7ae;
+  --line: #ff5cab;
+  --text: #5b2b6b;
+  --muted: #9b4d8a;
+  --accent: #ff2d95;
+  --accent-dim: rgba(255, 45, 149, 0.22);
+  --danger: #ff6b35;
+  --ok: #b8ff00;
+  --warn: #7ee8ff;
+  --font-display: "Bubblegum Sans", "Comic Sans MS", cursive;
+  --font-body: "Fredoka", "Comic Sans MS", "Chalkboard SE", cursive, system-ui;
+  --theme-glow-a: rgba(126, 232, 255, 0.55);
+  --theme-glow-b: rgba(184, 255, 0, 0.4);
+  --radius: 22px;
+  --shadow: 0 10px 0 #ff5cab, 0 14px 28px rgba(91, 43, 107, 0.25);
+  color-scheme: light;
+}
+
+html[data-theme="crt"] {
+  --bg: #050b05;
+  --bg-elevated: #0a140a;
+  --panel: #081408;
+  --line: #1a3d1a;
+  --text: #33ff33;
+  --muted: #1fa84a;
+  --accent: #00ff66;
+  --accent-dim: rgba(0, 255, 102, 0.14);
+  --danger: #ffb000;
+  --ok: #00ff66;
+  --warn: #ffb000;
+  --font-display: "IBM Plex Mono", "Consolas", "Courier New", monospace;
+  --font-body: "IBM Plex Mono", "Consolas", "Courier New", monospace;
+  --theme-glow-a: rgba(0, 255, 102, 0.12);
+  --theme-glow-b: rgba(255, 176, 0, 0.08);
+  color-scheme: dark;
+}
+
+/* Kidcore sky: static paint + opacity-only pulse (never filter:/hue-rotate —
+   those force continuous full-viewport GPU compositing on every frame). */
+html[data-theme="kidcore"] .page-glow,
+html[data-theme="kawaii"] .page-glow {
+  background: linear-gradient(165deg, #ffc2e0 0%, #a8e6ff 48%, #ffe566 100%);
+}
+
+html[data-theme="kidcore"] .page-glow::before,
+html[data-theme="kawaii"] .page-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 14% 20%, #7ee8ff 0 11%, transparent 12%),
+    radial-gradient(circle at 86% 14%, #ffe566 0 9%, transparent 10%),
+    radial-gradient(circle at 72% 78%, #b8ff00 0 8%, transparent 9%),
+    radial-gradient(circle at 18% 84%, #c77dff 0 10%, transparent 11%);
+  animation: kidcore-sky-soft 20s ease-in-out infinite alternate;
+}
+
+html[data-theme="kidcore"] .page-glow::after,
+html[data-theme="kawaii"] .page-glow::after {
+  /* Skip classic grid overlay — doubles paint cost under pastel sky */
+  display: none;
+}
+
+@keyframes kidcore-sky-soft {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0.9;
+  }
+}
+
+html[data-theme="crt"] .page-glow {
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, var(--theme-glow-a), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, var(--theme-glow-b), transparent 50%),
+    linear-gradient(180deg, #071207 0%, var(--bg) 42%, #030803 100%);
+}
+
+html[data-theme="classic"] .page-glow,
+:root .page-glow {
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, var(--theme-glow-a), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, var(--theme-glow-b), transparent 50%),
+    linear-gradient(180deg, #10141a 0%, var(--bg) 42%, #0a0c0f 100%);
+}
+
+.site-nav {
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+
+html[data-theme="kidcore"] .site-nav,
+html[data-theme="kawaii"] .site-nav {
+  background: linear-gradient(90deg, #ff5cab, #7ee8ff 50%, #ffe566);
+  border-bottom: 5px solid #5b2b6b;
+  box-shadow: 0 6px 0 #fff, 0 10px 24px rgba(91, 43, 107, 0.2);
+  /* Solid candy bar — blur over animated glow is costly */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-theme="kidcore"] .site-brand,
+html[data-theme="kawaii"] .site-brand {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  letter-spacing: 0.02em;
+  text-shadow: 3px 3px 0 #fff, -1px -1px 0 #7ee8ff;
+  color: #5b2b6b;
+}
+
+html[data-theme="kidcore"] .site-brand span,
+html[data-theme="kawaii"] .site-brand span {
+  color: #fff;
+  text-shadow: 2px 2px 0 #ff2d95;
+}
+
+html[data-theme="kidcore"] .site-links a,
+html[data-theme="kawaii"] .site-links a {
+  font-weight: 700;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+html[data-theme="kidcore"] .site-links a.active,
+html[data-theme="kidcore"] .site-links a.nav-drive,
+html[data-theme="kawaii"] .site-links a.active,
+html[data-theme="kawaii"] .site-links a.nav-drive {
+  background: #fff7ae;
+  border-color: #5b2b6b;
+  box-shadow: 3px 3px 0 #ff2d95;
+}
+
+html[data-theme="kidcore"] .btn,
+html[data-theme="kawaii"] .btn {
+  border: 3px solid #5b2b6b !important;
+  border-radius: 18px !important;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  box-shadow: 4px 4px 0 #5b2b6b;
+  text-transform: none;
+}
+
+html[data-theme="kidcore"] .btn:hover,
+html[data-theme="kawaii"] .btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 #5b2b6b;
+}
+
+html[data-theme="kidcore"] .btn-primary,
+html[data-theme="kawaii"] .btn-primary {
+  background: linear-gradient(180deg, #ff7eb9, #ff2d95) !important;
+  color: #fff !important;
+  text-shadow: 1px 1px 0 #5b2b6b;
+  box-shadow: 4px 4px 0 #5b2b6b, 0 0 18px rgba(255, 45, 149, 0.45);
+}
+
+html[data-theme="kidcore"] a,
+html[data-theme="kidcore"] button,
+html[data-theme="kidcore"] .btn,
+html[data-theme="kidcore"] input,
+html[data-theme="kidcore"] select,
+html[data-theme="kidcore"] label,
+html[data-theme="kawaii"] a,
+html[data-theme="kawaii"] button,
+html[data-theme="kawaii"] .btn {
+  cursor: inherit;
+}
+
+html[data-theme="kidcore"] .tools-panel,
+html[data-theme="kidcore"] .module,
+html[data-theme="kidcore"] .ach-card,
+html[data-theme="kidcore"] .drive-spotlight,
+html[data-theme="kidcore"] .settings-form-panel,
+html[data-theme="kawaii"] .tools-panel,
+html[data-theme="kawaii"] .module,
+html[data-theme="kawaii"] .ach-card,
+html[data-theme="kawaii"] .drive-spotlight,
+html[data-theme="kawaii"] .settings-form-panel {
+  border: 4px solid #5b2b6b !important;
+  border-radius: 24px !important;
+  background:
+    linear-gradient(180deg, #fffef5 0%, #fff7ae 100%) !important;
+  box-shadow: 6px 6px 0 #ff5cab, 10px 10px 0 #7ee8ff;
+}
+
+html[data-theme="kidcore"] .home-hero h1,
+html[data-theme="kawaii"] .home-hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 8vw, 4.2rem);
+  line-height: 1.05;
+  color: #5b2b6b;
+  text-shadow:
+    4px 4px 0 #fff,
+    7px 7px 0 #7ee8ff,
+    -2px -2px 0 #ffe566;
+}
+
+html[data-theme="kidcore"] .home-hero h1 em,
+html[data-theme="kawaii"] .home-hero h1 em {
+  color: #ff2d95;
+  font-style: normal;
+}
+
+html[data-theme="kidcore"] input,
+html[data-theme="kidcore"] select,
+html[data-theme="kidcore"] textarea,
+html[data-theme="kawaii"] input,
+html[data-theme="kawaii"] select,
+html[data-theme="kawaii"] textarea {
+  border: 3px solid #ff5cab !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: inset 0 0 0 3px #7ee8ff44;
+}
+
+html[data-theme="kidcore"] .badge.live,
+html[data-theme="kawaii"] .badge.live {
+  background: #b8ff00;
+  color: #5b2b6b;
+  border: 2px solid #5b2b6b;
+}
+
+/* Stacking: page-glow (0) < kidcore-decor (1) < app-shell / content (2+) */
+.app-shell {
+  z-index: 2;
+}
+
+/* Floating stickers / toys — always behind .app-shell / nav / text */
+.kidcore-decor {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+  contain: layout style paint;
+}
+
+.kidcore-decor .kc-float {
+  position: absolute;
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  /* No filter:drop-shadow on animated nodes — text-shadow is cheaper */
+  text-shadow: 2px 2px 0 rgba(91, 43, 107, 0.22);
+  animation: kc-bob 7s ease-in-out infinite;
+  opacity: 0.82;
+}
+
+.kidcore-decor .kc-f1 { top: 12%; left: 4%; animation-delay: 0s; }
+.kidcore-decor .kc-f2 { top: 28%; right: 6%; animation-delay: 1.2s; font-size: 1.5rem; }
+.kidcore-decor .kc-f3 { bottom: 22%; left: 7%; animation-delay: 2.4s; }
+.kidcore-decor .kc-f4 { top: 55%; right: 10%; animation-delay: 3.6s; }
+
+.kidcore-decor .kc-sticker {
+  position: absolute;
+  font-family: "Bubblegum Sans", "Comic Sans MS", cursive;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.35rem 0.55rem;
+  border: 3px dashed #fff;
+  border-radius: 8px;
+  transform: rotate(-8deg);
+  box-shadow: 3px 3px 0 rgba(91, 43, 107, 0.35);
+  opacity: 0.9;
+}
+
+.kidcore-decor .kc-s1 {
+  top: 8%;
+  right: 14%;
+  background: #7ee8ff;
+  color: #5b2b6b;
+  transform: rotate(7deg);
+}
+
+.kidcore-decor .kc-s2 {
+  bottom: 18%;
+  left: 10%;
+  background: #ffe566;
+  color: #ff2d95;
+  transform: rotate(-12deg);
+}
+
+.kidcore-decor .kc-s3 {
+  top: 48%;
+  right: 4%;
+  background: #ff5cab;
+  color: #fff;
+  transform: rotate(14deg);
+}
+
+.kidcore-decor .kc-s4 {
+  top: 72%;
+  left: 28%;
+  background: #b8ff00;
+  color: #5b2b6b;
+  transform: rotate(5deg);
+}
+
+.kidcore-decor .kc-s5 {
+  top: 22%;
+  left: 8%;
+  background: #c77dff;
+  color: #fff;
+  transform: rotate(-16deg);
+}
+
+.kidcore-decor .kc-s6 {
+  bottom: 8%;
+  right: 28%;
+  background: #fff;
+  color: #ff2d95;
+  border-style: solid;
+  transform: rotate(9deg);
+}
+
+.kidcore-decor .kc-sticker.kc-emo {
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  border-style: solid;
+  border-width: 4px;
+  padding: 0.4rem 0.65rem;
+}
+
+@keyframes kc-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Tab hidden — freeze decor + sky so background tabs stop burning GPU */
+html.kidcore-paused .page-glow::before,
+html.kidcore-paused .kidcore-decor .kc-float {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="kidcore"] .page-glow::before,
+  html[data-theme="kawaii"] .page-glow::before,
+  .kidcore-decor .kc-float {
+    animation: none !important;
+  }
+}
+
+/* CRT scanlines */
+html[data-theme="crt"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 255, 80, 0.035) 2px,
+    rgba(0, 255, 80, 0.035) 4px
+  );
+  mix-blend-mode: screen;
+}
+
+html[data-theme="crt"] .btn,
+html[data-theme="crt"] .tools-panel,
+html[data-theme="crt"] .code-block {
+  text-shadow: 0 0 6px rgba(51, 255, 51, 0.35);
+}
+
+/* Theme cards on Settings */
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.theme-card {
+  appearance: none;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  padding: 0.85rem 0.75rem;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+html[data-theme="kidcore"] .theme-card,
+html[data-theme="kawaii"] .theme-card {
+  border-width: 4px;
+  border-radius: 20px;
+  box-shadow: 4px 4px 0 #5b2b6b;
+}
+
+.theme-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.theme-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+html[data-theme="kidcore"] .theme-card.is-active,
+html[data-theme="kawaii"] .theme-card.is-active {
+  box-shadow: 5px 5px 0 #ff2d95, 0 0 0 3px #7ee8ff;
+}
+
+.theme-card strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 0.2rem;
+}
+
+.theme-card span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.theme-swatches {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.theme-swatches i {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  display: block;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+/* Routing profile icons — theme variants */
+html[data-theme="kidcore"] .profile-icon,
+html[data-theme="kawaii"] .profile-icon {
+  color: #ff2d95;
+  filter: drop-shadow(2px 2px 0 #5b2b6b);
+}
+
+html[data-theme="kidcore"] .profile-card .profile-icon,
+html[data-theme="kawaii"] .profile-card .profile-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 2.75rem;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #7ee8ff, #ffe566);
+  border: 3px solid #5b2b6b;
+  box-shadow: 3px 3px 0 #ff2d95;
+  filter: none;
+  color: #5b2b6b;
+}
+
+html[data-theme="kidcore"] .profile-svg-body,
+html[data-theme="kawaii"] .profile-svg-body {
+  stroke-width: 2.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+html[data-theme="kidcore"] .profile-card,
+html[data-theme="kawaii"] .profile-card {
+  border-width: 3px;
+  border-radius: 18px;
+  box-shadow: 3px 3px 0 #5b2b6b;
+}
+
+html[data-theme="kidcore"] .profile-card:has(input:checked),
+html[data-theme="kawaii"] .profile-card:has(input:checked) {
+  border-color: #ff2d95;
+  background: rgba(126, 232, 255, 0.35);
+  box-shadow: 4px 4px 0 #ff2d95;
+}
+
+html[data-theme="kidcore"] .level-card-title .profile-icon,
+html[data-theme="kawaii"] .level-card-title .profile-icon {
+  border-radius: 10px;
+  background: #ffe566;
+  border: 2px solid #5b2b6b;
+  color: #5b2b6b;
+  filter: none;
+  padding: 0.1rem;
+  box-sizing: content-box;
+}
+
+html[data-theme="crt"] .profile-icon {
+  color: #33ff33;
+  text-shadow: 0 0 8px rgba(51, 255, 51, 0.55);
+  filter: drop-shadow(0 0 4px rgba(51, 255, 51, 0.45));
+}
+
+html[data-theme="crt"] .profile-svg-body {
+  stroke-width: 1.35;
+  stroke-linejoin: miter;
+  stroke-linecap: square;
+}
+
+html[data-theme="crt"] .profile-card {
+  border-radius: 2px;
+  border-color: rgba(51, 255, 51, 0.35);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+html[data-theme="crt"] .profile-card:has(input:checked) {
+  border-color: #33ff33;
+  background: rgba(0, 40, 0, 0.55);
+  box-shadow: 0 0 12px rgba(51, 255, 51, 0.25);
+}
+
+html[data-theme="crt"] .profile-card .profile-icon {
+  border: 1px solid #33ff33;
+  border-radius: 0;
+  background: rgba(0, 20, 0, 0.65);
+  box-shadow: inset 0 0 10px rgba(51, 255, 51, 0.2);
+  filter: none;
+}
+
+@media (max-width: 720px) {
+  .theme-picker {
+    grid-template-columns: 1fr;
+  }
+  .kidcore-decor .kc-sticker {
+    display: none;
+  }
+}
