@@ -54,7 +54,8 @@ function paintGps(gps) {
   } else {
     setBadge(badge, "warn", "No fix");
     title.textContent = "GPS listening";
-    detail.textContent = gps.detail || "gpsd up, waiting for a fix";
+    detail.textContent =
+      gps.detail || "gpsd up — waiting for satellites / ttyACM0 data";
   }
   fillDl(meta, [
     ["Latitude", fmtCoord(gps.lat)],
