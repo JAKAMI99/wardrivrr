@@ -133,14 +133,30 @@ def container_status(names: tuple[str, ...]) -> dict:
     }
 
 
-def _http_ok(url: str, timeout_s: float = 2.0) -> tuple[bool, str | None]:
+def _http_ok(
+    url: str,
+    timeout_s: float = 2.0,
+    *,
+    username: str | None = None,
+    password: str | None = None,
+) -> tuple[bool, str | None]:
+    import base64
     import urllib.error
     import urllib.request
 
     try:
         req = urllib.request.Request(url, method="GET")
+        if username is not None:
+            token = base64.b64encode(
+                f"{username}:{password or ''}".encode("utf-8")
+            ).decode("ascii")
+            req.add_header("Authorization", f"Basic {token}")
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             return 200 <= resp.status < 300, f"HTTP {resp.status}"
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            return False, "HTTP 401 — check KISMET_USER / KISMET_PASSWORD match kismet_site.conf"
+        return False, f"HTTP {exc.code}"
     except Exception as exc:
         return False, str(exc)
 
@@ -156,10 +172,15 @@ def _active_pbf_ready() -> bool:
 
 
 def kismet_service_status() -> dict:
-    """Host or Docker Kismet — probe HTTP, optionally enrich with docker inspect."""
+    """Host or Docker Kismet — probe HTTP with Basic auth from .env."""
     base = (os.getenv("KISMET_URL") or "http://127.0.0.1:2501").rstrip("/")
+    # Prefer localhost when .env still has the old Docker-bridge hostname
+    if "host.docker.internal" in base:
+        base = "http://127.0.0.1:2501"
+    user = os.getenv("KISMET_USER") or ""
+    password = os.getenv("KISMET_PASSWORD") or ""
     url = f"{base}/system/status.json"
-    ok, detail = _http_ok(url)
+    ok, detail = _http_ok(url, username=user or None, password=password)
     out = container_status(KISMET_NAMES)
     out["url"] = base
     out["http_ok"] = ok
@@ -169,10 +190,9 @@ def kismet_service_status() -> dict:
         out["found"] = True
         out["status"] = "reachable"
         out["detail"] = detail or f"HTTP OK at {base}"
-    elif not out.get("detail"):
-        out["detail"] = (
-            f"Kismet not reachable at {base} — install host packages "
-            "(car_setup) or start wardrivrr-kismet.service"
+    else:
+        out["detail"] = detail or (
+            f"Kismet not reachable at {base} — is kismet.service running?"
         )
     return out
 
@@ -214,6 +234,8 @@ def valhalla_service_status() -> dict:
 
 def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
     host = host or os.getenv("GPSD_HOST", "127.0.0.1")
+    if host in {"host.docker.internal", "docker.for.mac.localhost"}:
+        host = "127.0.0.1"
     port = int(port or os.getenv("GPSD_PORT", "2947"))
     result = {
         "ok": False,
