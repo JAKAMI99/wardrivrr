@@ -98,7 +98,23 @@ if [[ "$PULLED" != "1" ]]; then
   "${COMPOSE[@]}" build api
 fi
 
-"${COMPOSE[@]}" up -d
+mkdir -p data/valhalla
+# Fix classic Docker trap: missing file bind → host directory named *.osm.pbf
+if [[ -d data/valhalla/active.osm.pbf ]]; then
+  echo "Removing bogus directory data/valhalla/active.osm.pbf (Docker empty-bind artifact)…"
+  rm -rf data/valhalla/active.osm.pbf
+fi
+
+# Core stack without Valhalla unless a real PBF clip is present
+SERVICES=(api postgis)
+if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
+  SERVICES+=(valhalla)
+else
+  echo "Valhalla: skipped (no data/valhalla/active.osm.pbf yet — create a level / prepare first)."
+  "${COMPOSE[@]}" stop valhalla >/dev/null 2>&1 || true
+fi
+
+"${COMPOSE[@]}" up -d "${SERVICES[@]}"
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo "API: http://${IP:-127.0.0.1}:8000/"

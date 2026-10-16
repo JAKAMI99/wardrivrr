@@ -227,13 +227,25 @@ mkdir -p postgis/init
 chmod a+rx postgis postgis/init 2>/dev/null || true
 chmod a+r postgis/init/*.sql 2>/dev/null || true
 
+mkdir -p data/valhalla
+if [[ -d data/valhalla/active.osm.pbf ]]; then
+  echo "Removing bogus directory data/valhalla/active.osm.pbf…"
+  rm -rf data/valhalla/active.osm.pbf
+fi
+
 COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
 "${COMPOSE[@]}" config --quiet
 if [[ "$FORCE_BUILD" == "1" ]]; then
   echo "Building API image locally…"
   "${COMPOSE[@]}" build api
 fi
-"${COMPOSE[@]}" up -d
+SERVICES=(api postgis)
+if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
+  SERVICES+=(valhalla)
+else
+  echo "Valhalla: skipped until a level PBF clip exists."
+fi
+"${COMPOSE[@]}" up -d "${SERVICES[@]}"
 
 echo
 echo "=== Setup done ==="

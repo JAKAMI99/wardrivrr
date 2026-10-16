@@ -26,8 +26,9 @@ services:
       retries: 30
       start_period: 90s
 
-  # Builds tiles from data/valhalla/active.osm.pbf (clipped to the loaded level via
-  # POST /api/navigate/prepare). Host API: VALHALLA_URL=http://127.0.0.1:8002
+  # Builds tiles from data/valhalla/active.osm.pbf (written by /api/navigate/prepare).
+  # Do NOT bind-mount a single missing file — Docker creates a directory and Valhalla dies.
+  # Mount the whole folder; skip starting this service until the PBF exists (see car_up.sh).
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
     container_name: wardrivrr_valhalla
@@ -42,9 +43,7 @@ services:
       build_time_zones: "False"
       serve_tiles: "True"
     volumes:
-      - valhalla_data:/custom_files
-      - ./data/valhalla/active.osm.pbf:/custom_files/active.osm.pbf:ro
+      - ./data/valhalla:/custom_files
 
 volumes:
   pgdata:
-  valhalla_data:

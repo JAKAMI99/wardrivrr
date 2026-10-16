@@ -63,8 +63,7 @@ services:
     depends_on:
       postgis:
         condition: service_healthy
-      valhalla:
-        condition: service_started
+      # Valhalla is optional until data/valhalla/active.osm.pbf exists (level prepare).
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
       interval: 20s

@@ -109,7 +109,12 @@ def _clip_with_osmium_docker(src: Path, dest: Path, bbox: list[float]) -> None:
 
 def _restart_valhalla() -> dict[str, Any]:
     """Recreate Valhalla so it rebuilds tiles from data/valhalla/active.osm.pbf."""
+    car = ROOT / "deploy" / "compose.car.yml"
     compose = ["docker", "compose", "-f", str(ROOT / "docker-compose.yml")]
+    if car.is_file():
+        compose.extend(["-f", str(car)])
+    if (ROOT / ".env").is_file():
+        compose.extend(["--env-file", str(ROOT / ".env")])
     steps = []
     for args in (
         ["stop", "valhalla"],
@@ -120,16 +125,20 @@ def _restart_valhalla() -> dict[str, Any]:
         )
         steps.append({"cmd": args, "code": proc.returncode})
 
-    # Drop tile volume so the new clip is built (keep named volume wipe optional)
+    # Drop built tiles under the bind mount (named volume no longer used)
     wipe = os.getenv("VALHALLA_WIPE_ON_LEVEL", "1") != "0"
     if wipe:
+        tiles = VALHALLA_DIR / "valhalla_tiles"
+        if tiles.exists():
+            shutil.rmtree(tiles, ignore_errors=True)
+        steps.append({"cmd": ["rmtree", str(tiles)], "code": 0})
+        # Legacy named volume from older compose
         subprocess.run(
             ["docker", "volume", "rm", "-f", "wardrivrr_valhalla_data"],
             capture_output=True,
             text=True,
             timeout=60,
         )
-        steps.append({"cmd": ["volume", "rm", "wardrivrr_valhalla_data"], "code": 0})
 
     proc = subprocess.run(
         [*compose, "up", "valhalla", "-d"],
