@@ -52,7 +52,7 @@ docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env u
 | API + UI | **8000** | Prefer `ghcr.io/<owner>/wardrivrr` from GitHub Actions |
 | Kismet | **2501** | **host apt + systemd** (`wardrivrr-kismet`) — not Docker |
 | PostGIS | 5432 | internal + host publish |
-| Valhalla | 8002 | tiles from `data/valhalla/active.osm.pbf` |
+| Valhalla | 8002 | tiles from `data/valhalla/active.osm.pbf` (seeded/clipped from `data/pbf/*.osm.pbf`) |
 | **gpsd** | **2947** | **host systemd only** — not a container |
 
 API reaches host gpsd / Kismet via `host.docker.internal` (`extra_hosts: host-gateway`).
@@ -95,10 +95,11 @@ curl -u "$KISMET_USER:$KISMET_PASSWORD" "http://127.0.0.1:2501/devices/last-time
 
 First level generate on a phone hotspot can take **tens of minutes** and burn data.
 
-1. On a fat link, download Geofabrik PBF for your region into `data/pbf/`.
-2. Generate the level once from Levels / Navigate prompt so Valhalla tiles exist.
-3. Copy `data/pbf/` (+ optional cities DBs) to the mini before the trip.
-4. If Valhalla is empty, Drive won’t route until prepare finishes — wait on Status / Navigate overlay.
+1. On a fat link, download a Geofabrik region (UI or drop `*.osm.pbf` into `data/pbf/` — names stay like `Arnsberg….osm.pbf`, never `active`).
+2. First pack download (or `./scripts/car_up.sh`) seeds `data/valhalla/active.osm.pbf` and starts a full Valhalla tile rebuild.
+3. Creating a level then clips that pack to the level bbox and rebuilds again (smaller/faster).
+4. Copy `data/pbf/` + `data/valhalla/` to the mini before the trip if you pre-built at home.
+5. Drive won’t route until Valhalla HTTP is up — watch Status / Navigate overlay / `docker logs -f wardrivrr_valhalla`.
 
 ## PostGIS init “Permission denied”
 

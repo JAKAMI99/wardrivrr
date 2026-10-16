@@ -26,9 +26,10 @@ services:
       retries: 30
       start_period: 90s
 
-  # Builds tiles from data/valhalla/active.osm.pbf (written by /api/navigate/prepare).
-  # Do NOT bind-mount a single missing file — Docker creates a directory and Valhalla dies.
-  # Mount the whole folder; skip starting this service until the PBF exists (see car_up.sh).
+  # Builds tiles from data/valhalla/active.osm.pbf.
+  # Regional packs stay in data/pbf/{GeofabrikId}.osm.pbf; car_up / prepare seeds or clips
+  # them into active.osm.pbf. Do NOT bind-mount a single missing file (Docker creates a dir).
+  # Mount the whole folder; skip starting until active.osm.pbf exists (see car_up.sh).
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
     container_name: wardrivrr_valhalla

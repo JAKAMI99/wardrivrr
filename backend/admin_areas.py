@@ -173,12 +173,26 @@ def prepare_extract(
         report(0.70, "index", "Outlines already indexed…", 2)
         report(0.92, "index", "Loading city & districts…", 1)
 
+    # First regional pack → seed data/valhalla/active.osm.pbf and full tile rebuild.
+    # Packs keep names like Arnsberg….osm.pbf under data/pbf/; Valhalla reads active.osm.pbf.
+    valhalla_out = None
+    try:
+        from valhalla_prep import active_pbf_ready, ensure_valhalla_after_regional_pbf
+
+        if downloaded or not active_pbf_ready():
+            valhalla_out = ensure_valhalla_after_regional_pbf(
+                pbf, force_seed=bool(downloaded), restart=True
+            )
+    except Exception as exc:
+        valhalla_out = {"ok": False, "detail": str(exc)}
+
     report(1.0, "done", "Ready", 0)
     return {
         "extract_id": eid,
         "pbf_path": str(pbf),
         "downloaded": downloaded,
         "size_bytes": pbf.stat().st_size if pbf.exists() else None,
+        "valhalla": valhalla_out,
         "map_pack": {
             "id": feat.get("id") or eid,
             "name": feat.get("name"),

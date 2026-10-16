@@ -1090,6 +1090,29 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
     except Exception:
         addr_job_id = None
 
+    # Clip regional pack → active.osm.pbf and rebuild Valhalla tiles for Navigate.
+    valhalla_out = None
+    try:
+        from valhalla_prep import prepare_valhalla_for_level
+
+        report(0.99, "finish", "Preparing Valhalla routing tiles…", 30)
+        valhalla_out = prepare_valhalla_for_level(
+            user_id, level_id, restart=True, force=False
+        )
+    except Exception as exc:
+        # Level is still usable; Navigate prepare can retry. Fall back to full seed.
+        try:
+            from valhalla_prep import ensure_valhalla_after_regional_pbf
+
+            valhalla_out = ensure_valhalla_after_regional_pbf(
+                dest if isinstance(dest, Path) else Path(str(dest)),
+                force_seed=False,
+                restart=True,
+            )
+            valhalla_out = {"fallback_seed": True, "error": str(exc), **valhalla_out}
+        except Exception as exc2:
+            valhalla_out = {"ok": False, "detail": str(exc), "seed_error": str(exc2)}
+
     report(1.0, "done", "Level ready — addresses fill in the background", 0)
     return {
         "level_id": level_id,
@@ -1097,6 +1120,7 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
         "road_km": total_m / 1000.0,
         "disk_bytes": size,
         "ways": len(ways),
+        "valhalla": valhalla_out,
         "addresses": 0,
         "address_job_id": addr_job_id,
         "stage": "done",
