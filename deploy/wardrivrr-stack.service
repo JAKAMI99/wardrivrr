@@ -10,9 +10,9 @@ RemainAfterExit=yes
 User=jakami
 Group=docker
 WorkingDirectory=/home/jakami/wardrivrr
-Environment=FORCE_LOCAL_BUILD=0
-# car_up builds only if needed; starts api+postgis (+valhalla if PBF exists)
-ExecStart=/home/jakami/wardrivrr/scripts/car_up.sh
+Environment=FORCE_LOCAL_BUILD=1
+# car_up: gpsd + kismet + api/postgis (+valhalla if PBF exists)
+ExecStart=/bin/bash /home/jakami/wardrivrr/scripts/car_up.sh
 ExecStop=/usr/bin/docker compose -f /home/jakami/wardrivrr/docker-compose.yml -f /home/jakami/wardrivrr/deploy/compose.car.yml --env-file /home/jakami/wardrivrr/.env stop
 TimeoutStartSec=600
 
