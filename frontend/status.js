@@ -104,7 +104,13 @@ function paintContainer(prefix, info, fallbackTitle) {
     detail.textContent =
       info.detail ||
       (info.health ? `Healthy · ${info.health}` : "Reachable");
-  } else if (info?.state === "warn" || info?.status === "waiting for map") {
+  } else if (
+    info?.state === "warn" ||
+    info?.status === "waiting for map" ||
+    info?.status === "waiting for seed" ||
+    info?.status === "building tiles" ||
+    info?.status === "not started"
+  ) {
     setBadge(badge, "warn", "Waiting");
     title.textContent = fallbackTitle;
     detail.textContent = info.detail || info.status || "Not ready yet";
