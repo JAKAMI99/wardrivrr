@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -27,7 +30,7 @@ from auth import (
     get_user_by_username,
 )
 from backup import create_export, import_backup
-from db import connect_dict, get_setting, get_user_setting, set_user_setting
+from db import connect_dict, get_user_setting, set_user_setting
 from ingest_upload import ingest_file_for_user
 from jobs import enqueue_job, ensure_worker, get_job, list_jobs
 from geocode import geocode_place, geocode_postalcode, reverse_geocode
@@ -272,9 +275,20 @@ def parse_bbox(value: str | None):
 def on_startup():
     try:
         ensure_bootstrap_admin()
+    except Exception as exc:
+        print(f"[startup] bootstrap admin: {exc}")
+    try:
         ensure_worker()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[startup] job worker: {exc}")
+    try:
+        from db import ensure_runtime_indexes
+
+        threading.Thread(
+            target=ensure_runtime_indexes, name="db-indexes", daemon=True
+        ).start()
+    except Exception as exc:
+        print(f"[startup] db indexes: {exc}")
     # Offline geo DBs (prefer `python scripts/prepare_offline_data.py` / docker/prepare-data)
     try:
         from cities_db import ensure_cities_db
@@ -598,8 +612,30 @@ def revoke_key(key_id: int, user: dict = Depends(get_current_user)):
 # ----- Ingest / upload -----
 
 
+MAX_UPLOAD_BYTES = int(float(os.getenv("MAX_UPLOAD_MB", "2048")) * 1024 * 1024)
+
+
+def _save_upload(file: UploadFile, dest: Path) -> None:
+    """Stream an upload to disk in chunks, enforcing MAX_UPLOAD_BYTES."""
+    written = 0
+    try:
+        with dest.open("wb") as out:
+            while chunk := file.file.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        413, f"Upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+                    )
+                out.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+
+
+# Sync handlers on purpose: parsing/localizing runs for minutes and must stay
+# off the event loop (FastAPI runs def endpoints in its threadpool).
 @app.post("/api/v1/ingest/upload")
-async def ingest_upload(
+def ingest_upload(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
@@ -608,8 +644,7 @@ async def ingest_upload(
 
     final_name = Path(file.filename or "upload.bin").name
     dest = user_incoming(user["id"]) / final_name
-    content = await file.read()
-    dest.write_bytes(content)
+    _save_upload(file, dest)
     try:
         mode = get_user_setting(user["id"], "default_localization_mode", "2d") or "2d"
         precision = (
@@ -644,7 +679,7 @@ def backup_export(body: ExportBody, user: dict = Depends(get_current_user)):
 
 
 @app.post("/api/backup/import")
-async def backup_import(
+def backup_import(
     file: UploadFile = File(...),
     mode: str = Form(default="merge"),
     user: dict = Depends(get_current_user),
@@ -652,8 +687,8 @@ async def backup_import(
     if mode not in ("merge", "replace"):
         raise HTTPException(400, "mode must be merge or replace")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-        tmp.write(await file.read())
         tmp_path = Path(tmp.name)
+    _save_upload(file, tmp_path)
     try:
         stats = import_backup(user["id"], tmp_path, mode=mode)  # type: ignore[arg-type]
         return {"ok": True, **stats}
@@ -671,30 +706,23 @@ def health(user: dict | None = Depends(get_optional_user)):
     try:
         conn = connect_dict()
         with conn.cursor() as cur:
-            if user:
-                cur.execute(
-                    """
-                    SELECT
-                        (SELECT COUNT(*) FROM signal_samples WHERE user_id = %s) AS samples,
-                        (SELECT COUNT(*) FROM networks WHERE user_id = %s) AS networks
-                    """,
-                    (user["id"], user["id"]),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT
-                        (SELECT COUNT(*) FROM signal_samples) AS samples,
-                        (SELECT COUNT(*) FROM networks) AS networks
-                    """
-                )
-            row = cur.fetchone()
             cur.execute("SELECT PostGIS_Version() AS postgis")
             pg = cur.fetchone()
-            mode = (
-                get_user_setting(user["id"], "default_localization_mode", "2d", conn=conn)
-                if user
-                else get_setting("default_localization_mode", "2d", conn=conn)
+            if not user:
+                # Liveness probe (Docker healthcheck / run.sh) — no data counts
+                conn.close()
+                return {"ok": True, "postgis": pg["postgis"], "authenticated": False}
+            cur.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM signal_samples WHERE user_id = %s) AS samples,
+                    (SELECT COUNT(*) FROM networks WHERE user_id = %s) AS networks
+                """,
+                (user["id"], user["id"]),
+            )
+            row = cur.fetchone()
+            mode = get_user_setting(
+                user["id"], "default_localization_mode", "2d", conn=conn
             )
         conn.close()
         return {
@@ -760,8 +788,6 @@ def stats_dashboard(user: dict = Depends(get_current_user)):
         return build_stats_dashboard(user_id=user["id"])
     except OperationalError as exc:
         raise HTTPException(503, f"database unavailable: {exc}") from exc
-    except TypeError:
-        return build_stats_dashboard()
 
 
 def _normalize_theme(theme: str) -> str:
@@ -894,27 +920,53 @@ def gps_get_fix(
     out: dict = {"ok": True, "fix": fix}
     session_key = session_started_at or fix.get("session_started_at")
     if session_key:
-        from drive_session import parse_session_start, session_radio_stats
-
-        since = parse_session_start(session_key)
-        if since is not None:
-            try:
-                out["radio"] = session_radio_stats(user["id"], since)
-            except Exception:
-                out["radio"] = None
-            try:
-                from anomalies import session_anomaly_hits
-
-                out["anomalies"] = session_anomaly_hits(user["id"], since)
-            except Exception:
-                out["anomalies"] = None
-            try:
-                from achievements import evaluate_achievements
-
-                out["newly_unlocked"] = evaluate_achievements(user["id"])
-            except Exception:
-                out["newly_unlocked"] = []
+        out.update(_drive_hud_extras(user["id"], session_key))
     return out
+
+
+# The Drive HUD polls the fix at 5 Hz; session stats/anomalies/toasts are
+# aggregate queries, so refresh them at most every _HUD_EXTRAS_TTL_S.
+_HUD_EXTRAS_TTL_S = 2.0
+_hud_extras_cache: dict[tuple[int, str], tuple[float, dict]] = {}
+_hud_extras_lock = threading.Lock()
+
+
+def _drive_hud_extras(user_id: int, session_key: str) -> dict:
+    from drive_session import parse_session_start, session_radio_stats
+
+    key = (user_id, session_key)
+    now = time.monotonic()
+    with _hud_extras_lock:
+        hit = _hud_extras_cache.get(key)
+        if hit and now - hit[0] < _HUD_EXTRAS_TTL_S:
+            return {**hit[1], "newly_unlocked": []}
+        _hud_extras_cache[key] = (now, hit[1] if hit else {})
+    since = parse_session_start(session_key)
+    if since is None:
+        return {}
+    extras: dict = {}
+    try:
+        extras["radio"] = session_radio_stats(user_id, since)
+    except Exception:
+        extras["radio"] = None
+    try:
+        from anomalies import session_anomaly_hits
+
+        extras["anomalies"] = session_anomaly_hits(user_id, since)
+    except Exception:
+        extras["anomalies"] = None
+    try:
+        from achievements import maybe_evaluate_achievements, pop_unnotified
+
+        maybe_evaluate_achievements(user_id)
+        newly = pop_unnotified(user_id)
+    except Exception:
+        newly = []
+    with _hud_extras_lock:
+        for k in [k for k in _hud_extras_cache if k[0] == user_id and k != key]:
+            _hud_extras_cache.pop(k, None)
+        _hud_extras_cache[key] = (now, extras)
+    return {**extras, "newly_unlocked": newly}
 
 
 @app.post("/api/gps/fix")
@@ -956,7 +1008,7 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
     use_lon = snap["lon"]
 
     try:
-        prev, fix = set_fix(
+        _prev, fix = set_fix(
             user["id"],
             lat=use_lat,
             lon=use_lon,
@@ -1012,12 +1064,16 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
         user["id"],
         lat=use_lat,
         lon=use_lon,
-        prev_lat=prev["lat"] if prev else None,
-        prev_lon=prev["lon"] if prev else None,
-        prev_ts=prev.get("updated_at") if prev else None,
         now_ts=fix.get("updated_at"),
         explored_km_delta=explored_km,
+        speed_mps=body.speed_mps,
     )
+    try:
+        from achievements import pop_unnotified
+
+        newly_unlocked = pop_unnotified(user["id"])
+    except Exception:
+        newly_unlocked = []
 
     radio = None
     anomalies = None
@@ -1042,7 +1098,7 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
         "snap": snap,
         "unlock": unlock_stats,
         "drive": drive,
-        "newly_unlocked": drive.get("newly_unlocked") or [],
+        "newly_unlocked": newly_unlocked,
         "radio": radio,
         "anomalies": anomalies,
     }
@@ -1085,7 +1141,7 @@ def navigate_status(user: dict = Depends(get_current_user)):
     if active_pbf_ready() and not st.get("ok"):
         # Heal "PBF present, container never started" without a manual ./run.sh
         try:
-            ensure_note = ensure_valhalla_up(wipe=False)
+            ensure_note = ensure_valhalla_up(wipe=False, blocking=False)
             st = valhalla_status(bypass_cache=True)
         except Exception as exc:
             ensure_note = {"ok": False, "detail": str(exc)}
@@ -1226,8 +1282,9 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
 
 
 @app.get("/api/system/status")
-def system_status(user: dict | None = Depends(get_optional_user)):
-    return collect_system_status(user_id=user["id"] if user else None)
+def system_status(user: dict = Depends(get_current_user)):
+    # Includes the car's live GPS position — never serve it anonymously.
+    return collect_system_status(user_id=user["id"])
 
 
 @app.post("/api/localize/recompute")
@@ -1949,9 +2006,15 @@ def settings_page():
     return FileResponse(FRONTEND / "settings.html")
 
 
+@app.get("/regions")
+def regions_page():
+    return FileResponse(FRONTEND / "regions.html")
+
+
 @app.get("/levels")
-def levels_page():
-    return FileResponse(FRONTEND / "levels.html")
+def levels_page_redirect():
+    """Legacy Levels URL → Regions."""
+    return RedirectResponse(url="/regions", status_code=302)
 
 
 @app.get("/progress")

@@ -172,6 +172,13 @@ const state = {
   followLiveGps: false,
   /** After first live GPS fix with no level, try Generate-level prompt once */
   firstFixLevelPromptPending: false,
+  /** True once a real fix (gpsd/client) or manual map spawn set lat/lon */
+  hasLiveFix: false,
+  fixSeq: 0,
+  lastFixUpdatedAt: null,
+  lastIssueFixSeq: -1,
+  fogRefreshQueued: false,
+  valhallaPrepPromise: null,
   followInFlight: false,
   lastFollowAt: 0,
   wrongWayStreak: 0,
@@ -193,6 +200,11 @@ const state = {
 
 /** Poll gpsd-backed fix often enough to feed the rAF lerp (backend ~5 Hz) */
 const FOLLOW_MS = 200;
+/** Parked live-follow tick (instead of 60 fps rAF) */
+const FOLLOW_IDLE_TICK_MS = 250;
+/** Keep full frame rate this long after the last movement so the camera settles */
+const FOLLOW_SETTLE_MS = 2000;
+const MOVING_MIN_KMH = 1.5;
 
 const ANOMALY_COOLDOWN_MS = 12000;
 /** How long anomaly toasts stay visible */
@@ -961,15 +973,21 @@ async function refreshFog(force = false) {
   if (!state.levelId || !state.map) return;
   const now = Date.now();
   if (!force && now - (state.lastFogAt || 0) < 8000) return;
-  if (state.fogInFlight) return;
+  if (state.fogInFlight) {
+    // A forced refresh (region switch) must not be lost behind an old request
+    if (force) state.fogRefreshQueued = true;
+    return;
+  }
   state.fogInFlight = true;
+  const levelId = state.levelId;
   try {
     const profile = encodeURIComponent(activeVehicleProfile());
     const res = await WardAuth.apiFetch(
-      `/api/levels/${state.levelId}/roads?profile=${profile}`
+      `/api/levels/${levelId}/roads?profile=${profile}`
     );
     if (!res.ok) return;
     const data = await res.json();
+    if (String(levelId) !== String(state.levelId)) return;
     state.lastFogAt = Date.now();
     state.fogLockedGeo = data.locked;
     state.fogExploredGeo = data.explored;
@@ -991,6 +1009,10 @@ async function refreshFog(force = false) {
     /* optional map overlay */
   } finally {
     state.fogInFlight = false;
+    if (state.fogRefreshQueued) {
+      state.fogRefreshQueued = false;
+      refreshFog(true);
+    }
   }
 }
 
@@ -1189,8 +1211,9 @@ function triggerReplan(now, reason) {
     }
     return;
   }
+  // Let the in-flight replan finish instead of aborting it every cooldown
+  if (state.exploreInFlight) return;
   state.lastReplanAt = now;
-  // startExplore aborts any older in-flight request
   startExplore({ auto: true, reason: msg });
 }
 
@@ -1244,6 +1267,13 @@ function checkOffRoute(now) {
       updateRouteProgress();
     }
     return;
+  }
+
+  // checkOffRoute runs every animation frame; with live GPS only count each
+  // fix once, otherwise one bad fix fills the streak within ~80 ms.
+  if (state.followLiveGps) {
+    if (state.fixSeq === state.lastIssueFixSeq) return;
+    state.lastIssueFixSeq = state.fixSeq;
   }
 
   let streak;
@@ -1353,7 +1383,28 @@ function escToast(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Visible error (navHint is hidden outside ?debug=1). */
+function showErrorToast(message) {
+  setNavHint(message);
+  const host = ensureToastHost();
+  const el = document.createElement("div");
+  el.className = "nav-ach-toast nav-anomaly-toast";
+  const strong = document.createElement("strong");
+  strong.textContent = "Something went wrong";
+  const span = document.createElement("span");
+  span.textContent = message;
+  el.append(strong, span);
+  host.appendChild(el);
+  setTimeout(() => el.classList.add("is-on"), 20);
+  setTimeout(() => {
+    el.classList.remove("is-on");
+    setTimeout(() => el.remove(), 400);
+  }, 6000);
 }
 
 function showAchievementToasts(list) {
@@ -1413,8 +1464,9 @@ function showAnomalyToasts(list) {
     state.anomalyLastToastAt = now;
     const el = document.createElement("div");
     el.className = "nav-ach-toast nav-anomaly-toast";
-    const nameBit = a.name ? `<code>${a.name}</code>` : "";
-    el.innerHTML = `<strong>${a.toast || a.title || "Special find"}</strong><span>${a.flavour || ""}${nameBit ? ` · ${nameBit}` : ""}</span>`;
+    // a.name is a broadcast SSID / BT name — attacker-controlled, always escape
+    const nameBit = a.name ? `<code>${escToast(a.name)}</code>` : "";
+    el.innerHTML = `<strong>${escToast(a.toast || a.title || "Special find")}</strong><span>${escToast(a.flavour || "")}${nameBit ? ` · ${nameBit}` : ""}</span>`;
     host.appendChild(el);
     setTimeout(() => el.classList.add("is-on"), 20);
     setTimeout(() => {
@@ -1900,7 +1952,7 @@ async function startNavigation() {
   state.navigationActive = true;
   syncNavToggleUi();
   if (!state.levelId) {
-    setNavHint("No level here — looking up a place…");
+    setNavHint("No region here — looking up a place…");
     await promptIfUnknownOnSpawn();
     return true;
   }
@@ -2287,6 +2339,11 @@ async function pollFollowGps(now) {
     if (fix.session_started_at) {
       state.sessionStartedAt = fix.session_started_at;
     }
+    state.hasLiveFix = true;
+    if (fix.updated_at !== state.lastFixUpdatedAt) {
+      state.lastFixUpdatedAt = fix.updated_at;
+      state.fixSeq = (state.fixSeq || 0) + 1;
+    }
     // Server lat/lon are road-snapped (unlock uses same). Route polish for HUD.
     const prevLat = state.lat;
     const prevLon = state.lon;
@@ -2295,8 +2352,13 @@ async function pollFollowGps(now) {
     if (fix.speed_mps != null) state.speedKmh = Number(fix.speed_mps) * 3.6;
     const moved =
       Math.abs(state.lat - prevLat) > 1e-7 || Math.abs(state.lon - prevLon) > 1e-7;
-    state.moving = (state.speedKmh || 0) > 0.3 || moved;
-    if (state.moving) setDriveHot(true);
+    // gpsd Doppler speed is reliable; parked jitter is ~0.1–1 km/h
+    state.moving =
+      fix.speed_mps != null ? (state.speedKmh || 0) > MOVING_MIN_KMH : moved;
+    if (state.moving) {
+      state.lastMovingAt = performance.now();
+      setDriveHot(true);
+    }
     ensureMarker();
     // Camera smoothed in simFrame; only update pose targets here
     if (data.radio) updateRadioHud(data.radio);
@@ -2448,14 +2510,14 @@ function setLevelPromptCopy(kind) {
   const sub = document.querySelector("#levelPrompt .nav-level-sub");
   if (!title || !sub) return;
   if (kind === "create") {
-    title.textContent = "Generate level?";
+    title.textContent = "Preload region?";
     sub.innerHTML =
-      "No level covers this spot yet. Auto-confirm in " +
+      "No region covers this spot yet. Auto-confirm in " +
       '<span id="levelPromptSec">20</span>s';
   } else {
-    title.textContent = "Load level?";
+    title.textContent = "Switch region?";
     sub.innerHTML =
-      "You’re outside the current level. Auto-confirm in " +
+      "You’re outside the current region. Auto-confirm in " +
       '<span id="levelPromptSec">20</span>s';
   }
 }
@@ -2510,7 +2572,16 @@ async function acceptLevelPrompt() {
   const sug = state.promptSuggestion;
   closeLevelPrompt(false);
   if (!sug) return;
+  try {
+    await acceptLevelSuggestion(sug);
+  } catch (err) {
+    console.warn("Region switch failed", err);
+    hideBuildOverlay();
+    showErrorToast(`Could not load ${sug.label} — check the connection.`);
+  }
+}
 
+async function acceptLevelSuggestion(sug) {
   // Drop old explorer route while switching packs
   state.route = null;
   state.routeGeo = null;
@@ -2534,6 +2605,7 @@ async function acceptLevelPrompt() {
     state.levelName = sug.label;
     document.getElementById("statLevel").textContent = state.levelName;
     state.outsideM = 0;
+    refreshFog(true);
     if (sug.existingStatus === "ready") {
       await prepareValhallaForLevel();
       await resumeExploreAfterLevel();
@@ -2570,8 +2642,7 @@ async function acceptLevelPrompt() {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     hideBuildOverlay();
-    document.getElementById("navHint").textContent =
-      data.detail || "Could not create level";
+    showErrorToast(data.detail || "Could not preload region");
     return;
   }
   const level = data.level;
@@ -2609,20 +2680,20 @@ async function pollLevelJob(jobId) {
       await new Promise((r) => setTimeout(r, 600));
       hideBuildOverlay();
       document.getElementById("navHint").textContent = `${state.levelName} ready.`;
+      refreshFog(true);
       await prepareValhallaForLevel();
       await resumeExploreAfterLevel();
       return;
     }
     if (st === "error" || st === "failed") {
       hideBuildOverlay();
-      document.getElementById("navHint").textContent =
-        job.error || "Level build failed";
+      showErrorToast(job.error || "Region build failed");
       return;
     }
   }
   hideBuildOverlay();
   document.getElementById("navHint").textContent =
-    "Build is taking a long time — check Levels.";
+    "Build is taking a long time — check Regions.";
 }
 
 async function pollLevelUntilReady(levelId) {
@@ -2646,14 +2717,14 @@ async function pollLevelUntilReady(levelId) {
       await new Promise((r) => setTimeout(r, 500));
       hideBuildOverlay();
       document.getElementById("navHint").textContent = `${state.levelName} ready.`;
+      refreshFog(true);
       await prepareValhallaForLevel();
       await resumeExploreAfterLevel();
       return;
     }
     if (st === "error") {
       hideBuildOverlay();
-      document.getElementById("navHint").textContent =
-        lv.error || "Level build failed";
+      showErrorToast(lv.error || "Region build failed");
       return;
     }
   }
@@ -2682,11 +2753,17 @@ async function trySuggestLevel(kind = "switch") {
  */
 async function promptIfUnknownOnSpawn() {
   if (!state.spawned || state.promptOpen || state.building) return;
+  // Follow mode marks us spawned before any fix arrives; state.lat/lon are
+  // still the hardcoded defaults then. pollFollowGps retries on first fix.
+  if (!state.hasLiveFix) {
+    state.firstFixLevelPromptPending = true;
+    return;
+  }
 
   // No level yet: ask to build even if TBT nav is off (unlock needs road_segments).
   if (!state.levelId) {
     document.getElementById("navHint").textContent =
-      "No level here — looking up a place to generate…";
+      "No region here — looking up a place to preload…";
     await trySuggestLevel("create");
     return;
   }
@@ -2711,7 +2788,7 @@ async function promptIfUnknownOnSpawn() {
 }
 
 async function checkOutsideLevel(now) {
-  if (!state.spawned || state.promptOpen || state.building) return;
+  if (!state.spawned || !state.hasLiveFix || state.promptOpen || state.building) return;
   // Switch prompts need TBT nav; create-when-no-level does not.
   if (!state.navigationActive && state.levelId) return;
   if (state.containsInFlight) return;
@@ -2737,7 +2814,7 @@ async function checkOutsideLevel(now) {
       state.lastOutsideLat = state.lat;
       state.lastOutsideLon = state.lon;
       document.getElementById("navHint").textContent =
-        `No level · ${Math.round(state.outsideM)}/${OUTSIDE_TRIGGER_M} m to retry suggest`;
+        `No region · ${Math.round(state.outsideM)}/${OUTSIDE_TRIGGER_M} m to retry suggest`;
       if (state.outsideM < OUTSIDE_TRIGGER_M) return;
       const opened = await trySuggestLevel("create");
       if (opened) state.outsideM = 0;
@@ -2832,9 +2909,16 @@ function isDriveInput() {
 }
 
 function wantsFastLoop() {
+  if (state.followLiveGps && state.spawned) {
+    // Full rAF only while moving (camera/marker lerp) or settling after a
+    // stop / user gesture; parked follow polls on FOLLOW_IDLE_TICK_MS.
+    return (
+      state.moving ||
+      performance.now() - (state.lastMovingAt || 0) < FOLLOW_SETTLE_MS ||
+      !!state.userCamActive
+    );
+  }
   return (
-    // Live GPS follow needs full rAF so camera/marker lerp actually runs
-    (state.followLiveGps && state.spawned) ||
     isDriveInput() ||
     state.speedKmh !== 0 ||
     state.moving ||
@@ -2872,11 +2956,11 @@ function scheduleSimFrame() {
     return;
   }
   // Pre-spawn: sleep until spawn mode / keys. Spawned+parked: slow keep-alive tick.
-  if (!state.spawned && !state.spawnMode) return;
+  if (!state.spawned && !state.spawnMode && !state.followLiveGps) return;
   state.idleTimer = setTimeout(() => {
     state.idleTimer = 0;
     state.rafId = requestAnimationFrame(simFrame);
-  }, IDLE_TICK_MS);
+  }, state.followLiveGps ? FOLLOW_IDLE_TICK_MS : IDLE_TICK_MS);
 }
 
 function wakeSimLoop() {
@@ -2943,7 +3027,7 @@ function simFrame(now) {
         checkOutsideLevel(now);
       }
     }
-    setDriveHot(true);
+    setDriveHot(wantsFastLoop());
   } else {
     moveStep(dt, now);
 
@@ -2961,19 +3045,40 @@ function simFrame(now) {
   scheduleSimFrame();
 }
 
-async function prepareValhallaForLevel() {
-  if (!state.levelId) return null;
-  document.getElementById("navHint").textContent =
-    "Preparing routing map for this city…";
-  const res = await WardAuth.apiFetch("/api/navigate/prepare", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ level_id: state.levelId, restart: true }),
+/** One prepare at a time per page; concurrent callers share the same run. */
+function prepareValhallaForLevel(opts = {}) {
+  const levelId = state.levelId;
+  if (!levelId) return Promise.resolve(null);
+  const cur = state.valhallaPrepPromise;
+  if (cur && cur.levelId === levelId) return cur.promise;
+  const promise = prepareValhallaForLevelRun(levelId, opts).finally(() => {
+    if (state.valhallaPrepPromise?.promise === promise) {
+      state.valhallaPrepPromise = null;
+    }
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    document.getElementById("navHint").textContent =
-      data.detail || "Could not prepare Valhalla for this level";
+  state.valhallaPrepPromise = { levelId, promise };
+  return promise;
+}
+
+async function prepareValhallaForLevelRun(levelId, opts) {
+  setNavHint("Preparing routing map for this city…");
+  let res;
+  let data = {};
+  try {
+    res = await WardAuth.apiFetch("/api/navigate/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level_id: levelId, restart: true }),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (_) {
+    res = null;
+  }
+  if (!res?.ok) {
+    setRoutingReady(
+      false,
+      data.detail || "Could not prepare routing for this region"
+    );
     return null;
   }
   const mb = ((data.active_bytes || 0) / (1024 * 1024)).toFixed(1);
@@ -2984,6 +3089,7 @@ async function prepareValhallaForLevel() {
   startRoutingPoll();
   const ready = await waitForValhallaReady({
     reason: "Building routing tiles — this can take a few minutes after a new city…",
+    overlay: opts.overlay,
   });
   setRoutingReady(
     ready,
@@ -3001,33 +3107,41 @@ async function waitForValhallaReady(opts = {}) {
   const reason =
     opts.reason || "Waiting for Valhalla routing to come online…";
   const maxTries = opts.maxTries || 180; // 180 × 5s ≈ 15 min
-  showBuildOverlay(reason);
-  setBuildStage("finish");
+  // overlay:false keeps the map usable (boot); the routing banner shows status.
+  const overlay = opts.overlay !== false;
+  if (overlay) {
+    showBuildOverlay(reason);
+    setBuildStage("finish");
+  }
   for (let i = 0; i < maxTries; i++) {
-    const pct = Math.min(99, Math.round((i / maxTries) * 100));
-    document.getElementById("navBuildFill").style.width = `${pct}%`;
-    document.getElementById("navBuildPct").textContent = `${pct}%`;
-    document.getElementById("navBuildMessage").textContent = reason;
-    document.getElementById("navBuildEta").textContent =
-      i < 6 ? "starting…" : "building tiles…";
+    if (overlay) {
+      const pct = Math.min(99, Math.round((i / maxTries) * 100));
+      document.getElementById("navBuildFill").style.width = `${pct}%`;
+      document.getElementById("navBuildPct").textContent = `${pct}%`;
+      document.getElementById("navBuildMessage").textContent = reason;
+      document.getElementById("navBuildEta").textContent =
+        i < 6 ? "starting…" : "building tiles…";
+    }
     try {
       const res = await WardAuth.apiFetch("/api/navigate/status");
       const data = await res.json();
       const st = data.valhalla?.status || data.valhalla?.detail || "";
       if (data.valhalla?.ok) {
-        document.getElementById("navBuildFill").style.width = "100%";
-        document.getElementById("navBuildPct").textContent = "100%";
-        document.getElementById("navBuildMessage").textContent =
-          "Valhalla ready.";
-        await new Promise((r) => setTimeout(r, 400));
-        hideBuildOverlay();
+        if (overlay) {
+          document.getElementById("navBuildFill").style.width = "100%";
+          document.getElementById("navBuildPct").textContent = "100%";
+          document.getElementById("navBuildMessage").textContent =
+            "Valhalla ready.";
+          await new Promise((r) => setTimeout(r, 400));
+          hideBuildOverlay();
+        }
         setRoutingReady(true);
         stopRoutingPoll();
-        document.getElementById("navHint").textContent = "Routing ready.";
+        setNavHint("Routing ready.");
         return true;
       }
       setRoutingReady(false, String(st || "Building routing tiles…"));
-      if (st) {
+      if (st && overlay) {
         document.getElementById("navBuildMessage").textContent = String(st);
       }
     } catch (_) {
@@ -3035,7 +3149,7 @@ async function waitForValhallaReady(opts = {}) {
     }
     await new Promise((r) => setTimeout(r, 5000));
   }
-  hideBuildOverlay();
+  if (overlay) hideBuildOverlay();
   return false;
 }
 
@@ -3196,7 +3310,7 @@ async function resolveLevel() {
 
   if (!candidateId) {
     state.levelId = null;
-    setNavHint("No level yet — drive to a place to generate one.");
+    setNavHint("No region yet — drive to a place to preload one.");
     updateLevelTiles(null);
     await refreshXpHud(true);
     state.firstFixLevelPromptPending = true;
@@ -3212,7 +3326,7 @@ async function resolveLevel() {
     state.levelName = "";
     state.levelBoundary = null;
     document.getElementById("statLevel").textContent = "—";
-    setNavHint("No level yet — looking up a place to generate…");
+    setNavHint("No region yet — looking up a place to preload…");
     updateLevelTiles(null);
     await refreshXpHud(true);
     state.firstFixLevelPromptPending = true;
@@ -3291,6 +3405,7 @@ function initMap() {
     state.lat = e.lngLat.lat;
     state.lon = e.lngLat.lng;
     state.spawned = true;
+    state.hasLiveFix = true;
     state.spawnMode = false;
     state.outsideM = 0;
     state.lastOutsideLat = state.lat;
@@ -3356,12 +3471,12 @@ async function setAchievementSounds(on) {
   syncMuteIcon();
   try {
     await WardAuth.apiFetch("/api/settings", {
-      method: "POST",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ achievement_sounds: state.achievementSounds }),
     });
   } catch (_) {
-    /* keep local toggle even if settings POST fails */
+    /* keep local toggle even if settings PATCH fails */
   }
 }
 
@@ -3545,12 +3660,9 @@ async function boot() {
   bindControls();
   bindSimVisibility();
   document.body.classList.add("nav-idle");
-  if (state.levelId) {
-    await prepareValhallaForLevel();
-  }
-  checkValhallaHint();
 
-  // Car primary path: auto-follow gpsd / live fix, then auto-explore
+  // Car primary path: auto-follow gpsd / live fix first — routing tiles can
+  // take minutes and must not hold back position, speed and fog.
   const followed = await tryAutoFollowFromGpsd();
   if (!followed && !DEBUG_NAV) {
     setFollowLiveGps(true); // poll until gpsd appears
@@ -3571,10 +3683,28 @@ async function boot() {
   state.lastFrameAt = performance.now();
   scheduleSimFrame();
 
+  if (state.levelId) {
+    prepareValhallaForLevel({ overlay: false })
+      .catch(() => {})
+      .finally(() => checkValhallaHint());
+  } else {
+    checkValhallaHint();
+  }
+
+  // Drive open → throttle background geocode; cleared again when leaving.
+  setNavigationActiveFlag(true);
+  window.addEventListener("pagehide", () => setNavigationActiveFlag(false));
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) setNavigationActiveFlag(true);
+  });
+}
+
+function setNavigationActiveFlag(active) {
   WardAuth.apiFetch("/api/navigation/active", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ active: true }),
+    body: JSON.stringify({ active }),
+    keepalive: true,
   }).catch(() => {});
 }
 

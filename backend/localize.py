@@ -313,11 +313,11 @@ ON CONFLICT (user_id, network_id) DO UPDATE SET
         EXCLUDED.last_seen
     ),
     localization_mode = EXCLUDED.localization_mode,
-    address = EXCLUDED.address,
-    city = EXCLUDED.city,
-    postcode = EXCLUDED.postcode,
-    country = EXCLUDED.country,
-    country_code = EXCLUDED.country_code,
+    address = COALESCE(EXCLUDED.address, networks.address),
+    city = COALESCE(EXCLUDED.city, networks.city),
+    postcode = COALESCE(EXCLUDED.postcode, networks.postcode),
+    country = COALESCE(EXCLUDED.country, networks.country),
+    country_code = COALESCE(EXCLUDED.country_code, networks.country_code),
     location_accuracy_m = EXCLUDED.location_accuracy_m,
     avg_gps_accuracy_m = EXCLUDED.avg_gps_accuracy_m,
     computed_at = NOW()

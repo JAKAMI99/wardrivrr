@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0e11" />
-    <title>Status · wardrivrr</title>
+    <title>Status Â· wardrivrr</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
     <script src="/static/theme.js?v=8"></script>
@@ -18,7 +18,7 @@
           <a href="/">Home</a>
           <a href="/database">Database</a>
           <a href="/stats">Stats</a>
-          <a href="/levels">Levels</a>
+          <a href="/regions">Regions</a>
           <a href="/discover">Discover</a>
           <a href="/navigate">Navigate</a>
           
@@ -33,14 +33,14 @@
           <h1>Status</h1>
           <p>
             Live services, storage, and data counts.
-            <span id="deployModeLabel">Mode …</span>
+            <span id="deployModeLabel">Mode â€¦</span>
           </p>
         </header>
 
         <div class="section-head">
           <div>
             <h2>Live services</h2>
-            <p>Refreshes every few seconds · <span id="statusUpdated">—</span></p>
+            <p>Refreshes every few seconds Â· <span id="statusUpdated">â€”</span></p>
           </div>
           <button class="btn btn-ghost" type="button" id="refreshStatus">Refresh now</button>
         </div>
@@ -48,51 +48,51 @@
         <section class="status-grid" aria-label="Service status">
           <article class="status-card" id="cardGps">
             <div class="status-card-top">
-              <span class="module-kicker">GPS · gpsd</span>
-              <span class="badge" id="gpsBadge">…</span>
+              <span class="module-kicker">GPS Â· gpsd</span>
+              <span class="badge" id="gpsBadge">â€¦</span>
             </div>
             <h3 id="gpsTitle">GPS</h3>
-            <p id="gpsDetail">Checking…</p>
+            <p id="gpsDetail">Checkingâ€¦</p>
             <dl class="status-dl" id="gpsMeta"></dl>
           </article>
 
           <article class="status-card" id="cardKismet">
             <div class="status-card-top">
               <span class="module-kicker">Capture</span>
-              <span class="badge" id="kismetBadge">…</span>
+              <span class="badge" id="kismetBadge">â€¦</span>
             </div>
             <h3 id="kismetTitle">Kismet</h3>
-            <p id="kismetDetail">Checking…</p>
+            <p id="kismetDetail">Checkingâ€¦</p>
             <dl class="status-dl" id="kismetMeta"></dl>
           </article>
 
           <article class="status-card" id="cardValhalla">
             <div class="status-card-top">
               <span class="module-kicker">Routing</span>
-              <span class="badge" id="valhallaBadge">…</span>
+              <span class="badge" id="valhallaBadge">â€¦</span>
             </div>
             <h3 id="valhallaTitle">Valhalla</h3>
-            <p id="valhallaDetail">Checking…</p>
+            <p id="valhallaDetail">Checkingâ€¦</p>
             <dl class="status-dl" id="valhallaMeta"></dl>
           </article>
 
           <article class="status-card" id="cardDb">
             <div class="status-card-top">
               <span class="module-kicker">PostGIS</span>
-              <span class="badge" id="dbBadge">…</span>
+              <span class="badge" id="dbBadge">â€¦</span>
             </div>
             <h3 id="dbTitle">Database</h3>
-            <p id="dbDetail">Checking…</p>
+            <p id="dbDetail">Checkingâ€¦</p>
             <dl class="status-dl" id="dbMeta"></dl>
           </article>
 
           <article class="status-card" id="cardStorage">
             <div class="status-card-top">
               <span class="module-kicker">Disk</span>
-              <span class="badge" id="storageBadge">…</span>
+              <span class="badge" id="storageBadge">â€¦</span>
             </div>
             <h3 id="storageTitle">Storage</h3>
-            <p id="storageDetail">Checking…</p>
+            <p id="storageDetail">Checkingâ€¦</p>
             <dl class="status-dl" id="storageMeta"></dl>
           </article>
         </section>
@@ -100,43 +100,43 @@
         <div class="section-head">
           <div>
             <h2>Data stats</h2>
-            <p>What’s in PostGIS right now.</p>
+            <p>Whatâ€™s in PostGIS right now.</p>
           </div>
         </div>
         <section class="stat-strip" aria-label="Database stats">
           <div class="stat">
             <span class="label">Networks</span>
-            <div class="value" id="statNetworks">—</div>
+            <div class="value" id="statNetworks">â€”</div>
           </div>
           <div class="stat">
-            <span class="label">Wi‑Fi</span>
-            <div class="value" id="statWifi">—</div>
+            <span class="label">Wiâ€‘Fi</span>
+            <div class="value" id="statWifi">â€”</div>
           </div>
           <div class="stat">
             <span class="label">Bluetooth</span>
-            <div class="value" id="statBt">—</div>
+            <div class="value" id="statBt">â€”</div>
           </div>
           <div class="stat">
             <span class="label">BLE</span>
-            <div class="value" id="statBle">—</div>
+            <div class="value" id="statBle">â€”</div>
           </div>
           <div class="stat">
             <span class="label">Samples</span>
-            <div class="value" id="statSamples">—</div>
+            <div class="value" id="statSamples">â€”</div>
           </div>
           <div class="stat">
             <span class="label">From Kismet</span>
-            <div class="value" id="statKismetSamples">—</div>
+            <div class="value" id="statKismetSamples">â€”</div>
           </div>
           <div class="stat">
             <span class="label">From WiGLE</span>
-            <div class="value" id="statWigleSamples">—</div>
+            <div class="value" id="statWigleSamples">â€”</div>
           </div>
         </section>
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
+    <script src="/static/nav.js?v=7"></script>
     <script src="/static/status.js"></script>
   </body>
 </html>

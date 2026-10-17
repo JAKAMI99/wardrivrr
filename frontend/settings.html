@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0e11" />
-    <title>Settings · wardrivrr</title>
+    <title>Settings Â· wardrivrr</title>
     <link rel="stylesheet" href="/static/styles.css?v=8" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
     <script src="/static/theme.js?v=8"></script>
@@ -54,17 +54,17 @@
               aria-label="Account"
             >
               <h2>Account</h2>
-              <p class="muted">Change how you sign in — display name and password.</p>
+              <p class="muted">Change how you sign in â€” display name and password.</p>
 
               <div class="xp-strip settings-xp" id="settingsXp" hidden>
                 <div class="xp-strip-meta">
-                  <span class="xp-level" id="settingsXpLevel">Level —</span>
-                  <span class="xp-points" id="settingsXpPoints">— XP</span>
+                  <span class="xp-level" id="settingsXpLevel">Level â€”</span>
+                  <span class="xp-points" id="settingsXpPoints">â€” XP</span>
                 </div>
                 <div class="xp-bar" aria-hidden="true">
                   <div class="xp-bar-fill" id="settingsXpFill" style="width:0%"></div>
                 </div>
-                <p class="muted settings-hint" id="settingsXpBlurb">Explorer progress from achievements.</p>
+                <p class="muted settings-hint" id="settingsXpBlurb">XP and level from driving, finds, and achievements.</p>
               </div>
 
               <form id="usernameForm" class="settings-form">
@@ -81,7 +81,7 @@
                     required
                   />
                 </label>
-                <p class="muted settings-hint">Letters, numbers, <code>_</code> <code>.</code> <code>-</code> — no spaces.</p>
+                <p class="muted settings-hint">Letters, numbers, <code>_</code> <code>.</code> <code>-</code> â€” no spaces.</p>
                 <div class="tools-row">
                   <button class="btn btn-primary" type="submit">Save username</button>
                 </div>
@@ -128,7 +128,7 @@
               <hr class="settings-divider" />
 
               <h3 class="settings-subhead">API keys</h3>
-              <p class="muted">For edge / second instance uploads: <code>X-API-Key: wr_…</code> → <code>POST /api/v1/ingest/upload</code></p>
+              <p class="muted">For edge / second instance uploads: <code>X-API-Key: wr_â€¦</code> â†’ <code>POST /api/v1/ingest/upload</code></p>
               <div class="tools-row">
                 <input id="keyName" placeholder="key name" value="default" />
                 <button class="btn" type="button" id="createKey">Create key</button>
@@ -168,12 +168,12 @@
                 <label class="checkbox-row">
                   <input type="checkbox" id="anomalyAlerts" checked />
                   Special detections
-                  <span class="muted"> — Flipper, Starlink, trains… toasts &amp; Flipper/Starlink XP</span>
+                  <span class="muted"> â€” Flipper, Starlink, trainsâ€¦ toasts &amp; Flipper/Starlink XP</span>
                 </label>
                 <label class="checkbox-row">
                   <input type="checkbox" id="achievementSounds" checked />
                   Achievement &amp; detection sounds
-                  <span class="muted"> — short Web Audio cues (mute anytime)</span>
+                  <span class="muted"> â€” short Web Audio cues (mute anytime)</span>
                 </label>
                 <label>
                   Units
@@ -209,7 +209,7 @@
               hidden
             >
               <h2>Import capture file</h2>
-              <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV — same pipeline as the ingest API.</p>
+              <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV â€” same pipeline as the ingest API.</p>
               <input type="file" id="uploadFile" accept=".kismet,.csv,.wiglecsv,.db" />
               <div class="tools-row">
                 <button class="btn btn-primary btn-busyable" type="button" id="uploadBtn">
@@ -219,7 +219,7 @@
               </div>
               <div class="job-progress" id="uploadProgress" hidden>
                 <div class="job-progress-bar" id="uploadProgressBar"></div>
-                <span class="job-progress-text" id="uploadProgressText">Uploading…</span>
+                <span class="job-progress-text" id="uploadProgressText">Uploadingâ€¦</span>
               </div>
 
               <hr class="settings-divider" />
@@ -242,7 +242,7 @@
               </div>
               <div class="job-progress" id="exportProgress" hidden>
                 <div class="job-progress-bar" id="exportProgressBar"></div>
-                <span class="job-progress-text" id="exportProgressText">Preparing…</span>
+                <span class="job-progress-text" id="exportProgressText">Preparingâ€¦</span>
               </div>
               <label>
                 Import mode
@@ -260,7 +260,7 @@
               </div>
               <div class="job-progress" id="importProgress" hidden>
                 <div class="job-progress-bar" id="importProgressBar"></div>
-                <span class="job-progress-text" id="importProgressText">Working…</span>
+                <span class="job-progress-text" id="importProgressText">Workingâ€¦</span>
               </div>
             </section>
 
@@ -274,7 +274,7 @@
               <h2>Advanced</h2>
               <p>
                 Ingest always uses fast 2D localization. Start a full 3D recalculation only when you can
-                wait — altitude stays stored either way.
+                wait â€” altitude stays stored either way.
               </p>
               <div class="tools-row">
                 <span class="mode-pill" id="locMode">2d</span>
@@ -290,7 +290,7 @@
               aria-label="Admin"
               hidden
             >
-              <h2>Admin · invite user</h2>
+              <h2>Admin Â· invite user</h2>
               <form id="inviteForm" class="settings-form">
                 <label>Username <input id="inviteUser" required /></label>
                 <label>Password <input type="password" id="invitePass" required /></label>
@@ -305,7 +305,7 @@
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
-    <script src="/static/settings.js?v=8"></script>
+    <script src="/static/nav.js?v=7"></script>
+    <script src="/static/settings.js?v=9"></script>
   </body>
 </html>

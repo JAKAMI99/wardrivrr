@@ -50,8 +50,8 @@ function packLine(lv) {
   if (others != null) {
     line +=
       others === 1
-        ? " · used in 1 other level"
-        : ` · used in ${others} other levels`;
+        ? " · used in 1 other region"
+        : ` · used in ${others} other regions`;
   }
   return line;
 }
@@ -320,7 +320,7 @@ function areaChoiceHtml(p, i) {
       <strong>${escapeHtml(p.label)}</strong>
       <span>${
         owned
-          ? "Already in your levels"
+          ? "Already in your regions"
           : `${escapeHtml(kind)} · ${escapeHtml(fmtArea(p.area_km2))}`
       }</span>
     </button>`;
@@ -337,7 +337,7 @@ async function selectAreaOption(index) {
   document.getElementById("previewTitle").textContent = selectedPlace.label;
   document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
     ? "Loading district boundary…"
-    : "Whole-city boundary — this will be your playable level";
+    : "Whole-city boundary — this will be your playable region";
   fillConfirm();
   setAreaNextEnabled(false);
   ensurePreviewMap();
@@ -395,7 +395,7 @@ async function searchPlaces(e) {
   );
   const data = await res.json().catch(() => []);
   if (!res.ok) {
-    box.innerHTML = `<p class="muted">${data.detail || "Search failed"}</p>`;
+    box.innerHTML = `<p class="muted">${escapeHtml(data.detail || "Search failed")}</p>`;
     return;
   }
   if (!data.length) {
@@ -419,7 +419,7 @@ function fillConfirm() {
   const pack = selectedPlace.map_pack || prepareMeta?.map_pack || {};
   const area = selectedPlace.area_km2 != null ? ` (${fmtArea(selectedPlace.area_km2)})` : "";
   document.getElementById("confirmPlace").textContent =
-    `Generate level: ${selectedPlace.label}${area}`;
+    `Preload region: ${selectedPlace.label}${area}`;
   const packId = pack.id || prepareMeta?.extract_id || "";
   const packName = pack.name || packId.split("/").pop() || "regional pack";
   const size = pack.size_bytes != null ? fmtBytes(pack.size_bytes) : null;
@@ -429,8 +429,8 @@ function fillConfirm() {
   if (usedBy != null) {
     sizeLine +=
       usedBy === 0
-        ? " — not used by any of your levels yet"
-        : ` — already used by ${usedBy} of your level${usedBy === 1 ? "" : "s"}`;
+        ? " — not used by any of your regions yet"
+        : ` — already used by ${usedBy} of your region${usedBy === 1 ? "" : "s"}`;
   }
   sizeLine += ".";
   document.getElementById("confirmSize").textContent = sizeLine;
@@ -492,7 +492,7 @@ async function pollJob() {
     pollTimer = null;
     document.getElementById("progressFill").style.width = "100%";
     document.getElementById("doneText").textContent =
-      `${document.getElementById("levelName").value} is ready to explore.`;
+      `${document.getElementById("levelName").value} is ready.`;
     goStep("done");
     document.getElementById("stepDone").classList.add("celebrate");
     loadLevels();
@@ -549,7 +549,7 @@ async function generateLevel() {
   createdLevelId = body.level?.id;
   activeJobId = body.job?.id;
   if (!activeJobId) {
-    showToast("Level created but no job queued", true);
+    showToast("Region created but no job queued", true);
     return;
   }
   pollTimer = setInterval(pollJob, 500);
@@ -584,7 +584,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
           <span class="level-status status-${lv.status}">${lv.status}</span>
         </span>
       </header>
-      <p class="muted level-mode-line">Vehicle mode → Navigate</p>
+      <p class="muted level-mode-line">Vehicle mode → Drive</p>
       ${placeHint}
       <ul class="level-stats">
         <li>${fmtPct(lv.explored_pct)} explored${done ? " · done" : ""}</li>
@@ -599,7 +599,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
   }" ${lv.status !== "ready" ? 'aria-disabled="true"' : ""}>Map</a>
         <button class="btn" data-load="${lv.id}" ${
     lv.status !== "ready" ? "disabled" : ""
-  }>Load</button>
+  }>Use</button>
         <button class="btn" data-del="${lv.id}">Delete</button>
       </div>
     </article>`;
@@ -666,13 +666,13 @@ function bindLevelActions(el) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ level_id: Number(btn.dataset.load) }),
       });
-      showToast("Level loaded");
+      showToast("Region active");
       loadLevels();
     });
   });
   el.querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!window.confirm("Delete this level?")) return;
+      if (!window.confirm("Delete this region?")) return;
       await WardAuth.apiFetch(`/api/levels/${btn.dataset.del}`, { method: "DELETE" });
       loadLevels();
     });
@@ -692,11 +692,11 @@ async function loadLevels() {
   const data = await res.json().catch(() => []);
   const el = document.getElementById("levelsList");
   if (!res.ok) {
-    el.textContent = data.detail || "Failed to load levels";
+    el.textContent = data.detail || "Failed to load regions";
     return;
   }
   if (!data.length) {
-    el.innerHTML = `<p class="muted">No levels yet — start with a place above.</p>`;
+    el.innerHTML = `<p class="muted">No regions yet — preload a place above, or let Drive offer one by location.</p>`;
     return;
   }
   const settings = await WardAuth.apiFetch("/api/settings").then((r) => r.json());
@@ -791,8 +791,9 @@ document.getElementById("doneLoad").addEventListener("click", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ level_id: createdLevelId }),
   });
-  showToast("Level loaded");
+  showToast("Region active");
   loadLevels();
+  document.getElementById("regionsListSection")?.scrollIntoView({ behavior: "smooth" });
 });
 
 (async () => {

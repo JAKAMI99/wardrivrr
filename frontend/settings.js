@@ -50,7 +50,7 @@ async function loadExplorerXp() {
     const pts = document.getElementById("settingsXpPoints");
     const fill = document.getElementById("settingsXpFill");
     const blurb = document.getElementById("settingsXpBlurb");
-    if (lvl) lvl.textContent = `Explorer level ${prog.level}`;
+    if (lvl) lvl.textContent = `Level ${prog.level}`;
     if (pts) pts.textContent = `${fmt(prog.xp)} XP`;
     if (fill) fill.style.width = `${Math.min(100, Number(prog.progress_pct) || 0)}%`;
     if (blurb) {
@@ -59,6 +59,15 @@ async function loadExplorerXp() {
   } catch {
     /* optional */
   }
+}
+
+function escHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function loadKeys() {
@@ -73,7 +82,7 @@ async function loadKeys() {
     .map(
       (k) => `
     <div class="key-row">
-      <span>${k.name} · <code>${k.key_prefix}…</code>
+      <span>${escHtml(k.name)} · <code>${escHtml(k.key_prefix)}…</code>
         ${k.revoked_at ? " (revoked)" : ""}</span>
       ${
         k.revoked_at
