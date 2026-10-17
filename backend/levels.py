@@ -791,6 +791,7 @@ def unlock_near_point(
     if segment_id is None:
         return {
             "newly_explored": 0,
+            "newly_explored_m": 0.0,
             "explored_km": 0.0,
             "explored_pct": 0.0,
             "segment_id": None,
@@ -819,6 +820,7 @@ def unlock_near_point(
             if not cur_seg:
                 return {
                     "newly_explored": 0,
+                    "newly_explored_m": 0.0,
                     "explored_km": 0.0,
                     "explored_pct": 0.0,
                     "segment_id": sid,
@@ -903,7 +905,8 @@ def unlock_near_point(
 
             cur.execute(
                 """
-                SELECT COUNT(*)::int AS n
+                SELECT COUNT(*)::int AS n,
+                       COALESCE(SUM(length_m), 0)::float AS m
                 FROM road_segments
                 WHERE level_id = %s
                   AND is_explored = FALSE
@@ -911,7 +914,9 @@ def unlock_near_point(
                 """,
                 (level_id, ids),
             )
-            newly = int((cur.fetchone() or {}).get("n") or 0)
+            before = cur.fetchone() or {}
+            newly = int(before.get("n") or 0)
+            newly_m = float(before.get("m") or 0.0)
             # Always stamp last_driven_at; explored_at only on first unlock
             cur.execute(
                 """
@@ -939,6 +944,7 @@ def unlock_near_point(
         explored_pct = 0.0
     return {
         "newly_explored": newly,
+        "newly_explored_m": newly_m,
         "explored_km": explored_km,
         "explored_pct": explored_pct,
         "segment_id": sid,

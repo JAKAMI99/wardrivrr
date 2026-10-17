@@ -362,12 +362,29 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
         wipe_valhalla_tiles()
         steps.append({"cmd": ["wipe_tiles"], "code": 0})
 
-    proc = subprocess.run(
-        [*compose, "up", "valhalla", "-d"],
+    # Pull first so a wiped image does not burn the up() timeout mid-download.
+    pull = subprocess.run(
+        [*compose, "pull", "valhalla"],
         cwd=str(root),
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=600,
+        env=cenv,
+    )
+    steps.append(
+        {
+            "cmd": ["pull", "valhalla"],
+            "code": pull.returncode,
+            "err": (pull.stderr or "")[-300:],
+        }
+    )
+
+    proc = subprocess.run(
+        [*compose, "up", "valhalla", "-d", "--pull", "missing"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=300,
         env=cenv,
     )
     steps.append(

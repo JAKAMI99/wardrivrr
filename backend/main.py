@@ -926,9 +926,12 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
                 }
 
     explored_km = 0.0
-    if unlock_stats and unlock_stats.get("newly_explored"):
-        # ~20 m average segment length estimate for achievement flavour counters
-        explored_km = float(unlock_stats["newly_explored"]) * 0.02
+    if unlock_stats:
+        if unlock_stats.get("newly_explored_m") is not None:
+            explored_km = max(0.0, float(unlock_stats["newly_explored_m"]) / 1000.0)
+        elif unlock_stats.get("newly_explored"):
+            # Fallback: ~20 m segments (SEGMENT_TARGET_M)
+            explored_km = float(unlock_stats["newly_explored"]) * 0.02
 
     drive = record_drive_step(
         user["id"],
