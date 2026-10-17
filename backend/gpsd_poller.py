@@ -200,6 +200,7 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
                     use_lat,
                     accuracy_m=fix.get("accuracy_m") or 12.0,
                     heading_deg=fix.get("heading_deg"),
+                    segment_id=snap.get("segment_id"),
                 )
                 _last_unlock_at[user_id] = now_mono
         except Exception:

@@ -634,7 +634,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
       ${lv.error ? `<p class="error-text">${escapeHtml(lv.error)}</p>` : ""}
       <div class="tools-row">
         <a class="btn btn-primary ${lv.status !== "ready" ? "is-disabled" : ""}" href="${
-    lv.status === "ready" ? `/discover?level=${lv.id}` : "#"
+    lv.status === "ready" ? `/progress?level=${lv.id}` : "#"
   }" ${lv.status !== "ready" ? 'aria-disabled="true"' : ""}>Map</a>
         <button class="btn" data-load="${lv.id}" ${
     lv.status !== "ready" ? "disabled" : ""

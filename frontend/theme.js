@@ -177,11 +177,44 @@
     },
   };
 
+  /**
+   * Map + fog-of-war colours per theme.
+   * fogExplored = driven (bright); fogLocked = never driven (near-black).
+   */
   const MAP = {
-    classic: { ahead: "#00e5ff", done: "#2ad48a", mapDay: "liberty", mapNight: "dark" },
-    kidcore: { ahead: "#ff5cab", done: "#b8ff00", mapDay: "liberty", mapNight: "liberty" },
-    crt: { ahead: "#00ff66", done: "#ffb000", mapDay: "dark", mapNight: "dark" },
+    classic: {
+      ahead: "#00e5ff",
+      done: "#2ad48a",
+      fogExplored: "#3dffa8",
+      fogLocked: "#12161e",
+      mapDay: "liberty",
+      mapNight: "dark",
+    },
+    kidcore: {
+      ahead: "#ff5cab",
+      done: "#b8ff00",
+      fogExplored: "#e6ff4a",
+      fogLocked: "#160812",
+      mapDay: "liberty",
+      mapNight: "liberty",
+    },
+    crt: {
+      ahead: "#00ff66",
+      done: "#ffb000",
+      fogExplored: "#33ff77",
+      fogLocked: "#030805",
+      mapDay: "dark",
+      mapNight: "dark",
+    },
   };
+
+  function applyFogCssVars(themeId) {
+    const pack = MAP[normalize(themeId)] || MAP.classic;
+    const root = document.documentElement;
+    if (!root?.style) return;
+    root.style.setProperty("--fog-explored", pack.fogExplored);
+    root.style.setProperty("--fog-locked", pack.fogLocked);
+  }
 
   let speechObserver = null;
   let phraseTimer = null;
@@ -518,6 +551,7 @@
       restoreSpeech(document.body);
     }
     document.documentElement.dataset.theme = theme;
+    applyFogCssVars(theme);
     if (document.body) {
       document.body.dataset.navTheme = theme;
       syncKidcoreDecor(theme);
@@ -547,6 +581,14 @@
 
   function mapPack(id) {
     return MAP[normalize(id || read())];
+  }
+
+  function fogPack(id) {
+    const pack = mapPack(id);
+    return {
+      explored: pack.fogExplored || pack.done || "#3dffa8",
+      locked: pack.fogLocked || "#12161e",
+    };
   }
 
   async function syncFromServer() {
@@ -646,6 +688,7 @@
     applyGuestClassic,
     clearLocalTheme,
     mapPack,
+    fogPack,
     syncFromServer,
     saveToServer,
     mountSettingsPicker,

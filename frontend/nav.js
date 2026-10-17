@@ -3,7 +3,7 @@
   const PRIMARY = [
     { href: "/navigate", label: "Drive", match: ["/navigate"], drive: true },
     { href: "/levels", label: "Levels", match: ["/levels"] },
-    { href: "/discover", label: "Discover", match: ["/discover"] },
+    { href: "/progress", label: "Progress", match: ["/progress", "/discover"] },
     { href: "/database", label: "Database", match: ["/database"] },
     { href: "/status", label: "Status", match: ["/status"] },
   ];

@@ -11,6 +11,10 @@ from typing import Any
 
 DEFAULT_VALHALLA_URL = os.getenv("VALHALLA_URL", "http://127.0.0.1:8002")
 
+# Cache /status so every /route doesn't pay an extra RTT (was doubling latency).
+_STATUS_CACHE: dict[str, Any] = {"at": 0.0, "ok": False, "payload": None}
+_STATUS_TTL_S = 8.0
+
 
 class ValhallaError(RuntimeError):
     pass
@@ -20,8 +24,18 @@ def valhalla_base_url() -> str:
     return (os.getenv("VALHALLA_URL") or DEFAULT_VALHALLA_URL).rstrip("/")
 
 
-def valhalla_status(timeout_s: float = 2.0) -> dict[str, Any]:
+def valhalla_status(timeout_s: float = 2.0, *, bypass_cache: bool = False) -> dict[str, Any]:
     """Probe /status. During tile build the port may accept then drop — report that."""
+    import time
+
+    now = time.monotonic()
+    if (
+        not bypass_cache
+        and _STATUS_CACHE["payload"] is not None
+        and (now - float(_STATUS_CACHE["at"])) < _STATUS_TTL_S
+    ):
+        return dict(_STATUS_CACHE["payload"])
+
     url = f"{valhalla_base_url()}/status"
     try:
         req = urllib.request.Request(url, method="GET")
@@ -31,14 +45,14 @@ def valhalla_status(timeout_s: float = 2.0) -> dict[str, Any]:
                 payload = json.loads(body) if body else {}
             except json.JSONDecodeError:
                 payload = {"raw": body[:200]}
-            return {
+            out = {
                 "ok": 200 <= resp.status < 300,
                 "url": valhalla_base_url(),
                 "status_code": resp.status,
                 "detail": payload,
             }
     except Exception as exc:
-        return {
+        out = {
             "ok": False,
             "url": valhalla_base_url(),
             "status_code": None,
@@ -48,13 +62,17 @@ def valhalla_status(timeout_s: float = 2.0) -> dict[str, Any]:
                 "Check: docker logs -f wardrivrr_valhalla"
             ),
         }
+    _STATUS_CACHE["at"] = now
+    _STATUS_CACHE["ok"] = bool(out.get("ok"))
+    _STATUS_CACHE["payload"] = out
+    return out
 
 
 def valhalla_reachable(timeout_s: float = 2.0) -> bool:
     return bool(valhalla_status(timeout_s).get("ok"))
 
 
-def _post(path: str, body: dict[str, Any], timeout_s: float = 45.0) -> dict[str, Any]:
+def _post(path: str, body: dict[str, Any], timeout_s: float = 25.0) -> dict[str, Any]:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         f"{valhalla_base_url()}{path}",
@@ -96,18 +114,28 @@ def route(
     """
     if len(locations) < 2:
         raise ValhallaError("Need at least origin and one destination")
-    if not valhalla_reachable(1.5):
-        st = valhalla_status(1.5)
+    if not valhalla_reachable(1.2):
+        st = valhalla_status(1.2, bypass_cache=True)
         raise ValhallaError(
             st.get("building_hint")
             or f"Valhalla not ready at {valhalla_base_url()}: {st.get('detail')}"
         )
+    n = len(locations)
     locs: list[dict[str, Any]] = []
     for i, p in enumerate(locations):
+        # break at ends only — intermediate "through" keeps a single A* leg
+        # (multi-break legs were the main reason replans felt single-core / slow)
+        explicit = p.get("type")
+        if explicit in ("break", "through", "via"):
+            loc_type = explicit
+        elif i == 0 or i == n - 1:
+            loc_type = "break"
+        else:
+            loc_type = "through"
         loc: dict[str, Any] = {
             "lat": float(p["lat"]),
             "lon": float(p["lon"]),
-            "type": "break",
+            "type": loc_type,
         }
         # Prefer caller-supplied per-point heading, else origin heading_deg
         h = p.get("heading")

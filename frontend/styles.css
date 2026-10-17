@@ -2001,11 +2001,11 @@ a.module:hover {
 }
 
 .legend-item .swatch.locked {
-  background: #e25555;
+  background: var(--fog-locked, #12161e);
 }
 
 .legend-item .swatch.explored {
-  background: #2ad48a;
+  background: var(--fog-explored, #3dffa8);
 }
 
 .discover-map {
