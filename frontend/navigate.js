@@ -82,6 +82,7 @@ const state = {
   levelName: "—",
   levelBoundary: null,
   levelProfile: "small_car",
+  driveModePick: null,
   levelProfileLabel: "Small car",
   spawned: false,
   spawnMode: false,
@@ -1561,6 +1562,7 @@ function applyLevelProfile(profile) {
   const meta = DRIVE_MODE_PRESETS.find((x) => x.id === p) || DRIVE_MODE_PRESETS[1];
   state.levelProfile = p;
   state.levelProfileLabel = meta.label;
+  state.driveModePick = p;
   // Match routing dead-end toggle to the level preset (user can still flip it)
   setExcludeDeadEnds(!!meta.skipDeadEnds);
   syncDriveModeUi();
@@ -1570,22 +1572,47 @@ function syncDriveModeUi() {
   const label = document.getElementById("navModeLabel");
   const blurb = document.getElementById("navModeBlurb");
   const list = document.getElementById("navModePresets");
-  if (label) label.textContent = state.levelProfileLabel || "—";
+  const activeId = state.driveModePick || state.levelProfile;
   const meta =
-    DRIVE_MODE_PRESETS.find((x) => x.id === state.levelProfile) || null;
+    DRIVE_MODE_PRESETS.find((x) => x.id === activeId) ||
+    DRIVE_MODE_PRESETS.find((x) => x.id === state.levelProfile) ||
+    null;
+  if (label) {
+    label.textContent = state.levelProfileLabel || meta?.label || "—";
+  }
   if (blurb) blurb.textContent = meta?.blurb || "—";
   if (list) {
     list.innerHTML = DRIVE_MODE_PRESETS.map((x) => {
-      const cur = x.id === state.levelProfile ? " is-current" : "";
-      return `<li class="${cur}"><strong>${x.label}</strong><span>${x.blurb}</span></li>`;
+      const cur = x.id === activeId ? " is-current" : "";
+      return `<li>
+        <button type="button" class="nav-mode-pick${cur}" data-profile="${x.id}">
+          <strong>${x.label}</strong><span>${x.blurb}</span>
+        </button>
+      </li>`;
     }).join("");
   }
   const btn = document.getElementById("btnDriveMode");
   if (btn) {
-    btn.title = `Mode: ${state.levelProfileLabel}`;
+    btn.title = `Mode: ${meta?.label || state.levelProfileLabel || "Drive"}`;
     btn.classList.add("is-on");
     btn.classList.remove("is-muted-look");
   }
+}
+
+function pickDriveMode(profileId) {
+  const meta = DRIVE_MODE_PRESETS.find((x) => x.id === profileId);
+  if (!meta) return;
+  state.driveModePick = meta.id;
+  setExcludeDeadEnds(!!meta.skipDeadEnds);
+  syncDriveModeUi();
+  if (meta.id !== state.levelProfile) {
+    setNavHint(
+      `${meta.label}: routing prefs on. Roads stay as built for ${state.levelProfileLabel || "this level"}.`
+    );
+  } else {
+    setNavHint(`${meta.label} mode.`);
+  }
+  setDriveModeSheetOpen(false);
 }
 
 function setDriveModeSheetOpen(open) {
@@ -3143,7 +3170,9 @@ function bindControls() {
   document.getElementById("toggleDeadEnds")?.addEventListener("change", (e) => {
     setExcludeDeadEnds(!!e.target.checked);
   });
-  document.getElementById("btnDriveMode")?.addEventListener("click", () => {
+  document.getElementById("btnDriveMode")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     const sheet = document.getElementById("navModeSheet");
     setDriveModeSheetOpen(!!sheet?.hidden);
   });
@@ -3152,6 +3181,13 @@ function bindControls() {
   });
   document.getElementById("navModeSheet")?.addEventListener("click", (e) => {
     if (e.target?.id === "navModeSheet") setDriveModeSheetOpen(false);
+  });
+  document.getElementById("navModePresets")?.addEventListener("click", (e) => {
+    const pick = e.target?.closest?.("[data-profile]");
+    if (!pick) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pickDriveMode(pick.getAttribute("data-profile"));
   });
   syncDriveModeUi();
   document.getElementById("toggleBuildings")?.addEventListener("change", (e) => {

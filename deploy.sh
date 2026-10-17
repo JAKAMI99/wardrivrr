@@ -1,24 +1,53 @@
 #!/usr/bin/env bash
-# First-time vehicle host setup: Wi-Fi / BT / GPS, .env, image, compose up.
+# First-time vehicle host setup: install/configure gpsd + Kismet, .env, image, compose up.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 echo "=== wardrivrr setup ==="
+echo "This will install/configure host gpsd + Kismet, write .env, and start Docker."
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "Install Docker Engine first: https://docs.docker.com/engine/install/"
-  exit 1
-fi
-if ! docker compose version >/dev/null 2>&1; then
-  echo "Docker Compose v2 plugin required."
-  exit 1
-fi
-if ! docker info >/dev/null 2>&1; then
-  echo "Cannot talk to Docker. Fix once: sudo usermod -aG docker \"\$USER\" && newgrp docker"
-  exit 1
-fi
+require_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker is not installed."
+    echo "Install Docker Engine: https://docs.docker.com/engine/install/"
+    exit 1
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    echo "Docker Compose v2 plugin is missing (need: docker compose)."
+    exit 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "Docker is installed but not usable (permission or daemon down)."
+    echo "Fix once: sudo usermod -aG docker \"\$USER\" && newgrp docker"
+    echo "Or start the daemon: sudo systemctl enable --now docker"
+    exit 1
+  fi
+  echo "Docker: ok ($(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unknown))"
+}
+
+require_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    return 0
+  fi
+  echo
+  echo "Root is required for apt installs and systemd (gpsd, Kismet, docker helpers)."
+  read -r -p "Continue and authenticate with sudo? [Y/n]: " ok
+  ok=${ok:-Y}
+  if [[ ! "$ok" =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+  sudo -v
+  # Keep sudo warm during long apt / build steps
+  (while true; do sudo -n true; sleep 50; kill -0 "$$" || exit; done) 2>/dev/null &
+  SUDO_KEEPALIVE_PID=$!
+  trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
+}
+
+require_docker
+require_root
 
 set_env() {
   local key="$1" val="$2" file="${3:-.env}"
@@ -30,9 +59,11 @@ set_env() {
 }
 
 if ! command -v gpsd >/dev/null 2>&1; then
-  echo "Installing gpsd..."
+  echo "Installing gpsd (apt)..."
   sudo apt-get update -qq
   sudo apt-get install -y gpsd gpsd-clients
+else
+  echo "gpsd: already installed"
 fi
 
 GPS_TTY=""
@@ -59,10 +90,19 @@ EOF
 fi
 
 echo
-echo "Wi-Fi interfaces (monitor adapter, not hotspot uplink):"
-ip -o link show | awk -F': ' '/wlan|wlx/{print "  "$2}' || true
-read -r -p "Monitor Wi-Fi iface [wlan1]: " WLAN
-WLAN=${WLAN:-wlan1}
+WLAN=""
+mapfile -t WLANS < <(ip -o link show 2>/dev/null | awk -F': ' '/wlan|wlx/{print $2}' || true)
+if [[ ${#WLANS[@]} -eq 0 ]]; then
+  echo "No wlan/wlx interfaces found."
+  read -r -p "Monitor Wi-Fi iface (blank to skip): " WLAN
+else
+  echo "Wi-Fi interfaces (monitor adapter, not hotspot uplink):"
+  for i in "${!WLANS[@]}"; do echo "  [$i] ${WLANS[$i]}"; done
+  read -r -p "Pick index [0]: " widx
+  widx=${widx:-0}
+  WLAN="${WLANS[$widx]:-}"
+fi
+[[ -z "$WLAN" ]] && WLAN="wlan1"
 
 echo
 hciconfig 2>/dev/null || true
@@ -134,13 +174,17 @@ LOG_PREFIX="$ROOT/data/kismet_logs/wardrivrr"
 } >deploy/kismet/kismet_site.conf
 
 install_host_kismet() {
-  command -v kismet >/dev/null 2>&1 && return 0
-  echo "Installing Kismet (host apt)..."
+  if command -v kismet >/dev/null 2>&1; then
+    echo "Kismet: already installed"
+    return 0
+  fi
+  echo "Installing Kismet (official apt repo)..."
   local codename
   codename="$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")"
   case "$codename" in
     trixie|bookworm|noble|jammy|focal|plucky|resolute|kali) ;;
     *)
+      echo "Unrecognized distro '$codename'."
       echo "Install Kismet manually: https://www.kismetwireless.app/packages/"
       return 1
       ;;
@@ -159,12 +203,13 @@ install_host_kismet || true
 if command -v kismet >/dev/null 2>&1; then
   sudo mkdir -p /etc/kismet
   sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf
-  sudo usermod -aG kismet "$USER" 2>/dev/null || true
+  sudo usermod -aG kismet "${SUDO_USER:-$USER}" 2>/dev/null || true
   sudo systemctl disable --now wardrivrr-kismet 2>/dev/null || true
   sudo systemctl daemon-reload
   sudo systemctl enable --now kismet || true
+  echo "Kismet: configured (/etc/kismet/kismet_site.conf) and enabled"
 else
-  echo "WARNING: Kismet not installed - stack will still start."
+  echo "WARNING: Kismet not installed - stack will still start. Re-run ./deploy.sh after fixing apt."
 fi
 
 GPS_DEV="${GPS_TTY:-}"

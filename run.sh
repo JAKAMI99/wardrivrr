@@ -1,11 +1,50 @@
 #!/usr/bin/env bash
-# Boot: host gpsd + Kismet, API image, compose up.
+# Boot: restart host gpsd + Kismet, API image, compose up.
+# Does not install packages — run ./deploy.sh once first for that.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+echo "=== wardrivrr ==="
+
 [[ -f .env ]] || { echo "Missing .env - run ./deploy.sh first."; exit 1; }
+
+require_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker is not installed."
+    echo "Install Docker Engine: https://docs.docker.com/engine/install/"
+    echo "Then run ./deploy.sh once."
+    exit 1
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    echo "Docker Compose v2 plugin is missing (need: docker compose)."
+    exit 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "Docker is installed but not usable (permission or daemon down)."
+    echo "Fix once: sudo usermod -aG docker \"\$USER\" && newgrp docker"
+    echo "Or start the daemon: sudo systemctl enable --now docker"
+    exit 1
+  fi
+}
+
+require_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    return 0
+  fi
+  echo "Root is required to (re)start gpsd, Kismet, and helper systemd units."
+  read -r -p "Continue and authenticate with sudo? [Y/n]: " ok
+  ok=${ok:-Y}
+  if [[ ! "$ok" =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+  sudo -v
+}
+
+require_docker
+require_root
 
 set -a
 # shellcheck disable=SC1091
@@ -42,16 +81,10 @@ set -a
 source .env
 set +a
 
-if ! docker info >/dev/null 2>&1; then
-  echo "Cannot talk to Docker. Fix: sudo usermod -aG docker \"\$USER\" && newgrp docker"
-  exit 1
-fi
-
 IMAGE="${WARDRIVRR_IMAGE:-wardrivrr-api:local}"
 export WARDRIVRR_IMAGE="$IMAGE"
 FORCE_LOCAL_BUILD="${FORCE_LOCAL_BUILD:-1}"
 
-echo "=== wardrivrr ==="
 echo "Image: $WARDRIVRR_IMAGE  arch=$(uname -m)  FORCE_LOCAL_BUILD=$FORCE_LOCAL_BUILD"
 
 mkdir -p data/kismet_logs/wardrivrr data/valhalla data/pbf data/incoming
