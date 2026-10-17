@@ -2077,6 +2077,12 @@ a.module:hover {
   background: #0a0c0f;
 }
 
+/* Progress fog map: darken OSM (no CARTO API key) */
+.progress-basemap {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95);
+  -webkit-filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95);
+}
+
 .discover-status {
   margin: 0;
   padding: 0.5rem 1.25rem 0.85rem;

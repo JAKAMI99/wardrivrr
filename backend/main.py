@@ -150,8 +150,13 @@ class ExploreRouteBody(BaseModel):
     heading_deg: float | None = None
     target_km: float = Field(default=5.0, ge=0.5, le=40.0)
     language: str = "en-US"
-    # When true, skip all cul-de-sac tip waypoints; short tips (<40 m) are always skipped.
-    exclude_dead_ends: bool = False
+    # Optional vehicle override for this drive (big_car / small_car / bicycle / foot).
+    profile: str | None = Field(
+        default=None,
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+    )
+    # Legacy; prefer profile. When null, profile default dead-end policy applies.
+    exclude_dead_ends: bool | None = None
 
 
 class LevelCreateBody(BaseModel):
@@ -275,6 +280,16 @@ def on_startup():
         start_kismet_live()
     except Exception as exc:
         print(f"[startup] kismet live: {exc}")
+    # If a map extract already exists (e.g. after reboot), bring Valhalla up
+    # without waiting for the user to open Drive or run ./run.sh.
+    try:
+        from valhalla_prep import active_pbf_ready, ensure_valhalla_up
+
+        if active_pbf_ready():
+            vh = ensure_valhalla_up(wipe=False)
+            print(f"[startup] valhalla: {vh}")
+    except Exception as exc:
+        print(f"[startup] valhalla: {exc}")
 
 
 # ----- Auth -----
@@ -982,10 +997,20 @@ def achievements_evaluate(user: dict = Depends(get_current_user)):
 
 @app.get("/api/navigate/status")
 def navigate_status(user: dict = Depends(get_current_user)):
-    """Valhalla readiness for the navigate HUD."""
+    """Valhalla readiness for the navigate HUD. Auto-starts the container if needed."""
     _ = user
     from valhalla_client import valhalla_status
-    from valhalla_prep import ACTIVE_META, ACTIVE_PBF
+    from valhalla_prep import ACTIVE_META, ACTIVE_PBF, active_pbf_ready, ensure_valhalla_up
+
+    ensure_note = None
+    st = valhalla_status(bypass_cache=True)
+    if active_pbf_ready() and not st.get("ok"):
+        # Heal "PBF present, container never started" without a manual ./run.sh
+        try:
+            ensure_note = ensure_valhalla_up(wipe=False)
+            st = valhalla_status(bypass_cache=True)
+        except Exception as exc:
+            ensure_note = {"ok": False, "detail": str(exc)}
 
     meta = None
     if ACTIVE_META.exists():
@@ -995,7 +1020,8 @@ def navigate_status(user: dict = Depends(get_current_user)):
             meta = None
     return {
         "ok": True,
-        "valhalla": valhalla_status(),
+        "valhalla": st,
+        "ensure": ensure_note,
         "active_extract": {
             "path": str(ACTIVE_PBF),
             "bytes": ACTIVE_PBF.stat().st_size if ACTIVE_PBF.exists() else 0,
@@ -1105,7 +1131,8 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
             target_km=body.target_km,
             language=body.language,
             heading_deg=float(heading) if heading is not None else None,
-            exclude_dead_ends=bool(body.exclude_dead_ends),
+            profile=body.profile,
+            exclude_dead_ends=body.exclude_dead_ends,
         )
     except ValhallaError as exc:
         raise HTTPException(503, str(exc)) from exc

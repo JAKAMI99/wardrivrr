@@ -7,7 +7,7 @@ const PITCH_2D = 0;
 const VIEW_3D_KEY = "wardrivrr_nav_3d";
 /** @deprecated kept for one-time migration from buildings-only pref */
 const BUILDINGS_KEY = "wardrivrr_nav_buildings";
-const DEAD_ENDS_KEY = "wardrivrr_nav_exclude_dead_ends";
+const VEHICLE_KEY = "wardrivrr_nav_vehicle";
 
 const CAM_MS = 32;
 /** Smooth follow time-constant (higher = snappier). Keep low so the chevron glides. */
@@ -33,11 +33,14 @@ const CATCH_RESUME_M = 12;
 /**
  * Four discrete auto-zoom steps (far → near). Camera eases between them.
  * Slow driving stays close (street-level); only high speed pulls out.
+ * 2D is pulled out so upcoming turns stay in frame.
  */
-const ZOOM_LEVELS = [16.4, 17.3, 18.2, 18.9];
-const ZOOM_DEFAULT = ZOOM_LEVELS[3];
-const ZOOM_MIN = ZOOM_LEVELS[0];
-const ZOOM_MAX = ZOOM_LEVELS[3];
+const ZOOM_LEVELS_3D = [16.4, 17.3, 18.2, 18.9];
+const ZOOM_LEVELS_2D = [14.6, 15.3, 16.0, 16.6];
+const ZOOM_LEVELS = ZOOM_LEVELS_3D;
+const ZOOM_DEFAULT = ZOOM_LEVELS_3D[3];
+const ZOOM_MIN = ZOOM_LEVELS_2D[0];
+const ZOOM_MAX = ZOOM_LEVELS_3D[3];
 /** GPS push while driving */
 const FIX_MS = 2500;
 /** Stationary: keep session alive without hammering API / waking the map */
@@ -84,6 +87,8 @@ const state = {
   levelProfile: "small_car",
   driveModePick: null,
   levelProfileLabel: "Small car",
+  levelTilesExplored: null,
+  levelTilesTotal: null,
   spawned: false,
   spawnMode: false,
   lat: 51.286,
@@ -100,7 +105,10 @@ const state = {
   view3d: true,
   /** Turn-by-turn / explore active — area prompts only while true */
   navigationActive: false,
-  excludeDeadEnds: false,
+  /** Valhalla HTTP ready — Start navigation stays disabled until true */
+  routingReady: false,
+  routingWaitDetail: "",
+  routingPollTimer: 0,
   camLat: null,
   camLon: null,
   camBearing: 0,
@@ -300,47 +308,46 @@ function pickZoomLevelIndex() {
       else if (dist < 280) idx = Math.max(idx, 2);
     }
   }
-  return Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx));
+  return Math.max(0, Math.min(zoomLevelsForView().length - 1, idx));
+}
+
+function zoomLevelsForView() {
+  return state.view3d ? ZOOM_LEVELS_3D : ZOOM_LEVELS_2D;
 }
 
 function targetZoom() {
-  return ZOOM_LEVELS[pickZoomLevelIndex()];
+  return zoomLevelsForView()[pickZoomLevelIndex()];
 }
 
 /**
- * Material Icons paths (Apache-2.0) — fill currentColor, 24×24 viewBox.
- * @see https://github.com/google/material-design-icons
+ * Mapbox GL Directions maneuver icons (ISC) — vendored under
+ * /static/icons/maneuvers/. Proper nav glyphs; no hand-warped Material paths.
+ * @see https://github.com/mapbox/mapbox-gl-directions
  */
-const MATERIAL_TURN_PATHS = {
-  straight: "M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z",
-  right: "M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5H9z",
-  left: "M15 5v2H8.41L20 18.59 18.59 20 7 8.41V15H5V5h10z",
-  "slight-right":
-    "M12.34 5.66l2.12-2.12 6.36 6.36-6.36 6.36-2.12-2.12 2.71-2.71L3 17V5h2v8.07l7.07-7.07 0.27-.34z",
-  "slight-left":
-    "M11.66 5.66L9.54 3.54 3.18 9.9l6.36 6.36 2.12-2.12-2.71-2.71L21 17V5h-2v8.07l-7.07-7.07-.27-.34z",
-  "sharp-right":
-    "M6 6v2h8.29L4.7 17.59 6.11 19 16 9.12V17h2V6H6z",
-  "sharp-left":
-    "M18 6v2H9.71L19.3 17.59 17.89 19 8 9.12V17H6V6h12z",
-  "uturn-left":
-    "M3 13c0 2.76 2.24 5 5 5h6v-2H8c-1.65 0-3-1.35-3-3s1.35-3 3-3h7.17l-1.59 1.59L15 13l4-4-4-4-1.41 1.41L15.17 8H8c-2.76 0-5 2.24-5 5z",
-  "uturn-right":
-    "M21 13c0 2.76-2.24 5-5 5H10v-2h6c1.65 0 3-1.35 3-3s-1.35-3-3-3h-7.17l1.59 1.59L9 13 5 9l4-4 1.41 1.41L8.83 8H16c2.76 0 5 2.24 5 5z",
-  merge:
-    "M6.5 17.5L9 15l1.5 1.5L6.5 20.5 2 16l1.5-1.5L6.5 17.5zM17 20.41L18.41 19 15 15.59 13.59 17 17 20.41zM7.5 8H11v5.59L5.59 19 7 20.41l6-6V8h3.5L12 3.5 7.5 8z",
-  "merge-left":
-    "M17.5 17.5L15 15l-1.5 1.5 4 4 4.5-4.5-1.5-1.5-2.5 2.5zM7 20.41L5.59 19 9 15.59 10.41 17 7 20.41zM16.5 8H13v5.59L18.41 19 17 20.41l-6-6V8H7.5L12 3.5 16.5 8z",
-  roundabout:
-    "M13 5.83l1.59 1.59L16 6l-4-4-4 4 1.41 1.41L11 5.83V10H8c-2.76 0-5 2.24-5 5 0 2.21 1.44 4.08 3.41 4.75L7 21h2v-1.93c-.61-.35-1.09-.88-1.33-1.52-.24-.63-.24-1.32 0-1.95.24-.63.72-1.16 1.33-1.51.61-.35 1.32-.44 2-.25.68.19 1.26.66 1.62 1.28.36.63.45 1.36.25 2.04-.2.68-.67 1.26-1.29 1.62-.31.18-.65.29-1.01.34V21h2c2.76 0 5-2.24 5-5 0-2.21-1.44-4.08-3.41-4.75L15 9.5V5.83H13zM12 15c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z",
-  "exit-right":
-    "M6 12l1.41 1.41L11 9.83V20h2V9.83l3.59 3.58L18 12l-6-6-6 6zm10.59 0L19 14.41 20.41 13 17 9.59 13.59 13 15 14.41 16.59 12z",
-  dest: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+const MANEUVER_ICON_BASE = "/static/icons/maneuvers";
+const MANEUVER_ICONS = {
+  straight: { file: "continue.svg" },
+  right: { file: "turn-right.svg" },
+  left: { file: "turn-left.svg" },
+  "slight-right": { file: "bear-right.svg" },
+  "slight-left": { file: "bear-left.svg" },
+  "sharp-right": { file: "sharp-right.svg" },
+  "sharp-left": { file: "sharp-left.svg" },
+  "uturn-right": { file: "u-turn.svg" },
+  "uturn-left": { file: "u-turn.svg", flip: true },
+  merge: { file: "continue.svg" },
+  roundabout: { file: "enter-roundabout.svg" },
+  "exit-right": { file: "bear-right.svg" },
+  "exit-left": { file: "bear-left.svg" },
+  dest: { file: "arrive.svg" },
+  depart: { file: "depart.svg" },
+  idle: { file: "waypoint.svg" },
 };
 
 function maneuverKind(m) {
   const type = Number(m?.type);
   // Valhalla ManeuverType
+  if ([1, 2, 3].includes(type)) return "depart";
   if ([4, 5, 6].includes(type)) return "dest";
   if ([9].includes(type)) return "slight-right";
   if ([10, 18, 20].includes(type)) return "right";
@@ -357,19 +364,20 @@ function maneuverKind(m) {
   return "straight";
 }
 
-function maneuverIconSvg(m) {
-  const kind = maneuverKind(m);
-  const d = MATERIAL_TURN_PATHS[kind] || MATERIAL_TURN_PATHS.straight;
-  return `<svg class="nav-turn-svg" viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`;
+function maneuverIconHtml(kind) {
+  const spec = MANEUVER_ICONS[kind] || MANEUVER_ICONS.straight;
+  const flip = spec.flip ? " is-flip" : "";
+  const src = `${MANEUVER_ICON_BASE}/${spec.file}`;
+  return `<img class="nav-turn-img${flip}" src="${src}" alt="" width="88" height="88" decoding="async" draggable="false" />`;
 }
 
 function setManeuverIcon(el, m) {
   if (!el) return;
   if (!m) {
-    el.innerHTML = `<svg class="nav-turn-svg" viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true"><circle fill="currentColor" cx="12" cy="12" r="3"/></svg>`;
+    el.innerHTML = maneuverIconHtml("idle");
     return;
   }
-  el.innerHTML = maneuverIconSvg(m);
+  el.innerHTML = maneuverIconHtml(maneuverKind(m));
 }
 
 function maneuverVerb(m) {
@@ -551,9 +559,6 @@ function updateManeuverHud() {
   }
 
   const idx = nearestShapeIndex(coords, state.lon, state.lat);
-  const remain = pathMeters(coords, idx, coords.length - 1);
-  document.getElementById("statRoute").textContent =
-    remain >= 1000 ? (remain / 1000).toFixed(1) : (remain / 1000).toFixed(2);
 
   const mans = route.maneuvers || [];
   const next = nextTurnManeuver(mans, idx);
@@ -601,7 +606,7 @@ function themePack() {
   const pack = window.WardTheme?.mapPack?.(currentThemeId()) || {
     ahead: "#00e5ff",
     done: "#2ad48a",
-    fogExplored: "#3dffa8",
+    fogExplored: "#2a4a42",
     fogLocked: "#12161e",
     mapDay: "liberty",
     mapNight: "dark",
@@ -610,7 +615,8 @@ function themePack() {
   return {
     ahead: pack.ahead,
     done: pack.done,
-    fogExplored: pack.fogExplored || pack.done || "#3dffa8",
+    // Muted explored roads — bright cyan route must stay the hero
+    fogExplored: pack.fogExplored || "#2a4a42",
     fogLocked: pack.fogLocked || "#12161e",
     mapDay: tile(pack.mapDay),
     mapNight: tile(pack.mapNight),
@@ -669,9 +675,11 @@ function applyFogThemeColors() {
     }
     if (state.map.getLayer("fog-explored-line")) {
       state.map.setPaintProperty("fog-explored-line", "line-color", f.explored);
+      state.map.setPaintProperty("fog-explored-line", "line-opacity", 0.72);
     }
     if (state.map.getLayer("fog-explored-glow")) {
       state.map.setPaintProperty("fog-explored-glow", "line-color", f.explored);
+      state.map.setPaintProperty("fog-explored-glow", "line-opacity", 0.1);
     }
   } catch {
     /* style not ready */
@@ -910,8 +918,8 @@ function ensureFogLayers() {
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": f.explored,
-        "line-width": routeWidthExpr(14),
-        "line-opacity": 0.22,
+        "line-width": routeWidthExpr(10),
+        "line-opacity": 0.1,
       },
     });
     state.map.addLayer({
@@ -921,8 +929,8 @@ function ensureFogLayers() {
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": f.explored,
-        "line-width": routeWidthExpr(8),
-        "line-opacity": 0.95,
+        "line-width": routeWidthExpr(6),
+        "line-opacity": 0.72,
       },
     });
   } catch (err) {
@@ -955,7 +963,13 @@ async function refreshFog(force = false) {
     applyFogData(data.locked, data.explored);
     applyFogThemeColors();
     if (data.stats && data.stats.explored_segments != null) {
-      updateLevelTiles(data.stats.explored_segments);
+      const explored = Number(data.stats.explored_segments) || 0;
+      const locked = Number(data.stats.locked_segments) || 0;
+      const total =
+        data.stats.total_segments != null
+          ? Number(data.stats.total_segments)
+          : explored + locked;
+      updateLevelTiles(explored, total);
     }
     if (data.stats?.explored_km != null && !state.sessionUnlockM) {
       /* keep session unlock from live drives; fog stats are cumulative */
@@ -1526,30 +1540,36 @@ function currentPitch() {
   return state.view3d ? PITCH_3D : PITCH_2D;
 }
 
+const VEHICLE_ICON_SVG = {
+  big_car:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M3 16h18v-4l-2-5H5L3 12v4z"/><circle cx="7.5" cy="16.5" r="1.6"/><circle cx="16.5" cy="16.5" r="1.6"/><path d="M5 12h14"/></svg>',
+  small_car:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M5 17h14v-5l-1.5-4.5A2 2 0 0015.6 6H8.4a2 2 0 00-1.9 1.5L5 12v5z"/><circle cx="8.5" cy="17" r="1.4"/><circle cx="15.5" cy="17" r="1.4"/></svg>',
+  bicycle:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="6.5" cy="16.5" r="3"/><circle cx="17.5" cy="16.5" r="3"/><path d="M6.5 16.5l3.5-7h4l3.5 7M12 6v3.5M10 9.5h5"/></svg>',
+  foot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="12" cy="5" r="2.2"/><path d="M12 8v5l-3 7M12 13l3 7M9 11h6"/></svg>',
+};
+
 const DRIVE_MODE_PRESETS = [
   {
     id: "big_car",
     label: "Big car",
-    blurb: "Main & medium roads only. Few turns, skip cul-de-sacs.",
-    skipDeadEnds: true,
+    blurb: "Main & medium roads. Fewer turns, skip cul-de-sacs.",
   },
   {
     id: "small_car",
     label: "Small car",
-    blurb: "Full street grid. Dead ends only if ≥ 70 m (server).",
-    skipDeadEnds: false,
+    blurb: "Full street grid. Cul-de-sacs only if ≥ 100 m.",
   },
   {
     id: "bicycle",
     label: "Bike",
-    blurb: "Cycleways & streets. Every dead end counts.",
-    skipDeadEnds: false,
+    blurb: "Cycleways & streets.",
   },
   {
     id: "foot",
     label: "On foot",
-    blurb: "Paths, tracks, gravel & grass. Every dead end.",
-    skipDeadEnds: false,
+    blurb: "Paths, tracks, gravel & grass.",
   },
 ];
 
@@ -1559,14 +1579,24 @@ function normalizeDriveProfile(profile) {
   return DRIVE_MODE_PRESETS.some((x) => x.id === p) ? p : "small_car";
 }
 
+function activeVehicleProfile() {
+  return normalizeDriveProfile(state.driveModePick || state.levelProfile);
+}
+
 function applyLevelProfile(profile) {
   const p = normalizeDriveProfile(profile);
   const meta = DRIVE_MODE_PRESETS.find((x) => x.id === p) || DRIVE_MODE_PRESETS[1];
   state.levelProfile = p;
   state.levelProfileLabel = meta.label;
-  state.driveModePick = p;
-  // Match routing dead-end toggle to the level preset (user can still flip it)
-  setExcludeDeadEnds(!!meta.skipDeadEnds);
+  // Keep a manual vehicle pick if the user already chose one this session
+  if (!state.driveModePick) {
+    try {
+      const saved = localStorage.getItem(VEHICLE_KEY);
+      state.driveModePick = saved ? normalizeDriveProfile(saved) : p;
+    } catch (_) {
+      state.driveModePick = p;
+    }
+  }
   syncDriveModeUi();
 }
 
@@ -1574,13 +1604,13 @@ function syncDriveModeUi() {
   const label = document.getElementById("navModeLabel");
   const blurb = document.getElementById("navModeBlurb");
   const list = document.getElementById("navModePresets");
-  const activeId = state.driveModePick || state.levelProfile;
+  const activeId = activeVehicleProfile();
   const meta =
     DRIVE_MODE_PRESETS.find((x) => x.id === activeId) ||
     DRIVE_MODE_PRESETS.find((x) => x.id === state.levelProfile) ||
     null;
   if (label) {
-    label.textContent = state.levelProfileLabel || meta?.label || "—";
+    label.textContent = meta?.label || state.levelProfileLabel || "—";
   }
   if (blurb) blurb.textContent = meta?.blurb || "—";
   if (list) {
@@ -1595,9 +1625,15 @@ function syncDriveModeUi() {
   }
   const btn = document.getElementById("btnDriveMode");
   if (btn) {
-    btn.title = `Mode: ${meta?.label || state.levelProfileLabel || "Drive"}`;
+    btn.title = `Vehicle: ${meta?.label || "routing"} (tap to change)`;
+    btn.setAttribute("aria-label", `Vehicle routing: ${meta?.label || "choose"}`);
     btn.classList.add("is-on");
     btn.classList.remove("is-muted-look");
+  }
+  const glyph = document.getElementById("btnDriveModeIcon");
+  if (glyph) {
+    const id = meta?.id || "small_car";
+    glyph.innerHTML = VEHICLE_ICON_SVG[id] || VEHICLE_ICON_SVG.small_car;
   }
 }
 
@@ -1605,29 +1641,53 @@ function pickDriveMode(profileId) {
   const meta = DRIVE_MODE_PRESETS.find((x) => x.id === profileId);
   if (!meta) return;
   state.driveModePick = meta.id;
-  setExcludeDeadEnds(!!meta.skipDeadEnds);
-  syncDriveModeUi();
-  if (meta.id !== state.levelProfile) {
-    setNavHint(
-      `${meta.label}: routing prefs on. Roads stay as built for ${state.levelProfileLabel || "this level"}.`
-    );
-  } else {
-    setNavHint(`${meta.label} mode.`);
+  try {
+    localStorage.setItem(VEHICLE_KEY, meta.id);
+  } catch (_) {
+    /* ignore */
   }
+  syncDriveModeUi();
+  setNavHint(`${meta.label} routing.`);
   setDriveModeSheetOpen(false);
+  if (state.navigationActive && state.routingReady) {
+    startExplore({ auto: true, reason: `Rerouting as ${meta.label}…` });
+  }
 }
 
 function setDriveModeSheetOpen(open) {
   const sheet = document.getElementById("navModeSheet");
   const btn = document.getElementById("btnDriveMode");
   if (!sheet) return;
+  if (open) setNavSettingsOpen(false);
   sheet.hidden = !open;
   if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
   if (open) syncDriveModeUi();
 }
 
+function setNavSettingsOpen(open) {
+  const sheet = document.getElementById("navSettingsSheet");
+  const btn = document.getElementById("btnNavSettings");
+  if (!sheet) return;
+  if (open) setDriveModeSheetOpen(false);
+  sheet.hidden = !open;
+  if (btn) {
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.classList.toggle("is-on", !!open);
+    btn.classList.toggle("is-muted-look", !open);
+  }
+  if (open) {
+    syncMuteIcon();
+    syncViewModeUi();
+  }
+}
+
 function loadNavPrefs() {
-  // Dead-end default comes from level profile (applyLevelProfile), not localStorage
+  try {
+    const veh = localStorage.getItem(VEHICLE_KEY);
+    if (veh) state.driveModePick = normalizeDriveProfile(veh);
+  } catch (_) {
+    /* ignore */
+  }
   const v3 = localStorage.getItem(VIEW_3D_KEY);
   if (v3 === "0" || v3 === "1") {
     state.view3d = v3 === "1";
@@ -1638,35 +1698,6 @@ function loadNavPrefs() {
   }
   state.buildingsOn = state.view3d && state.webglOk;
   state.camPitch = currentPitch();
-  syncDeadEndsUi();
-}
-
-function syncDeadEndsUi() {
-  const on = !!state.excludeDeadEnds;
-  const deadToggle = document.getElementById("toggleDeadEnds");
-  if (deadToggle) deadToggle.checked = on;
-  const promptDead = document.getElementById("levelPromptDeadEnds");
-  if (promptDead) promptDead.checked = on;
-  const btn = document.getElementById("btnDeadEnds");
-  if (!btn) return;
-  btn.classList.toggle("is-on", on);
-  btn.classList.toggle("is-muted-look", !on);
-  btn.setAttribute("aria-pressed", on ? "true" : "false");
-  btn.title = on
-    ? "Skipping dead ends (tap to include)"
-    : "Including dead ends (tap to skip)";
-  btn.setAttribute(
-    "aria-label",
-    on ? "Skip dead ends on" : "Skip dead ends off"
-  );
-}
-
-function setExcludeDeadEnds(on, { persist = true } = {}) {
-  state.excludeDeadEnds = !!on;
-  if (persist) {
-    localStorage.setItem(DEAD_ENDS_KEY, state.excludeDeadEnds ? "1" : "0");
-  }
-  syncDeadEndsUi();
 }
 
 function lerpAngleDeg(a, b, t) {
@@ -1706,12 +1737,83 @@ function syncNavToggleUi() {
   const btn = document.getElementById("btnNavToggle");
   if (!btn) return;
   const on = !!state.navigationActive;
-  // Colorful when routing on; grayed when off
-  btn.classList.toggle("is-on", on);
-  btn.classList.toggle("is-muted-look", !on);
+  const canStart = !!state.routingReady;
+  // Colorful when routing on; grayed when off; fully disabled while tiles build
+  btn.classList.toggle("is-on", on && canStart);
+  btn.classList.toggle("is-muted-look", !on || !canStart);
+  btn.classList.toggle("is-routing-disabled", !canStart);
+  btn.disabled = !canStart && !on;
   btn.setAttribute("aria-pressed", on ? "true" : "false");
-  btn.title = on ? "Stop navigation" : "Start navigation";
-  btn.setAttribute("aria-label", on ? "Stop navigation" : "Start navigation");
+  const play = btn.querySelector(".nav-play-icon");
+  const stop = btn.querySelector(".nav-stop-icon");
+  if (play) play.hidden = !!on;
+  if (stop) stop.hidden = !on;
+  if (!canStart && !on) {
+    btn.title = "Routing map still generating — wait";
+    btn.setAttribute("aria-label", "Routing not ready yet");
+  } else {
+    btn.title = on ? "Stop navigation" : "Start navigation";
+    btn.setAttribute(
+      "aria-label",
+      on ? "Stop navigation" : "Start navigation"
+    );
+  }
+}
+
+function setRoutingReady(ready, detail = "") {
+  state.routingReady = !!ready;
+  state.routingWaitDetail = detail || "";
+  syncRoutingWaitUi();
+  syncNavToggleUi();
+}
+
+function syncRoutingWaitUi() {
+  const el = document.getElementById("navRoutingWait");
+  const detail = document.getElementById("navRoutingWaitDetail");
+  const show = !state.routingReady;
+  if (detail) {
+    detail.textContent =
+      state.routingWaitDetail ||
+      "Generating the routing map — Start navigation stays off until this is done.";
+  }
+  if (el) el.hidden = !show;
+  document.querySelector(".nav-main")?.classList.toggle("is-routing-wait", show);
+}
+
+function stopRoutingPoll() {
+  if (state.routingPollTimer) {
+    clearInterval(state.routingPollTimer);
+    state.routingPollTimer = 0;
+  }
+}
+
+/** Background poll so the Start button unlocks when Valhalla finishes. */
+function startRoutingPoll() {
+  stopRoutingPoll();
+  if (state.routingReady) return;
+  state.routingPollTimer = setInterval(() => {
+    refreshRoutingReady().catch(() => {});
+  }, 4000);
+  refreshRoutingReady().catch(() => {});
+}
+
+async function refreshRoutingReady() {
+  try {
+    const res = await WardAuth.apiFetch("/api/navigate/status");
+    const data = await res.json().catch(() => ({}));
+    const ok = !!data.valhalla?.ok;
+    const detail =
+      data.valhalla?.detail ||
+      data.valhalla?.building_hint ||
+      data.valhalla?.status ||
+      "";
+    setRoutingReady(ok, ok ? "" : String(detail || "Building routing tiles…"));
+    if (ok) stopRoutingPoll();
+    return ok;
+  } catch (_) {
+    setRoutingReady(false, "Waiting for routing service…");
+    return false;
+  }
 }
 
 function clearRouteLayers() {
@@ -1752,6 +1854,15 @@ function stopNavigation({ silent = false } = {}) {
 async function startNavigation() {
   if (!state.spawned) {
     setNavHint("Waiting for GPS spawn…");
+    return false;
+  }
+  if (!state.routingReady) {
+    setRoutingReady(
+      false,
+      state.routingWaitDetail ||
+        "Routing map still generating — Start stays off until Valhalla is ready."
+    );
+    startRoutingPoll();
     return false;
   }
   state.navigationActive = true;
@@ -1894,36 +2005,59 @@ function fmtUnlockKm(meters) {
 }
 
 function updateUnlockHud() {
-  const el = document.getElementById("statUnlock");
-  if (el) el.textContent = fmtUnlockKm(state.sessionUnlockM);
+  // Session unlock metres still tracked for XP; no longer shown in the TBT strip.
 }
 
-function fmtTileCount(count) {
-  const v = Math.max(0, Math.round(Number(count) || 0));
-  const noun = v === 1 ? "tile" : "tiles";
-  let num;
+function fmtCompactInt(n) {
+  const v = Math.max(0, Math.round(Number(n) || 0));
+  if (v >= 100000) {
+    const k = Math.round(v / 1000);
+    return `${k}k`;
+  }
   if (v >= 10000) {
     const k = Math.round((v / 1000) * 10) / 10;
-    num = `${String(k).replace(/\.0$/, "")}k`;
-  } else {
-    num = v.toLocaleString("en-US");
+    return `${String(k).replace(/\.0$/, "")}k`;
   }
-  return `${num} ${noun}`;
+  return String(v);
 }
 
-function updateLevelTiles(count) {
+/** e.g. "150/28000 (0.5%)" — compact for the level HUD strip */
+function fmtTileProgress(explored, total) {
+  const e = Math.max(0, Math.round(Number(explored) || 0));
+  const t = Math.max(0, Math.round(Number(total) || 0));
+  if (t <= 0) return `${fmtCompactInt(e)} tiles`;
+  const pct = Math.min(100, (100 * e) / t);
+  const pctStr = pct >= 10 ? pct.toFixed(0) : pct >= 1 ? pct.toFixed(1) : pct.toFixed(2);
+  return `${fmtCompactInt(e)}/${fmtCompactInt(t)} (${pctStr}%)`;
+}
+
+function updateLevelTiles(explored, total) {
   const el = document.getElementById("statTiles");
   const cell = document.getElementById("statLevelCell");
   if (!el) return;
-  if (count == null || !Number.isFinite(Number(count))) {
+  if (explored == null || !Number.isFinite(Number(explored))) {
     el.textContent = "— tiles";
     if (cell) cell.title = "Unlocked road tiles in this level";
+    state.levelTilesExplored = null;
+    state.levelTilesTotal = null;
     return;
   }
-  const v = Math.max(0, Math.round(Number(count)));
-  el.textContent = fmtTileCount(v);
+  const e = Math.max(0, Math.round(Number(explored)));
+  const t =
+    total != null && Number.isFinite(Number(total))
+      ? Math.max(e, Math.round(Number(total)))
+      : state.levelTilesTotal;
+  state.levelTilesExplored = e;
+  if (t != null) state.levelTilesTotal = t;
+  el.textContent = fmtTileProgress(e, t);
   if (cell) {
-    cell.title = `${v.toLocaleString("en-US")} road ${v === 1 ? "tile" : "tiles"} unlocked in this level`;
+    const fullE = e.toLocaleString("en-US");
+    if (t != null && t > 0) {
+      const pct = Math.min(100, (100 * e) / t).toFixed(2);
+      cell.title = `${fullE} / ${t.toLocaleString("en-US")} road tiles unlocked (${pct}%)`;
+    } else {
+      cell.title = `${fullE} road tiles unlocked in this level`;
+    }
   }
 }
 
@@ -1940,8 +2074,13 @@ function setRadioCell(prefix, pack) {
 function updateRadioHud(radio) {
   if (!radio) return;
   setRadioCell("Wifi", radio.wifi);
-  setRadioCell("Bt", radio.bt);
-  setRadioCell("Ble", radio.ble);
+  // Classic BT + BLE combined as "Blue"
+  const bt = radio.bt || {};
+  const ble = radio.ble || {};
+  setRadioCell("Blue", {
+    seen: (Number(bt.seen) || 0) + (Number(ble.seen) || 0),
+    new: (Number(bt.new) || 0) + (Number(ble.new) || 0),
+  });
 }
 
 function applyXpProgress(prog) {
@@ -2317,9 +2456,6 @@ function openLevelPrompt(payload, kind = "switch") {
     return false;
   }
   state.promptOpen = true;
-  // Prefill dead-end option from last choice; user can change before auto-confirm
-  const promptDead = document.getElementById("levelPromptDeadEnds");
-  if (promptDead) promptDead.checked = !!state.excludeDeadEnds;
   document.getElementById("levelPromptName").textContent = label;
   document.getElementById("levelPrompt").hidden = false;
   document.querySelector(".nav-main")?.classList.add("is-prompting");
@@ -2338,8 +2474,6 @@ async function resumeExploreAfterLevel() {
 }
 
 async function acceptLevelPrompt() {
-  const promptDead = document.getElementById("levelPromptDeadEnds");
-  if (promptDead) setExcludeDeadEnds(!!promptDead.checked);
   const sug = state.promptSuggestion;
   closeLevelPrompt(false);
   if (!sug) return;
@@ -2386,15 +2520,17 @@ async function acceptLevelPrompt() {
     body: JSON.stringify({
       name: body.name,
       place_query: body.place_query,
-      profile: body.profile || "car",
+      profile: body.profile || "small_car",
       geofabrik_id: body.geofabrik_id,
       place_bbox: body.place_bbox,
       place_boundary: body.place_boundary,
       place_kind: body.place_kind,
+      geoname_id: body.geoname_id ?? null,
+      parent_geoname_id: body.parent_geoname_id ?? null,
       parent_label: body.parent_label,
       part_label: body.part_label,
-      osm_relation_id: body.osm_relation_id,
-      osm_admin_level: body.osm_admin_level,
+      osm_relation_id: body.osm_relation_id ?? null,
+      osm_admin_level: body.osm_admin_level ?? null,
       download_now: true,
     }),
   });
@@ -2795,7 +2931,7 @@ function simFrame(now) {
 async function prepareValhallaForLevel() {
   if (!state.levelId) return null;
   document.getElementById("navHint").textContent =
-    "Clipping map pack to this level for Valhalla…";
+    "Preparing routing map for this city…";
   const res = await WardAuth.apiFetch("/api/navigate/prepare", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2804,18 +2940,70 @@ async function prepareValhallaForLevel() {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     document.getElementById("navHint").textContent =
-      data.detail || "Could not prepare Valhalla extract for this level";
+      data.detail || "Could not prepare Valhalla for this level";
     return null;
   }
   const mb = ((data.active_bytes || 0) / (1024 * 1024)).toFixed(1);
-  if (data.clipped || data.valhalla?.restarted) {
-    document.getElementById("navHint").textContent =
-      `Level clip ready (~${mb} MB). Valhalla is rebuilding tiles — wait, then Start explore.`;
-  } else {
-    document.getElementById("navHint").textContent =
-      `Valhalla extract already matches this level (~${mb} MB).`;
-  }
+  setRoutingReady(
+    false,
+    `Routing map ~${mb} MB prepared — building tiles…`
+  );
+  startRoutingPoll();
+  const ready = await waitForValhallaReady({
+    reason: "Building routing tiles — this can take a few minutes after a new city…",
+  });
+  setRoutingReady(
+    ready,
+    ready
+      ? ""
+      : "Routing tiles still building — Start navigation stays off."
+  );
+  if (ready) stopRoutingPoll();
+  else startRoutingPoll();
   return data;
+}
+
+/** Poll until Valhalla HTTP is up (tile build), or give up after ~15 min. */
+async function waitForValhallaReady(opts = {}) {
+  const reason =
+    opts.reason || "Waiting for Valhalla routing to come online…";
+  const maxTries = opts.maxTries || 180; // 180 × 5s ≈ 15 min
+  showBuildOverlay(reason);
+  setBuildStage("finish");
+  for (let i = 0; i < maxTries; i++) {
+    const pct = Math.min(99, Math.round((i / maxTries) * 100));
+    document.getElementById("navBuildFill").style.width = `${pct}%`;
+    document.getElementById("navBuildPct").textContent = `${pct}%`;
+    document.getElementById("navBuildMessage").textContent = reason;
+    document.getElementById("navBuildEta").textContent =
+      i < 6 ? "starting…" : "building tiles…";
+    try {
+      const res = await WardAuth.apiFetch("/api/navigate/status");
+      const data = await res.json();
+      const st = data.valhalla?.status || data.valhalla?.detail || "";
+      if (data.valhalla?.ok) {
+        document.getElementById("navBuildFill").style.width = "100%";
+        document.getElementById("navBuildPct").textContent = "100%";
+        document.getElementById("navBuildMessage").textContent =
+          "Valhalla ready.";
+        await new Promise((r) => setTimeout(r, 400));
+        hideBuildOverlay();
+        setRoutingReady(true);
+        stopRoutingPoll();
+        document.getElementById("navHint").textContent = "Routing ready.";
+        return true;
+      }
+      setRoutingReady(false, String(st || "Building routing tiles…"));
+      if (st) {
+        document.getElementById("navBuildMessage").textContent = String(st);
+      }
+    } catch (_) {
+      /* keep waiting */
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  hideBuildOverlay();
+  return false;
 }
 
 async function checkValhallaHint() {
@@ -2824,17 +3012,25 @@ async function checkValhallaHint() {
     const data = await res.json();
     const meta = data.active_extract?.meta;
     if (meta?.level_id && state.levelId && meta.level_id !== state.levelId) {
+      setRoutingReady(false, "Preparing routing for this city…");
       await prepareValhallaForLevel();
-      return false;
+      return !!state.routingReady;
     }
     if (!data.valhalla?.ok) {
-      document.getElementById("navHint").textContent =
-        data.valhalla?.building_hint ||
-        "Valhalla still building tiles — wait, then Start explore.";
-      return false;
+      setRoutingReady(
+        false,
+        data.valhalla?.detail || "Building routing tiles…"
+      );
+      startRoutingPoll();
+      await prepareValhallaForLevel();
+      return !!state.routingReady;
     }
+    setRoutingReady(true);
+    stopRoutingPoll();
     return true;
   } catch {
+    setRoutingReady(false, "Waiting for routing service…");
+    startRoutingPoll();
     return false;
   }
 }
@@ -2890,7 +3086,7 @@ async function startExplore(opts = {}) {
         lon: state.lon,
         heading_deg: state.heading,
         target_km: targetKm,
-        exclude_dead_ends: !!state.excludeDeadEnds,
+        profile: activeVehicleProfile(),
       }),
     });
     if (gen !== state.exploreGen) return false;
@@ -3001,7 +3197,8 @@ function initMap() {
   }
   syncViewModeUi();
   syncNavToggleUi();
-  syncDeadEndsUi();
+  syncRoutingWaitUi();
+  startRoutingPoll();
 
   state.map.on("load", () => {
     ensureFogLayers();
@@ -3059,13 +3256,12 @@ function syncViewModeUi() {
   const btn = document.getElementById("btnViewMode");
   const on = !!state.view3d;
   if (btn) {
-    // Colorful 3D icon when 3D; grayed 3D icon when 2D
-    btn.classList.toggle("is-on", on);
-    btn.classList.toggle("is-muted-look", !on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
     btn.title = on ? "3D view (tap for 2D)" : "2D view (tap for 3D)";
     if (!state.webglOk) btn.disabled = true;
   }
+  const val = document.getElementById("settingsViewValue");
+  if (val) val.textContent = on ? "3D" : "2D";
   const toggle = document.getElementById("toggleBuildings");
   if (toggle) toggle.checked = on;
 }
@@ -3074,16 +3270,10 @@ function syncMuteIcon() {
   const btn = document.getElementById("btnMuteSounds");
   if (!btn) return;
   const soundOn = !!state.achievementSounds;
-  // Sound on: speaker + waves (no glow). Muted: glowing speaker with cross behind.
-  btn.classList.toggle("is-on", !soundOn);
-  btn.classList.toggle("is-muted-look", soundOn);
-  const cross = btn.querySelector(".nav-mute-cross");
-  if (cross) {
-    if (soundOn) cross.setAttribute("hidden", "");
-    else cross.removeAttribute("hidden");
-  }
   btn.setAttribute("aria-pressed", soundOn ? "false" : "true");
   btn.title = soundOn ? "Sounds on (tap to mute)" : "Muted (tap to enable)";
+  const val = document.getElementById("settingsMuteValue");
+  if (val) val.textContent = soundOn ? "On" : "Muted";
 }
 
 async function setAchievementSounds(on) {
@@ -3107,6 +3297,7 @@ function setView3d(on) {
   localStorage.setItem(BUILDINGS_KEY, state.buildingsOn ? "1" : "0");
   syncViewModeUi();
   state.camPitch = currentPitch();
+  state.camZoom = targetZoom();
   // Clear any gesture cooldown so a leftover pitchstart can't hold the view
   state.userCamUntil = 0;
   state.userCamActive = false;
@@ -3120,6 +3311,7 @@ function setView3d(on) {
           : state.map.getCenter().toArray();
       state.map.jumpTo({
         center,
+        zoom: state.camZoom,
         bearing:
           state.dispHeading != null ? state.dispHeading : state.map.getBearing(),
         pitch: state.camPitch,
@@ -3158,6 +3350,18 @@ function bindControls() {
   document.getElementById("btnViewMode")?.addEventListener("click", () => {
     setView3d(!state.view3d);
   });
+  document.getElementById("btnNavSettings")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sheet = document.getElementById("navSettingsSheet");
+    setNavSettingsOpen(!!sheet?.hidden);
+  });
+  document.getElementById("btnSettingsClose")?.addEventListener("click", () => {
+    setNavSettingsOpen(false);
+  });
+  document.getElementById("navSettingsSheet")?.addEventListener("click", (e) => {
+    if (e.target?.id === "navSettingsSheet") setNavSettingsOpen(false);
+  });
 
   document.getElementById("btnSpawn")?.addEventListener("click", () => {
     if (state.followLiveGps) setFollowLiveGps(false);
@@ -3182,12 +3386,6 @@ function bindControls() {
   document.getElementById("toggleAnomaly")?.addEventListener("change", (e) => {
     setAnomalyAlerts(!!e.target.checked);
   });
-  document.getElementById("btnDeadEnds")?.addEventListener("click", () => {
-    setExcludeDeadEnds(!state.excludeDeadEnds);
-  });
-  document.getElementById("toggleDeadEnds")?.addEventListener("change", (e) => {
-    setExcludeDeadEnds(!!e.target.checked);
-  });
   document.getElementById("btnDriveMode")?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -3210,10 +3408,6 @@ function bindControls() {
   syncDriveModeUi();
   document.getElementById("toggleBuildings")?.addEventListener("change", (e) => {
     setView3d(!!e.target.checked);
-  });
-  document.getElementById("levelPromptDeadEnds")?.addEventListener("change", (e) => {
-    // Live edit during countdown — persisted on Yes / auto-confirm
-    state.excludeDeadEnds = !!e.target.checked;
   });
   window.addEventListener("wardrivrr:theme", () => onSiteThemeChange());
   document.getElementById("levelPromptNo")?.addEventListener("click", () => {

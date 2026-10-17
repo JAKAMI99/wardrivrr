@@ -31,6 +31,10 @@ GPS_SNAP_ENABLED = (
     os.getenv("GPS_SNAP_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
 )
 _HEADING_PREF_DEG = float(os.getenv("GPS_SNAP_HEADING_PREF_DEG", "55"))
+# Opposite carriageways run ~180° from travel; do not treat reverse as equal.
+_REVERSE_PENALTY_M = float(os.getenv("GPS_SNAP_REVERSE_PENALTY_M", "6.5"))
+# Prefer staying on the last snapped segment when still a close candidate.
+_STICKY_BONUS_M = float(os.getenv("GPS_SNAP_STICKY_BONUS_M", "2.5"))
 _CANDIDATE_LIMIT = 12
 _HOLD_MAX_S = max(0.0, min(float(os.getenv("GPS_SNAP_HOLD_MAX_S", "6")), 8.0))
 
@@ -202,18 +206,25 @@ def _query_candidates(
 def _pick_candidate(
     rows: list[dict[str, Any]],
     heading_deg: float | None,
+    preferred_segment_id: int | None = None,
 ) -> dict[str, Any] | None:
+    """
+    Pick the edge under the vehicle.
+
+    Heading is travel-direction only: reverse alignment (opposite dual-
+    carriageway) gets a large distance penalty so the far lane does not win
+    just because GPS sits between the two roads.
+    """
     if not rows:
         return None
-    if heading_deg is None:
-        return rows[0]
+    pref = int(preferred_segment_id) if preferred_segment_id is not None else None
 
     best = None
     best_score = None
     for row in rows:
         dist = float(row.get("dist_m") or 0)
         heading_pen = 0.0
-        if row.get("lat_a") is not None and row.get("lat_b") is not None:
+        if heading_deg is not None and row.get("lat_a") is not None and row.get("lat_b") is not None:
             edge_brg = _bearing_deg(
                 float(row["lat_a"]),
                 float(row["lon_a"]),
@@ -221,13 +232,17 @@ def _pick_candidate(
                 float(row["lon_b"]),
             )
             if edge_brg is not None:
-                d = min(
-                    _angle_diff(heading_deg, edge_brg),
-                    _angle_diff(heading_deg, (edge_brg + 180) % 360),
-                )
-                if d > _HEADING_PREF_DEG:
-                    heading_pen = (d - _HEADING_PREF_DEG) * 0.75
-        score = dist + heading_pen
+                d_fwd = _angle_diff(heading_deg, edge_brg)
+                d_rev = _angle_diff(heading_deg, (edge_brg + 180) % 360)
+                # Prefer the orientation that matches travel; reverse costs metres.
+                if d_rev + 15.0 < d_fwd:
+                    heading_pen = _REVERSE_PENALTY_M + max(0.0, d_rev - _HEADING_PREF_DEG) * 0.75
+                elif d_fwd > _HEADING_PREF_DEG:
+                    heading_pen = (d_fwd - _HEADING_PREF_DEG) * 0.75
+        sticky = 0.0
+        if pref is not None and int(row.get("id") or 0) == pref:
+            sticky = -_STICKY_BONUS_M
+        score = dist + heading_pen + sticky
         if best_score is None or score < best_score:
             best_score = score
             best = row
@@ -275,7 +290,13 @@ def snap_to_road(
         return out
 
     rows = _query_candidates(int(level_id), float(lat), float(lon), thr)
-    pick = _pick_candidate(rows, heading_deg)
+    preferred_sid = None
+    if uid:
+        with _lock:
+            prev_pref = _last_good.get(uid)
+        if prev_pref and prev_pref.get("level_id") == int(level_id):
+            preferred_sid = prev_pref.get("segment_id")
+    pick = _pick_candidate(rows, heading_deg, preferred_segment_id=preferred_sid)
 
     if pick and pick.get("lat") is not None and pick.get("lon") is not None:
         dist = float(pick.get("dist_m") or 0)

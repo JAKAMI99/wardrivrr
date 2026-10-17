@@ -246,7 +246,7 @@ set_env FORCE_LOCAL_BUILD 1
 set_env VALHALLA_URL "http://127.0.0.1:8002"
 set_env HOST_PROJECT "$ROOT"
 set_env HOST_DATA_ROOT "$ROOT/data"
-set_env WARDRIVRR_COMPOSE_ROOT "/host/project"
+set_env WARDRIVRR_COMPOSE_ROOT "$ROOT"
 
 if ! grep -qE '^VALHALLA_SERVER_THREADS=' .env 2>/dev/null; then
   _n="$(nproc 2>/dev/null || echo 4)"

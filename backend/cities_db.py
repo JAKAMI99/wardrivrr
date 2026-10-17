@@ -453,3 +453,73 @@ def lookup_city_by_label(label: str) -> dict | None:
         if h["label"].lower() == label.strip().lower():
             return h
     return hits[0]
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+def nearest_city(
+    lat: float,
+    lon: float,
+    *,
+    max_km: float = 25.0,
+    min_population: int = 5_000,
+) -> dict | None:
+    """Closest GeoNames city within max_km (for Drive suggest when admin_areas is empty)."""
+    # ~1 deg lat ≈ 111 km; pad bbox then rank by haversine
+    pad = max(0.05, (max_km / 111.0) * 1.25)
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT geoname_id, name, asciiname, country_code, admin1,
+                   latitude, longitude, population, feature_code
+            FROM cities
+            WHERE population >= ?
+              AND latitude BETWEEN ? AND ?
+              AND longitude BETWEEN ? AND ?
+            """,
+            (min_population, lat - pad, lat + pad, lon - pad, lon + pad),
+        ).fetchall()
+    finally:
+        conn.close()
+    best = None
+    best_d = None
+    for row in rows:
+        d = _haversine_km(lat, lon, float(row["latitude"]), float(row["longitude"]))
+        if d > max_km:
+            continue
+        if best_d is None or d < best_d:
+            best_d = d
+            best = row
+    if not best:
+        return None
+    clat = float(best["latitude"])
+    clon = float(best["longitude"])
+    pop = int(best["population"] or 0)
+    fcode = best["feature_code"]
+    radius = estimate_radius_deg(pop, fcode)
+    cc = (best["country_code"] or "").upper()
+    label = f"{best['name']}, {country_label(cc)}" if cc else best["name"]
+    return {
+        "geoname_id": int(best["geoname_id"]),
+        "name": best["name"],
+        "label": label,
+        "country_code": cc,
+        "lat": clat,
+        "lon": clon,
+        "population": pop,
+        "feature_code": fcode,
+        "bbox": bbox_from_point(clat, clon, radius),
+        "boundary": approximate_boundary(clat, clon, radius),
+        "boundary_approximate": True,
+        "distance_km": best_d,
+        "place_type": "city",
+        "place_query": label,
+    }

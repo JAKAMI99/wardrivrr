@@ -8,8 +8,8 @@
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=9"></script>
-    <link rel="stylesheet" href="/static/navigate.css?v=44" />
+    <script src="/static/theme.js?v=10"></script>
+    <link rel="stylesheet" href="/static/navigate.css?v=49" />
   </head>
   <body class="nav-body" data-nav-night="0">
     <div class="app-shell nav-shell">
@@ -36,6 +36,17 @@
           Rerouting…
         </div>
 
+        <div
+          class="nav-routing-wait"
+          id="navRoutingWait"
+          hidden
+          role="status"
+          aria-live="polite"
+        >
+          <strong>Routing not ready</strong>
+          <span id="navRoutingWaitDetail">Generating the routing map…</span>
+        </div>
+
         <div id="levelPrompt" class="nav-level-prompt" hidden>
           <div class="nav-level-card">
             <p class="nav-level-title">Generate level?</p>
@@ -44,10 +55,6 @@
               No level covers this spot yet. Auto-confirm in
               <span id="levelPromptSec">20</span>s
             </p>
-            <label class="nav-level-opt" title="Skip cul-de-sac tips when routing (roads stay in the level)">
-              <input type="checkbox" id="levelPromptDeadEnds" />
-              Skip dead ends when routing
-            </label>
             <div class="nav-level-actions">
               <button type="button" class="btn" id="levelPromptNo">Not now</button>
               <button type="button" class="btn btn-primary nav-yes-fill" id="levelPromptYes">
@@ -84,34 +91,21 @@
             <span id="statSpeed">0</span>
             <small>km/h</small>
           </div>
-          <div class="nav-stat">
-            <span id="statUnlock">0.0</span>
-            <small>km new</small>
-          </div>
-          <div class="nav-stat nav-stat-radio" title="New networks · seen this drive">
+          <div class="nav-stat nav-stat-radio" title="New · seen this drive">
             <span class="nav-stat-new" id="statWifiNew">0</span>
             <span class="nav-stat-seen" id="statWifiSeen">0</span>
             <small>Wi‑Fi</small>
           </div>
-          <div class="nav-stat nav-stat-radio" title="New networks · seen this drive">
-            <span class="nav-stat-new" id="statBtNew">0</span>
-            <span class="nav-stat-seen" id="statBtSeen">0</span>
-            <small>Bluetooth</small>
+          <div class="nav-stat nav-stat-radio" title="Bluetooth + BLE — new · seen this drive">
+            <span class="nav-stat-new" id="statBlueNew">0</span>
+            <span class="nav-stat-seen" id="statBlueSeen">0</span>
+            <small>Blue</small>
           </div>
-          <div class="nav-stat nav-stat-radio" title="New networks · seen this drive">
-            <span class="nav-stat-new" id="statBleNew">0</span>
-            <span class="nav-stat-seen" id="statBleSeen">0</span>
-            <small>BLE</small>
-          </div>
-          <div class="nav-stat">
-            <span id="statRoute">—</span>
-            <small>km left</small>
-          </div>
-          <div class="nav-stat nav-stat-level" id="statLevelCell" title="Unlocked road tiles in this level">
+          <div class="nav-stat nav-stat-level" id="statLevelCell" title="Unlocked / total road tiles in this level">
             <span id="statLevel">—</span>
-            <small id="statTiles">— tiles</small>
+            <small id="statTiles">—/—</small>
           </div>
-          <div class="nav-stat nav-stat-xp" title="Explorer XP — networks, BT/BLE, and a bit from driving">
+          <div class="nav-stat nav-stat-xp" title="Explorer XP — networks + roads (new fog pays more)">
             <div class="nav-xp-top">
               <span id="statXpLevel">—</span>
               <span class="nav-xp-meta" id="statXpMeta"></span>
@@ -123,57 +117,62 @@
           </div>
         </section>
 
-        <!-- Driving chrome: ≥76dp tap targets (Android Auto). Pinch to zoom. -->
+        <!-- Compact chrome: play + vehicle + settings -->
         <section class="nav-toolbar nav-toolbar-icons" aria-label="Map controls">
           <button type="button" class="nav-icon-btn nav-icon-btn-lg nav-nav-toggle is-muted-look" id="btnNavToggle" title="Start navigation" aria-label="Start navigation" aria-pressed="false">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 2c-3.6 0-6.5 2.9-6.5 6.5 0 4.9 6.5 13.5 6.5 13.5s6.5-8.6 6.5-13.5C18.5 4.9 15.6 2 12 2zm0 8.8a2.3 2.3 0 110-4.6 2.3 2.3 0 010 4.6z"/>
+            <svg class="nav-play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+            <svg class="nav-stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
+              <rect x="6" y="6" width="12" height="12" rx="1.5"/>
             </svg>
           </button>
-          <button type="button" class="nav-icon-btn is-muted-look" id="btnMuteSounds" title="Sounds on (tap to mute)" aria-label="Toggle achievement sounds" aria-pressed="false">
+          <button type="button" class="nav-icon-btn is-on" id="btnDriveMode" title="Vehicle routing" aria-label="Vehicle routing" aria-expanded="false" aria-controls="navModeSheet">
+            <span class="nav-vehicle-glyph" id="btnDriveModeIcon" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="nav-icon-btn is-muted-look" id="btnNavSettings" title="Drive settings" aria-label="Drive settings" aria-expanded="false" aria-controls="navSettingsSheet">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
-              <path class="nav-mute-cross" d="M23 9l-6 6M17 9l6 6" hidden/>
-              <path d="M11 5L6 9H2v6h4l5 4V5z"/>
-              <path class="nav-sound-waves" d="M15.5 8.5a5 5 0 010 7M19 5.5a9 9 0 010 13"/>
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>
             </svg>
           </button>
-          <button type="button" class="nav-icon-btn is-on" id="btnViewMode" title="3D view (tap for 2D)" aria-label="Toggle 2D or 3D view" aria-pressed="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
-              <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/>
-              <path d="M12 22V12"/>
-              <path d="M3 7l9 5 9-5"/>
-            </svg>
-          </button>
-          <button type="button" class="nav-icon-btn is-muted-look" id="btnDeadEnds" title="Skip dead ends when routing" aria-label="Skip dead ends" aria-pressed="false">
-            <!-- Cul-de-sac / no through: circle-slash over road stub -->
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
-              <circle cx="12" cy="12" r="9"/>
-              <path d="M12 7v5h5"/>
-              <path d="M5 19L19 5"/>
-            </svg>
-          </button>
-          <button type="button" class="nav-icon-btn is-on" id="btnDriveMode" title="Drive mode" aria-label="Drive mode menu" aria-expanded="false" aria-controls="navModeSheet">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
-              <path d="M4 7h16M4 12h16M4 17h10"/>
-            </svg>
-          </button>
-          <input type="checkbox" id="toggleDeadEnds" class="nav-sr-only" tabindex="-1" aria-hidden="true" />
           <p class="nav-hint muted" id="navHint" hidden>Waiting for GPS…</p>
         </section>
+
+        <div id="navSettingsSheet" class="nav-mode-sheet" hidden>
+          <div class="nav-mode-card nav-settings-card" role="dialog" aria-labelledby="navSettingsTitle">
+            <header class="nav-mode-head">
+              <h2 id="navSettingsTitle">Drive settings</h2>
+              <button type="button" class="btn" id="btnSettingsClose">Close</button>
+            </header>
+            <div class="nav-settings-rows">
+              <button type="button" class="nav-settings-row" id="btnMuteSounds" aria-pressed="false">
+                <span class="nav-settings-label">Sounds</span>
+                <span class="nav-settings-value" id="settingsMuteValue">On</span>
+              </button>
+              <button type="button" class="nav-settings-row" id="btnViewMode" aria-pressed="true">
+                <span class="nav-settings-label">Map view</span>
+                <span class="nav-settings-value" id="settingsViewValue">3D</span>
+              </button>
+              <a class="nav-settings-row nav-settings-link" href="/levels">Levels</a>
+              <a class="nav-settings-row nav-settings-link" href="/status">Status</a>
+            </div>
+          </div>
+        </div>
 
         <div id="navModeSheet" class="nav-mode-sheet" hidden>
           <div class="nav-mode-card" role="dialog" aria-labelledby="navModeTitle">
             <header class="nav-mode-head">
-              <h2 id="navModeTitle">Drive mode</h2>
+              <h2 id="navModeTitle">Vehicle routing</h2>
               <button type="button" class="btn" id="btnModeClose">Close</button>
             </header>
             <p class="nav-mode-current">
-              This level: <strong id="navModeLabel">—</strong>
+              Routing as: <strong id="navModeLabel">—</strong>
             </p>
             <p class="muted nav-mode-blurb" id="navModeBlurb">—</p>
             <p class="muted nav-mode-hint">
-              Tap a mode to set routing prefs for this drive. Road types in the map
-              still come from the level — create another level to change those.
+              Pick how Valhalla should route this drive. Fog roads still come from
+              the level you generated — create another level to change those.
             </p>
             <ul class="nav-mode-presets" id="navModePresets"></ul>
             <a class="btn btn-primary nav-mode-levels" href="/levels">Create / open levels</a>
@@ -211,6 +210,6 @@
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=5"></script>
-    <script src="/static/navigate.js?v=56"></script>
+    <script src="/static/navigate.js?v=62"></script>
   </body>
 </html>

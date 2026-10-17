@@ -52,7 +52,7 @@ def process_region_background(region_id: str, pbf_url: str):
     ], check=True)
     print("[+] osm2pgsql Import erfolgreich abgeschlossen.")
 
-    # Nun die SQL-Routinen für 35m-Cuts, Sackgassen und Stadtteile ausführen
+    # Nun die SQL-Routinen für 20m-Cuts, Sackgassen und Stadtteile ausführen
     run_postgis_pipeline()
     
     # Aufräumen
@@ -63,8 +63,8 @@ def run_postgis_pipeline():
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
     
-    print("[*] Generiere 35m-Segmente...")
-    # Hier rufen wir unsere SQL-Funktionen auf oder führen sie direkt aus
+    print("[*] Generiere 20m-Segmente...")
+    # Legacy SQL name may still say 35m; level builds use SEGMENT_TARGET_M in levels.py
     cur.execute("SELECT sp_generate_35m_segments();")
     conn.commit()
     

@@ -179,13 +179,13 @@
 
   /**
    * Map + fog-of-war colours per theme.
-   * fogExplored = driven (bright); fogLocked = never driven (near-black).
+   * fogExplored = driven (muted so TBT route stays readable); fogLocked = never driven.
    */
   const MAP = {
     classic: {
       ahead: "#00e5ff",
       done: "#2ad48a",
-      fogExplored: "#3dffa8",
+      fogExplored: "#2a4a42",
       fogLocked: "#12161e",
       mapDay: "liberty",
       mapNight: "dark",
@@ -193,7 +193,7 @@
     kidcore: {
       ahead: "#ff5cab",
       done: "#b8ff00",
-      fogExplored: "#e6ff4a",
+      fogExplored: "#5a6230",
       fogLocked: "#160812",
       mapDay: "liberty",
       mapNight: "liberty",
@@ -201,7 +201,7 @@
     crt: {
       ahead: "#00ff66",
       done: "#ffb000",
-      fogExplored: "#33ff77",
+      fogExplored: "#1a4a2e",
       fogLocked: "#030805",
       mapDay: "dark",
       mapNight: "dark",
@@ -586,7 +586,7 @@
   function fogPack(id) {
     const pack = mapPack(id);
     return {
-      explored: pack.fogExplored || pack.done || "#3dffa8",
+      explored: pack.fogExplored || "#2a4a42",
       locked: pack.fogLocked || "#12161e",
     };
   }

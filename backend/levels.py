@@ -35,7 +35,7 @@ PROFILE_HIGHWAYS = {
     "big_car": profile_highways("big_car"),
 }
 
-SEGMENT_TARGET_M = 35.0
+SEGMENT_TARGET_M = 20.0
 
 
 def _point_in_ring(lon: float, lat: float, ring: list) -> bool:
@@ -752,8 +752,10 @@ def _update_level_explored_stats(cur, level_id: int):
     return cur.fetchone()
 
 
-# Endpoint match for "before/behind" neighbours (metres)
+# Same-OSM-way continuation only (metres). Cross-street stubs at junctions
+# share endpoints too — never unlock those just because they touch.
 _UNLOCK_TOUCH_M = 2.5
+_UNLOCK_AHEAD_MAX_DEG = 40.0
 
 
 def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -781,9 +783,9 @@ def unlock_near_point(
     """
     Fog unlock while snapped to a road.
 
-    Only the snapped segment plus the best-aligned before/behind neighbours
-    (endpoint-touching) are unlocked — not a lateral radius that paints
-    parallel streets.
+    Unlocks the snapped segment, plus at most one ahead continuation that is
+    the same OSM way and aligned with travel heading. Never unlocks behind or
+    cross-street stubs at junctions (those also share the intersection node).
     """
     del accuracy_m, accuracy_factor, lateral_m, lon, lat  # snap corridor only
     if segment_id is None:
@@ -803,7 +805,7 @@ def unlock_near_point(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id,
+                SELECT id, osm_id,
                        ST_Y(ST_StartPoint(geom)) AS slat,
                        ST_X(ST_StartPoint(geom)) AS slon,
                        ST_Y(ST_EndPoint(geom)) AS elat,
@@ -824,99 +826,80 @@ def unlock_near_point(
                     "mode": "missing_segment",
                 }
 
-            # Neighbours that share a start/end within a few metres
-            cur.execute(
-                """
-                SELECT n.id,
-                       ST_Y(ST_StartPoint(n.geom)) AS slat,
-                       ST_X(ST_StartPoint(n.geom)) AS slon,
-                       ST_Y(ST_EndPoint(n.geom)) AS elat,
-                       ST_X(ST_EndPoint(n.geom)) AS elon
-                FROM road_segments c
-                JOIN road_segments n
-                  ON n.level_id = c.level_id AND n.id <> c.id
-                WHERE c.level_id = %s AND c.id = %s
-                  AND (
-                    ST_DWithin(
-                      ST_StartPoint(c.geom)::geography,
-                      ST_StartPoint(n.geom)::geography, %s
-                    )
-                    OR ST_DWithin(
-                      ST_StartPoint(c.geom)::geography,
-                      ST_EndPoint(n.geom)::geography, %s
-                    )
-                    OR ST_DWithin(
-                      ST_EndPoint(c.geom)::geography,
-                      ST_StartPoint(n.geom)::geography, %s
-                    )
-                    OR ST_DWithin(
-                      ST_EndPoint(c.geom)::geography,
-                      ST_EndPoint(n.geom)::geography, %s
-                    )
-                  )
-                """,
-                (
-                    level_id,
-                    sid,
-                    _UNLOCK_TOUCH_M,
-                    _UNLOCK_TOUCH_M,
-                    _UNLOCK_TOUCH_M,
-                    _UNLOCK_TOUCH_M,
-                ),
-            )
-            neighbours = cur.fetchall() or []
-
             heading = float(heading_deg) % 360.0 if heading_deg is not None else None
-            ahead_id = None
-            behind_id = None
-            ahead_err = 1e9
-            behind_err = 1e9
-            c_slat, c_slon = float(cur_seg["slat"]), float(cur_seg["slon"])
-            c_elat, c_elon = float(cur_seg["elat"]), float(cur_seg["elon"])
+            osm_id = cur_seg.get("osm_id")
+            # Only look ahead along the same OSM way — junction cross-streets
+            # share endpoints but have a different osm_id.
+            if heading is not None and osm_id is not None:
+                cur.execute(
+                    """
+                    SELECT n.id,
+                           ST_Y(ST_StartPoint(n.geom)) AS slat,
+                           ST_X(ST_StartPoint(n.geom)) AS slon,
+                           ST_Y(ST_EndPoint(n.geom)) AS elat,
+                           ST_X(ST_EndPoint(n.geom)) AS elon
+                    FROM road_segments c
+                    JOIN road_segments n
+                      ON n.level_id = c.level_id
+                     AND n.id <> c.id
+                     AND n.osm_id IS NOT DISTINCT FROM c.osm_id
+                    WHERE c.level_id = %s AND c.id = %s
+                      AND (
+                        ST_DWithin(
+                          ST_StartPoint(c.geom)::geography,
+                          ST_StartPoint(n.geom)::geography, %s
+                        )
+                        OR ST_DWithin(
+                          ST_StartPoint(c.geom)::geography,
+                          ST_EndPoint(n.geom)::geography, %s
+                        )
+                        OR ST_DWithin(
+                          ST_EndPoint(c.geom)::geography,
+                          ST_StartPoint(n.geom)::geography, %s
+                        )
+                        OR ST_DWithin(
+                          ST_EndPoint(c.geom)::geography,
+                          ST_EndPoint(n.geom)::geography, %s
+                        )
+                      )
+                    """,
+                    (
+                        level_id,
+                        sid,
+                        _UNLOCK_TOUCH_M,
+                        _UNLOCK_TOUCH_M,
+                        _UNLOCK_TOUCH_M,
+                        _UNLOCK_TOUCH_M,
+                    ),
+                )
+                neighbours = cur.fetchall() or []
+                ahead_id = None
+                ahead_err = 1e9
+                c_slat, c_slon = float(cur_seg["slat"]), float(cur_seg["slon"])
+                c_elat, c_elon = float(cur_seg["elat"]), float(cur_seg["elon"])
 
-            for n in neighbours:
-                nid = int(n["id"])
-                n_slat, n_slon = float(n["slat"]), float(n["slon"])
-                n_elat, n_elon = float(n["elat"]), float(n["elon"])
-                # Outward bearing from the shared end toward the far end of neighbour
-                candidates: list[float] = []
-                for cx, cy, nx, ny, fx, fy in (
-                    (c_slon, c_slat, n_slon, n_slat, n_elon, n_elat),
-                    (c_slon, c_slat, n_elon, n_elat, n_slon, n_slat),
-                    (c_elon, c_elat, n_slon, n_slat, n_elon, n_elat),
-                    (c_elon, c_elat, n_elon, n_elat, n_slon, n_slat),
-                ):
-                    if abs(cx - nx) < 1e-5 and abs(cy - ny) < 1e-5:
-                        candidates.append(_bearing_deg(cy, cx, fy, fx))
-                if not candidates:
-                    # loose: use neighbour mid bearing from current mid
-                    mid_c_lat = (c_slat + c_elat) / 2
-                    mid_c_lon = (c_slon + c_elon) / 2
-                    mid_n_lat = (n_slat + n_elat) / 2
-                    mid_n_lon = (n_slon + n_elon) / 2
-                    candidates.append(
-                        _bearing_deg(mid_c_lat, mid_c_lon, mid_n_lat, mid_n_lon)
-                    )
-                brg = candidates[0]
-                if heading is None:
-                    # No heading — take first two neighbours
-                    if ahead_id is None:
+                for n in neighbours:
+                    nid = int(n["id"])
+                    n_slat, n_slon = float(n["slat"]), float(n["slon"])
+                    n_elat, n_elon = float(n["elat"]), float(n["elon"])
+                    brgs: list[float] = []
+                    for cy, cx, ny, nx, fy, fx in (
+                        (c_slat, c_slon, n_slat, n_slon, n_elat, n_elon),
+                        (c_slat, c_slon, n_elat, n_elon, n_slat, n_slon),
+                        (c_elat, c_elon, n_slat, n_slon, n_elat, n_elon),
+                        (c_elat, c_elon, n_elat, n_elon, n_slat, n_slon),
+                    ):
+                        if haversine_m(cy, cx, ny, nx) <= _UNLOCK_TOUCH_M:
+                            brgs.append(_bearing_deg(cy, cx, fy, fx))
+                    if not brgs:
+                        continue
+                    err_fwd = min(_angle_diff_abs(b, heading) for b in brgs)
+                    if err_fwd < ahead_err and err_fwd <= _UNLOCK_AHEAD_MAX_DEG:
+                        ahead_err = err_fwd
                         ahead_id = nid
-                    elif behind_id is None and nid != ahead_id:
-                        behind_id = nid
-                    continue
-                err_fwd = _angle_diff_abs(brg, heading)
-                err_back = _angle_diff_abs(brg, (heading + 180.0) % 360.0)
-                if err_fwd < ahead_err and err_fwd <= 75.0:
-                    ahead_err = err_fwd
-                    ahead_id = nid
-                if err_back < behind_err and err_back <= 75.0:
-                    behind_err = err_back
-                    behind_id = nid
 
-            for extra in (ahead_id, behind_id):
-                if extra is not None and extra not in ids:
-                    ids.append(int(extra))
+                if ahead_id is not None and ahead_id not in ids:
+                    ids.append(int(ahead_id))
 
             cur.execute(
                 """
@@ -960,7 +943,7 @@ def unlock_near_point(
         "explored_pct": explored_pct,
         "segment_id": sid,
         "unlocked_ids": ids,
-        "mode": "snap_corridor",
+        "mode": "snap_segment",
     }
 
 
@@ -1201,25 +1184,31 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
     except Exception:
         addr_job_id = None
 
-    # Clip regional pack → active.osm.pbf and rebuild Valhalla tiles for Navigate.
+    # Seed Valhalla from this level extract and start the container.
     valhalla_out = None
     try:
         from valhalla_prep import prepare_valhalla_for_level
 
-        report(0.99, "finish", "Preparing Valhalla routing tiles…", 30)
+        report(0.99, "finish", "Starting Valhalla routing…", 30)
         valhalla_out = prepare_valhalla_for_level(
             user_id, level_id, restart=True, force=False
         )
     except Exception as exc:
-        # Level is still usable; Navigate prepare can retry. Fall back to full seed.
+        # Level roads are usable; still try seed+start so Drive can route.
         try:
-            from valhalla_prep import ensure_valhalla_after_regional_pbf
+            from valhalla_prep import (
+                ensure_valhalla_after_regional_pbf,
+                ensure_valhalla_up,
+            )
 
+            seed_src = dest if isinstance(dest, Path) else Path(str(dest))
             valhalla_out = ensure_valhalla_after_regional_pbf(
-                dest if isinstance(dest, Path) else Path(str(dest)),
-                force_seed=False,
+                seed_src,
+                force_seed=True,
                 restart=True,
             )
+            if not (valhalla_out.get("valhalla") or {}).get("ok"):
+                valhalla_out["valhalla"] = ensure_valhalla_up(wipe=True)
             valhalla_out = {"fallback_seed": True, "error": str(exc), **valhalla_out}
         except Exception as exc2:
             valhalla_out = {"ok": False, "detail": str(exc), "seed_error": str(exc2)}
@@ -1381,6 +1370,7 @@ def get_level_road_map(user_id: int, level_id: int) -> dict | None:
         "stats": {
             "locked_segments": locked_n,
             "explored_segments": explored_n,
+            "total_segments": int(locked_n or 0) + int(explored_n or 0),
             "locked_km": round(locked_m / 1000.0, 2),
             "explored_km": round(explored_m / 1000.0, 2),
         },

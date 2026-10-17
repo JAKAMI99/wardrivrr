@@ -215,10 +215,19 @@ def seed_active_from_regional(
 
 
 def _compose_root() -> Path:
-    """Host checkout with docker-compose.yml (API may use a bind-mounted path)."""
-    env = (os.getenv("WARDRIVRR_COMPOSE_ROOT") or "").strip()
-    if env:
-        return Path(env)
+    """
+    Checkout path that both this process and the Docker daemon can resolve.
+
+    Prefer HOST_PROJECT (absolute host path, same-path bind-mounted into the API
+    container). Fall back to WARDRIVRR_COMPOSE_ROOT, then repo ROOT.
+    """
+    for key in ("HOST_PROJECT", "WARDRIVRR_COMPOSE_ROOT"):
+        raw = (os.getenv(key) or "").strip()
+        if not raw:
+            continue
+        path = Path(raw)
+        if (path / "docker-compose.yml").is_file():
+            return path
     return ROOT
 
 
@@ -227,12 +236,24 @@ def _host_data_root() -> Path:
     env = (os.getenv("HOST_DATA_ROOT") or "").strip()
     if env:
         return Path(env)
+    # Same-path mount: HOST_PROJECT/data
+    host_proj = (os.getenv("HOST_PROJECT") or "").strip()
+    if host_proj:
+        return Path(host_proj) / "data"
     return DATA
 
 
 def _compose_cmd() -> list[str]:
     root = _compose_root()
-    compose = ["docker", "compose", "-f", str(root / "docker-compose.yml")]
+    # --project-directory forces host-relative volume paths for docker-from-docker
+    compose = [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(root),
+        "-f",
+        str(root / "docker-compose.yml"),
+    ]
     car = root / "deploy" / "compose.car.yml"
     if car.is_file():
         compose.extend(["-f", str(car)])
@@ -247,19 +268,76 @@ def _compose_env() -> dict[str, str]:
     env = {k: str(v) for k, v in os.environ.items() if v is not None}
     threads = str(valhalla_server_threads())
     env["VALHALLA_SERVER_THREADS"] = threads
+    root = _compose_root()
+    env.setdefault("HOST_PROJECT", str(root))
+    env.setdefault("HOST_DATA_ROOT", str(_host_data_root()))
     return env
+
+
+def _docker_cli_ok() -> bool:
+    try:
+        proc = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _valhalla_container_running() -> bool:
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Running}}",
+                "wardrivrr_valhalla",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return proc.returncode == 0 and proc.stdout.strip().lower() == "true"
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _start_valhalla_container_only() -> dict[str, Any]:
+    """Start an existing Valhalla container without compose recreate."""
+    proc = subprocess.run(
+        ["docker", "start", "wardrivrr_valhalla"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        raise ValhallaPrepError(
+            f"docker start wardrivrr_valhalla failed: "
+            f"{(proc.stderr or proc.stdout or '').strip()[-400:]}"
+        )
+    return {"restarted": True, "method": "docker_start", "wiped_tiles": False}
 
 
 def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
     """Recreate Valhalla so it rebuilds tiles from data/valhalla/active.osm.pbf."""
     if not active_pbf_ready():
         raise ValhallaPrepError("active.osm.pbf missing — seed or clip first")
+    if not _docker_cli_ok():
+        raise ValhallaPrepError(
+            "Docker CLI unavailable inside API — mount /var/run/docker.sock "
+            "and set HOST_PROJECT to the host checkout path"
+        )
 
     compose = _compose_cmd()
     root = _compose_root()
     if not (root / "docker-compose.yml").is_file():
         raise ValhallaPrepError(
-            f"docker-compose.yml not found at {root} — set WARDRIVRR_COMPOSE_ROOT"
+            f"docker-compose.yml not found at {root} — set HOST_PROJECT "
+            f"to the absolute host path of the wardrivrr checkout"
         )
 
     cenv = _compose_env()
@@ -289,7 +367,7 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
         cwd=str(root),
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=180,
         env=cenv,
     )
     steps.append(
@@ -298,16 +376,70 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
             "code": proc.returncode,
             "err": (proc.stderr or "")[-400:],
             "server_threads": threads,
+            "project_directory": str(root),
         }
     )
     if proc.returncode != 0:
-        raise ValhallaPrepError(f"Could not start Valhalla: {proc.stderr or proc.stdout}")
+        # Last resort: start a leftover container if compose recreate failed
+        try:
+            fallback = _start_valhalla_container_only()
+            fallback["steps"] = steps
+            fallback["compose_error"] = (proc.stderr or proc.stdout or "")[-400:]
+            return fallback
+        except ValhallaPrepError:
+            raise ValhallaPrepError(
+                f"Could not start Valhalla: {proc.stderr or proc.stdout}"
+            ) from None
     return {
         "restarted": True,
+        "method": "compose_up",
         "wiped_tiles": do_wipe,
         "server_threads": int(threads),
         "steps": steps,
     }
+
+
+def ensure_valhalla_up(*, wipe: bool = False) -> dict[str, Any]:
+    """
+    Make sure Valhalla is running against the current active.osm.pbf.
+
+    - If HTTP already OK → no-op
+    - If container running but still building → no-op (caller waits)
+    - If PBF ready but container down/missing → start/recreate
+    """
+    from valhalla_client import valhalla_reachable
+
+    if not active_pbf_ready():
+        return {
+            "ok": False,
+            "running": False,
+            "detail": "active.osm.pbf missing",
+        }
+    if valhalla_reachable(timeout_s=1.5):
+        return {"ok": True, "running": True, "already": True, "http_ok": True}
+    if _valhalla_container_running() and not wipe:
+        return {
+            "ok": True,
+            "running": True,
+            "already": True,
+            "http_ok": False,
+            "detail": "container up — tiles still building",
+        }
+    try:
+        started = _restart_valhalla(wipe=wipe)
+        return {"ok": True, "http_ok": False, **started}
+    except ValhallaPrepError as exc:
+        # Try plain docker start before giving up
+        try:
+            started = _start_valhalla_container_only()
+            return {"ok": True, "http_ok": False, **started}
+        except ValhallaPrepError:
+            return {
+                "ok": False,
+                "running": False,
+                "restarted": False,
+                "detail": str(exc),
+            }
 
 
 def ensure_valhalla_after_regional_pbf(
@@ -318,26 +450,16 @@ def ensure_valhalla_after_regional_pbf(
 ) -> dict[str, Any]:
     """
     After the first (or any) regional pack lands in data/pbf: seed active.osm.pbf
-    and recreate Valhalla for a full tile rebuild.
+    and make sure Valhalla is running (recreate when the seed changed).
     """
     seed = seed_active_from_regional(src, force=force_seed)
     out: dict[str, Any] = {"ok": True, "seed": seed}
     if not restart:
         return out
-    if seed.get("seeded") or force_seed or not seed.get("already_current"):
-        try:
-            out["valhalla"] = _restart_valhalla(wipe=True)
-        except ValhallaPrepError as exc:
-            out["valhalla"] = {
-                "restarted": False,
-                "detail": str(exc),
-                "hint": "Run ./run.sh on the host to start Valhalla",
-            }
-    else:
-        out["valhalla"] = {
-            "restarted": False,
-            "detail": "Active PBF already seeded from this pack",
-        }
+    need_wipe = bool(seed.get("seeded") or force_seed)
+    out["valhalla"] = ensure_valhalla_up(wipe=need_wipe)
+    if not out["valhalla"].get("ok"):
+        out["ok"] = False
     return out
 
 
@@ -386,9 +508,14 @@ def prepare_valhalla_for_level(
     force: bool = False,
 ) -> dict[str, Any]:
     """
-    Ensure data/valhalla/active.osm.pbf is a bbox clip of the level's map pack.
-    Optionally recreate the Valhalla container to rebuild tiles from that clip.
+    Point Valhalla at this level's map extract and start the container.
+
+    Prefers the level's own extract.osm.pbf (already city-scoped). Falls back to
+    osmium-clipping a regional Geofabrik pack to the level bbox.
+    Always ensures the Valhalla container is up when restart=True.
     """
+    from paths import level_dir
+
     level = get_level(user_id, level_id)
     if not level:
         raise ValhallaPrepError("Level not found")
@@ -401,24 +528,48 @@ def prepare_valhalla_for_level(
     bbox = [float(x) for x in bbox]
     padded = _pad_bbox(bbox)
 
+    level_extract = level_dir(user_id, level_id) / "extract.osm.pbf"
     gid = level.get("geofabrik_id") or ""
-    src = pbf_path_for_extract(gid)
-    if not src.exists() or src.stat().st_size < 1000:
-        # Fall back to any regional pack (renamed / short id)
-        alt = pick_regional_pbf()
-        if alt is None:
-            raise ValhallaPrepError(f"Map pack PBF missing for {gid}: {src}")
-        src = alt
+    regional = pbf_path_for_extract(gid)
+    if not regional.exists() or regional.stat().st_size < 1000:
+        regional = pick_regional_pbf() or regional
 
     VALHALLA_DIR.mkdir(parents=True, exist_ok=True)
     if ACTIVE_PBF.is_dir():
         shutil.rmtree(ACTIVE_PBF, ignore_errors=True)
 
     clipped = False
-    if force or not _meta_matches(level_id, padded):
-        _clip_with_osmium_docker(src, ACTIVE_PBF, padded)
-        _write_meta(source=str(src), level=level, bbox=padded, mode="clip")
-        clipped = True
+    mode = "clip"
+    src: Path
+    if level_extract.is_file() and level_extract.stat().st_size >= 1000:
+        src = level_extract
+        mode = "level_extract"
+        # Already city-scoped — no osmium. Refresh when forced or level changed.
+        need = force or not _meta_matches(level_id, padded)
+        if not need and ACTIVE_META.exists():
+            try:
+                meta = json.loads(ACTIVE_META.read_text(encoding="utf-8"))
+                need = int(meta.get("level_id") or -1) != int(level_id)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                need = True
+        if need or not active_pbf_ready():
+            _link_or_copy(src, ACTIVE_PBF)
+            _write_meta(source=str(src), level=level, bbox=padded, mode=mode)
+            clipped = True
+    else:
+        if not isinstance(regional, Path) or not regional.exists() or regional.stat().st_size < 1000:
+            raise ValhallaPrepError(
+                f"Map pack PBF missing for level {level_id} "
+                f"(no extract.osm.pbf and no regional pack for {gid})"
+            )
+        src = regional
+        if force or not _meta_matches(level_id, padded):
+            _clip_with_osmium_docker(src, ACTIVE_PBF, padded)
+            _write_meta(source=str(src), level=level, bbox=padded, mode=mode)
+            clipped = True
+
+    if not active_pbf_ready():
+        raise ValhallaPrepError("Failed to prepare active.osm.pbf for Valhalla")
 
     out: dict[str, Any] = {
         "ok": True,
@@ -429,15 +580,19 @@ def prepare_valhalla_for_level(
         "active_bytes": ACTIVE_PBF.stat().st_size if ACTIVE_PBF.exists() else 0,
         "source_bytes": src.stat().st_size,
         "source_pbf": str(src),
+        "mode": mode,
         "clipped": clipped,
         "already_current": not clipped,
     }
 
-    if restart and (clipped or force):
-        out["valhalla"] = _restart_valhalla(wipe=True)
-    elif restart and not clipped:
-        out["valhalla"] = {
-            "restarted": False,
-            "detail": "Active clip already matches this level — no rebuild",
-        }
+    if restart:
+        # Always start Valhalla — previously we skipped when "already current"
+        # and left fresh installs with a PBF but no container.
+        out["valhalla"] = ensure_valhalla_up(wipe=bool(clipped or force))
+        if not out["valhalla"].get("ok"):
+            out["ok"] = False
+            raise ValhallaPrepError(
+                out["valhalla"].get("detail")
+                or "Could not start Valhalla after preparing the map extract"
+            )
     return out

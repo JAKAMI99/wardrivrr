@@ -114,10 +114,11 @@ async function loadProgress() {
 
   if (!map) {
     map = L.map("progressMap", { zoomControl: true, attributionControl: true });
-    // Dark basemap so fog contrast matches Drive
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    // OSM + CSS invert (CARTO raster tiles now require an API key)
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: "&copy; OpenStreetMap &copy; CARTO",
+      className: "progress-basemap",
+      attribution: "&copy; OpenStreetMap",
     }).addTo(map);
   }
 
