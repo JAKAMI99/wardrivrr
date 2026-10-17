@@ -1,0 +1,43 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "wardrivrr: full (API + DB)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_dev.py",
+      "args": ["--full"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "WARDIVRR_DEBUG": "1",
+        "WARDIVRR_MODE": "full",
+        "DB_HOST": "localhost",
+        "DB_PORT": "5432",
+        "DB_NAME": "wardriving",
+        "DB_USER": "explorer",
+        "DB_PASS": "secure_password_here"
+      }
+    },
+    {
+      "name": "wardrivrr: database mode (API + DB)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_dev.py",
+      "args": ["--database"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "WARDIVRR_DEBUG": "1",
+        "WARDIVRR_MODE": "database",
+        "DB_HOST": "localhost",
+        "DB_PORT": "5432",
+        "DB_NAME": "wardriving",
+        "DB_USER": "explorer",
+        "DB_PASS": "secure_password_here"
+      }
+    }
+  ]
+}

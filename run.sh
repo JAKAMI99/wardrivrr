@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Boot: host gpsd + Kismet, API image, compose up.
 set -euo pipefail
 

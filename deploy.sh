@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # First-time vehicle host setup: Wi-Fi / BT / GPS, .env, image, compose up.
 set -euo pipefail
 
