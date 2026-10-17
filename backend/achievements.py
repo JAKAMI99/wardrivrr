@@ -111,8 +111,8 @@ CATALOG: list[dict[str, Any]] = [
             _tier(1, 42.0, "km_day_best", "Memelord", 500),
             _tier(2, 67.0, "km_day_best", "Memelord II", 1500),
             _tier(3, 133.7, "km_day_best", "Memelord III", 4000),
-            _tier(4, 250.0, "km_day_best", "Memelord IV", 8000),
-            _tier(5, 420.0, "km_day_best", "Memelord Mastered", 16000, master=True),
+            _tier(4, 420.0, "km_day_best", "Memelord IV", 8000),
+            _tier(5, 1337.0, "km_day_best", "Memelord Mastered", 16000, master=True),
         ],
     },
     {
