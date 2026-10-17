@@ -325,7 +325,6 @@ html[data-theme="crt"] .nav-maneuver-dist {
 }
 
 .nav-xp-fill {
-  position: relative;
   height: 100%;
   width: 0%;
   border-radius: inherit;
@@ -336,42 +335,8 @@ html[data-theme="crt"] .nav-maneuver-dist {
     var(--nav-cyan) 78%,
     #7ef0ff 100%
   );
-  background-size: 200% 100%;
   transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-  animation: nav-xp-flow 2.8s linear infinite;
   box-shadow: 0 0 12px color-mix(in srgb, var(--nav-cyan) 55%, transparent);
-}
-
-.nav-xp-fill::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    105deg,
-    transparent 40%,
-    rgba(255, 255, 255, 0.35) 50%,
-    transparent 60%
-  );
-  background-size: 220% 100%;
-  animation: nav-xp-shine 2.2s ease-in-out infinite;
-}
-
-@keyframes nav-xp-flow {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 200% 50%;
-  }
-}
-
-@keyframes nav-xp-shine {
-  0% {
-    background-position: 120% 0;
-  }
-  100% {
-    background-position: -40% 0;
-  }
 }
 
 .nav-hud-stats .nav-stat-radio .nav-stat-new {
