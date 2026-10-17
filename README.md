@@ -45,7 +45,7 @@ Default login after a fresh database: `admin` / `admin` — change it.
 ## Quick deploy (recommended)
 
 ```bash
-git clone <repo-url> wardrivrr
+git clone https://github.com/JAKAMI99/wardrivrr.git
 cd wardrivrr
 ./deploy.sh    # once: GPS / Wi‑Fi / BT prompts, .env, image, compose up
 ./run.sh       # later boots
