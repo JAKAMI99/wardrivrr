@@ -26,6 +26,9 @@ PROFILE_COSTING = {
     "foot": "pedestrian",
 }
 
+# Never route into cul-de-sac tips shorter than this (metres).
+DEAD_END_MIN_M = 40.0
+
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371000.0
@@ -39,41 +42,102 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _fetch_unexplored_candidates(
     level_id: int, lon: float, lat: float, search_m: float, limit: int = 220
 ) -> list[dict[str, Any]]:
-    """Midpoints of locked segments inside a geographic radius."""
+    """
+    Midpoints of locked segments inside a geographic radius.
+    Marks cul-de-sac tips (endpoint degree ≤ 1) as is_dead_end.
+    """
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                WITH pts AS (
+                WITH level_nodes AS (
                   SELECT
                     id,
                     length_m,
+                    geom,
+                    is_explored,
+                    ROUND(ST_X(ST_StartPoint(geom))::numeric, 5) AS sx,
+                    ROUND(ST_Y(ST_StartPoint(geom))::numeric, 5) AS sy,
+                    ROUND(ST_X(ST_EndPoint(geom))::numeric, 5) AS ex,
+                    ROUND(ST_Y(ST_EndPoint(geom))::numeric, 5) AS ey
+                  FROM road_segments
+                  WHERE level_id = %s
+                ),
+                hits AS (
+                  SELECT sx AS x, sy AS y, id FROM level_nodes
+                  UNION ALL
+                  SELECT ex, ey, id FROM level_nodes
+                ),
+                deg AS (
+                  SELECT x, y, COUNT(*)::int AS n
+                  FROM hits
+                  GROUP BY x, y
+                ),
+                flagged AS (
+                  SELECT
+                    ln.id,
+                    ln.length_m,
+                    ln.geom,
+                    ln.is_explored,
+                    (ds.n <= 1 OR de.n <= 1) AS is_dead_end
+                  FROM level_nodes ln
+                  JOIN deg ds ON ds.x = ln.sx AND ds.y = ln.sy
+                  JOIN deg de ON de.x = ln.ex AND de.y = ln.ey
+                ),
+                pts AS (
+                  SELECT
+                    id,
+                    length_m,
+                    is_dead_end,
                     ST_X(ST_LineInterpolatePoint(geom, 0.5)) AS lon,
                     ST_Y(ST_LineInterpolatePoint(geom, 0.5)) AS lat,
                     ST_Distance(
                       geom::geography,
                       ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
                     ) AS dist_m
-                  FROM road_segments
-                  WHERE level_id = %s
-                    AND is_explored = FALSE
+                  FROM flagged
+                  WHERE is_explored = FALSE
                     AND geom && ST_Expand(
                       ST_SetSRID(ST_MakePoint(%s, %s), 4326),
                       %s / 111320.0
                     )
                 )
-                SELECT id, length_m, lon, lat, dist_m
+                SELECT id, length_m, lon, lat, dist_m, is_dead_end
                 FROM pts
                 WHERE dist_m <= %s
                 ORDER BY dist_m ASC
                 LIMIT %s
                 """,
-                (lon, lat, level_id, lon, lat, search_m, search_m, limit),
+                (level_id, lon, lat, lon, lat, search_m, search_m, limit),
             )
             return list(cur.fetchall())
     finally:
         conn.close()
+
+
+def filter_dead_end_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    exclude_all: bool = False,
+    min_length_m: float = DEAD_END_MIN_M,
+) -> list[dict[str, Any]]:
+    """
+    Drop cul-de-sac tips from explore waypoints.
+    Always skip tips shorter than min_length_m; if exclude_all, skip every tip.
+    """
+    out: list[dict[str, Any]] = []
+    for c in candidates:
+        if not c.get("is_dead_end"):
+            out.append(c)
+            continue
+        length = float(c.get("length_m") or 0)
+        if length < min_length_m:
+            continue
+        if exclude_all:
+            continue
+        out.append(c)
+    return out
 
 
 def _density_bonus(candidates: list[dict[str, Any]], cell_m: float = 120.0) -> dict[int, int]:
@@ -206,6 +270,7 @@ def plan_explore_route(
     target_km: float = 5.0,
     language: str = "en-US",
     heading_deg: float | None = None,
+    exclude_dead_ends: bool = False,
 ) -> dict[str, Any]:
     level = get_level(user_id, level_id)
     if not level:
@@ -218,7 +283,10 @@ def plan_explore_route(
     search_m = max(2500.0, min(12000.0, target_km * 1000.0 * 1.6))
     heading = float(heading_deg) % 360.0 if heading_deg is not None else None
 
-    candidates = _fetch_unexplored_candidates(level_id, lon, lat, search_m)
+    raw_candidates = _fetch_unexplored_candidates(level_id, lon, lat, search_m)
+    candidates = filter_dead_end_candidates(
+        raw_candidates, exclude_all=bool(exclude_dead_ends)
+    )
     waypoints = pick_waypoints(
         lat, lon, candidates, target_km=target_km, heading_deg=heading
     )
@@ -246,6 +314,9 @@ def plan_explore_route(
             "target_km": target_km,
             "waypoint_count": len(waypoints),
             "candidate_count": len(candidates),
+            "candidate_count_raw": len(raw_candidates),
+            "exclude_dead_ends": bool(exclude_dead_ends),
+            "dead_end_min_m": DEAD_END_MIN_M,
             "origin": {"lat": lat, "lon": lon},
             "heading_deg": heading,
         }
