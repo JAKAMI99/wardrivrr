@@ -2190,6 +2190,100 @@ a.module:hover {
   font-size: 0.85rem;
 }
 
+.progress-bar {
+  align-items: flex-start;
+}
+
+.progress-heading {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.progress-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.progress-complete-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #0b2a1c;
+  background: #3dffa8;
+}
+
+.progress-pct-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.35rem;
+}
+
+.progress-pct-item {
+  color: var(--muted, #8e95a0);
+}
+
+.progress-pct-item.is-active {
+  color: var(--text, #e8ecf2);
+  font-weight: 600;
+}
+
+.progress-pct-sep {
+  color: var(--line, #2a3140);
+  margin: 0 0.1rem;
+}
+
+.progress-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.progress-mode-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  min-width: 5.5rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line, #2a3140);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text, #e8ecf2);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.progress-mode-btn:hover {
+  border-color: rgba(61, 255, 168, 0.45);
+}
+
+.progress-mode-btn.is-active {
+  border-color: #3dffa8;
+  background: rgba(61, 255, 168, 0.12);
+}
+
+.progress-mode-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.progress-mode-pct {
+  font-size: 0.72rem;
+  color: var(--muted, #8e95a0);
+}
+
+.progress-mode-btn.is-active .progress-mode-pct {
+  color: #3dffa8;
+}
+
 .discover-legend {
   display: flex;
   gap: 1rem;

@@ -80,6 +80,12 @@
             BSSID / MAC
             <input name="network_id" type="search" placeholder="aa:bb:cc:..." autocomplete="off" />
           </label>
+          <label class="vendor-filter">
+            Vendor
+            <select name="vendor" id="vendorFilter">
+              <option value="">All vendors</option>
+            </select>
+          </label>
           <label>
             From
             <input name="seen_after" type="datetime-local" />
@@ -111,6 +117,6 @@
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=8"></script>
-    <script src="/static/database.js?v=5"></script>
+    <script src="/static/database.js?v=8"></script>
   </body>
 </html>

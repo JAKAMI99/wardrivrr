@@ -242,6 +242,16 @@ def apply_filters(sql: str, params: list, **filters) -> tuple[str, list]:
     if filters.get("network_id"):
         sql += " AND lower(network_id) = lower(%s)"
         params.append(filters["network_id"])
+    if filters.get("vendor"):
+        try:
+            from oui import vendor_match_clause
+
+            clause, vparams = vendor_match_clause(str(filters["vendor"]))
+            sql += f" AND {clause}"
+            params.extend(vparams)
+        except Exception:
+            sql += " AND vendor = %s"
+            params.append(str(filters["vendor"]).strip())
     if filters.get("exclude_no_ssid"):
         sql += f" AND NOT {EMPTY_SQL}"
     if filters.get("seen_after"):
@@ -308,6 +318,12 @@ def on_startup():
         ensure_index()
     except Exception as exc:
         print(f"[startup] geofabrik index: {exc}")
+    try:
+        from oui import start_oui_background
+
+        start_oui_background()
+    except Exception as exc:
+        print(f"[startup] OUI vendor DB: {exc}")
     try:
         from gpsd_poller import start_gpsd_poller
 
@@ -1586,6 +1602,9 @@ def network_search(
         default=None, alias="type", description="WIFI | BT | BLE"
     ),
     encryption: str | None = None,
+    vendor: str | None = Query(
+        default=None, description="IEEE organization name (exact), e.g. Apple, Inc."
+    ),
     exclude_no_ssid: bool = False,
     seen_after: datetime | None = None,
     seen_before: datetime | None = None,
@@ -1643,6 +1662,7 @@ def network_search(
         mac=mac,
         network_type=network_type,
         encryption=encryption,
+        vendor=vendor,
         exclude_no_ssid=exclude_no_ssid,
         seen_after=seen_after,
         seen_before=seen_before,
@@ -1803,6 +1823,16 @@ def api_geocode_reverse(
     return {"success": True, "result": hit}
 
 
+@app.get("/api/explore/vendors")
+def explore_vendors(user: dict = Depends(get_current_user)):
+    """Vendors present in this user's networks, with sample OUI chips for the filter UI."""
+    from oui import ensure_oui_db, list_vendors_for_user
+
+    ensure_oui_db()
+    vendors = list_vendors_for_user(user["id"])
+    return {"ok": True, "vendors": vendors, "count": len(vendors)}
+
+
 @app.get("/api/explore/view")
 def explore_view(user: dict = Depends(get_current_user)):
     """
@@ -1908,6 +1938,9 @@ def explore(
     encryption: str | None = None,
     name: str | None = None,
     network_id: str | None = None,
+    vendor: str | None = Query(
+        default=None, description="IEEE organization name (exact)"
+    ),
     exclude_no_ssid: bool = False,
     seen_after: datetime | None = None,
     seen_before: datetime | None = None,
@@ -1922,6 +1955,7 @@ def explore(
         encryption=encryption,
         name=name,
         network_id=network_id,
+        vendor=(vendor or "").strip() or None,
         exclude_no_ssid=exclude_no_ssid,
         seen_after=seen_after,
         seen_before=seen_before,
@@ -1950,6 +1984,16 @@ def explore(
         props.pop("geom", None)
         props["seen_at"] = props.get("last_seen")
         props["signal"] = props.get("avg_signal")
+        vendor = props.get("vendor")
+        if isinstance(vendor, str) and vendor.strip():
+            props["vendor"] = vendor.strip()
+        else:
+            try:
+                from oui import lookup_vendor
+
+                props["vendor"] = lookup_vendor(props.get("network_id"))
+            except Exception:
+                props["vendor"] = None
         for key in ("first_seen", "last_seen", "computed_at", "seen_at"):
             if props.get(key) is not None:
                 props[key] = props[key].isoformat()

@@ -765,27 +765,69 @@ def _read_level_explored_stats(cur, level_id: int):
 
 
 def _update_level_explored_stats(cur, level_id: int):
+    # Completion % is Small-car highways only (90% → region unlocked).
+    # levels.road_km stays the full imported graph for size display.
+    highways = sorted(profile_highways("small_car"))
     cur.execute(
         """
         UPDATE levels SET
           explored_km = sub.km,
           explored_pct = CASE
-            WHEN COALESCE(levels.road_km, 0) > 0
-            THEN LEAST(100.0, 100.0 * sub.km / levels.road_km)
+            WHEN COALESCE(sub.total_km, 0) > 0
+            THEN LEAST(100.0, 100.0 * sub.km / sub.total_km)
             ELSE 0
           END,
           updated_at = NOW()
         FROM (
-          SELECT COALESCE(SUM(length_m), 0) / 1000.0 AS km
+          SELECT
+            COALESCE(SUM(length_m) FILTER (WHERE is_explored), 0) / 1000.0 AS km,
+            COALESCE(SUM(length_m), 0) / 1000.0 AS total_km
           FROM road_segments
-          WHERE level_id = %s AND is_explored
+          WHERE level_id = %s AND highway = ANY(%s)
         ) sub
         WHERE levels.id = %s
         RETURNING explored_km, explored_pct
         """,
-        (level_id, level_id),
+        (level_id, highways, level_id),
     )
     return cur.fetchone()
+
+
+def _profile_progress_from_highway_rows(
+    rows: list[dict],
+) -> dict[str, dict[str, Any]]:
+    """Fold highway × is_explored aggregates into per-profile km / % / complete."""
+    by_hw: dict[str, dict[str, float]] = {}
+    for row in rows:
+        hw = str(row.get("highway") or "")
+        bucket = by_hw.setdefault(hw, {"explored_m": 0.0, "locked_m": 0.0})
+        length_m = float(row.get("length_m") or 0)
+        if row.get("is_explored"):
+            bucket["explored_m"] += length_m
+        else:
+            bucket["locked_m"] += length_m
+
+    out: dict[str, dict[str, Any]] = {}
+    for mode in ("big_car", "small_car", "bicycle", "foot"):
+        explored_m = locked_m = 0.0
+        for hw in profile_highways(mode):
+            b = by_hw.get(hw)
+            if not b:
+                continue
+            explored_m += b["explored_m"]
+            locked_m += b["locked_m"]
+        total_m = explored_m + locked_m
+        explored_pct = (
+            round(100.0 * explored_m / total_m, 2) if total_m > 0 else 0.0
+        )
+        out[mode] = {
+            "explored_pct": explored_pct,
+            "explored_km": round(explored_m / 1000.0, 2),
+            "locked_km": round(locked_m / 1000.0, 2),
+            "complete": is_complete(explored_pct),
+            "label": profile_label(mode),
+        }
+    return out
 
 
 # Same-OSM-way continuation only (metres). Cross-street stubs at junctions
@@ -1567,6 +1609,7 @@ def get_level_road_map(
     Discover view payload: locked vs explored road grids as MultiLineString GeoJSON.
     Optional profile filters to that mode's highways (Navigate / Progress).
     Explored flags stay shared; % is scoped to the filtered set when profile is set.
+    Always includes by_profile stats for all modes; completion = Small car ≥ 90%.
     """
     level = get_level(user_id, level_id)
     if not level:
@@ -1597,6 +1640,20 @@ def get_level_road_map(
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  highway,
+                  is_explored,
+                  COALESCE(SUM(length_m), 0)::float AS length_m
+                FROM road_segments
+                WHERE level_id = %s
+                GROUP BY highway, is_explored
+                """,
+                (level_id,),
+            )
+            hwy_rows = cur.fetchall()
+
             if highways:
                 cur.execute(
                     f"""
@@ -1629,6 +1686,11 @@ def get_level_road_map(
     finally:
         conn.close()
 
+    by_profile = _profile_progress_from_highway_rows(hwy_rows)
+    small = by_profile.get("small_car") or {}
+    completion_pct = float(small.get("explored_pct") or 0.0)
+    completion_done = bool(small.get("complete"))
+
     locked = {"type": "MultiLineString", "coordinates": []}
     explored = {"type": "MultiLineString", "coordinates": []}
     locked_n = explored_n = 0
@@ -1645,11 +1707,13 @@ def get_level_road_map(
             locked_m = float(row["length_m"] or 0)
 
     total_m = locked_m + explored_m
-    explored_pct = (
-        round(100.0 * explored_m / total_m, 2) if total_m > 0 else 0.0
-    )
-    if mode is None:
-        explored_pct = float(level.get("explored_pct") or explored_pct)
+    if mode:
+        explored_pct = (
+            round(100.0 * explored_m / total_m, 2) if total_m > 0 else 0.0
+        )
+    else:
+        # No filter: region completion % (Small car), not full-graph fraction
+        explored_pct = completion_pct
 
     bbox = level.get("bbox")
     if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
@@ -1665,12 +1729,15 @@ def get_level_road_map(
             "profile": mode or level.get("profile"),
             "profile_filter": mode,
             "explored_pct": explored_pct,
+            "completion_pct": completion_pct,
+            "complete": completion_done,
             "road_km": round(total_m / 1000.0, 2) if mode else level.get("road_km"),
         },
         "bbox": bbox,
         "boundary": level.get("boundary"),
         "locked": locked,
         "explored": explored,
+        "by_profile": by_profile,
         "stats": {
             "locked_segments": locked_n,
             "explored_segments": explored_n,
