@@ -127,6 +127,11 @@ class SettingsBody(BaseModel):
     theme: str | None = Field(
         default=None, pattern="^(classic|kidcore|kawaii|crt)$"
     )  # kawaii = legacy alias for kidcore
+    drive_profile: str | None = Field(
+        default=None,
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+        description="Navigate vehicle mode (cars snap; foot/bike unlock by distance)",
+    )
 
 
 class PlacePrepareBody(BaseModel):
@@ -155,6 +160,11 @@ class GpsFixBody(BaseModel):
     level_id: int | None = None
     unlock: bool = True
     session_started_at: str | None = None  # ISO time when drive spawn began
+    # Navigate vehicle mode: cars snap to roads; foot/bike unlock by distance
+    profile: str | None = Field(
+        default=None,
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+    )
 
 
 class ExploreRouteBody(BaseModel):
@@ -176,9 +186,11 @@ class ExploreRouteBody(BaseModel):
 class LevelCreateBody(BaseModel):
     name: str
     place_query: str
-    profile: str = Field(
+    # Last-used Navigate default only — map always imports the full playable graph
+    profile: str | None = Field(
+        default="small_car",
         pattern="^(foot|bicycle|car|big_car|small_car)$",
-        description="Drive preset: big_car | small_car | bicycle | foot (car→small_car)",
+        description="Optional default Navigate mode (not baked into the map)",
     )
     geofabrik_id: str
     place_bbox: list[float] | None = None  # west,south,east,north
@@ -807,6 +819,8 @@ def read_settings(user: dict = Depends(get_current_user)):
         "map_dark_mode": _normalize_map_dark_mode(
             get_user_setting(user["id"], "map_dark_mode", "auto") or "auto"
         ),
+        "drive_profile": get_user_setting(user["id"], "drive_profile", "small_car")
+        or "small_car",
     }
 
 
@@ -848,6 +862,12 @@ def patch_settings(body: SettingsBody, user: dict = Depends(get_current_user)):
         )
     if body.theme is not None:
         set_user_setting(user["id"], "theme", _normalize_theme(body.theme))
+    if body.drive_profile is not None:
+        from drive_profiles import normalize_profile
+
+        set_user_setting(
+            user["id"], "drive_profile", normalize_profile(body.drive_profile)
+        )
     return read_settings(user)
 
 
@@ -899,21 +919,38 @@ def gps_get_fix(
 
 @app.post("/api/gps/fix")
 def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
-    """Push a sim or live GPS fix. Snaps to road; fog unlock uses snapped coords."""
+    """Push a sim or live GPS fix. Cars snap to roads; foot/bike unlock by radius."""
     from achievements import record_drive_step
-    from gps_snap import resolve_level_id, snap_to_road
+    from drive_profiles import normalize_profile
+    from gps_snap import resolve_drive_profile, resolve_level_id, snap_to_road
     from gps_state import set_fix
-    from levels import unlock_near_point
+    from levels import set_level_default_profile, unlock_near_point
 
     level_id = body.level_id
     if level_id is None:
         level_id = resolve_level_id(user["id"])
+    profile = normalize_profile(
+        body.profile or resolve_drive_profile(user["id"], level_id)
+    )
+    try:
+        from db import set_user_setting
+
+        set_user_setting(user["id"], "drive_profile", profile)
+    except Exception:
+        pass
+    if level_id is not None:
+        try:
+            set_level_default_profile(user["id"], int(level_id), profile)
+        except Exception:
+            pass
+
     snap = snap_to_road(
         body.lon,
         body.lat,
         level_id,
         user_id=user["id"],
         heading_deg=body.heading_deg,
+        profile=profile,
     )
     use_lat = snap["lat"]
     use_lon = snap["lon"]
@@ -940,14 +977,18 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
     if body.unlock and level_id is not None:
         level = get_level(user["id"], level_id)
         if level and level.get("status") == "ready":
-            # Fog unlock: snapped segment + before/behind only (not lateral radius)
+            # Cars: snapped segment corridor. Foot/bike: radius around raw GPS.
+            unlock_lon = body.lon if snap.get("snap_mode") == "distance" else use_lon
+            unlock_lat = body.lat if snap.get("snap_mode") == "distance" else use_lat
             unlock_stats = unlock_near_point(
                 level_id,
-                use_lon,
-                use_lat,
+                unlock_lon,
+                unlock_lat,
                 accuracy_m=body.accuracy_m,
                 heading_deg=body.heading_deg,
                 segment_id=snap.get("segment_id"),
+                profile=profile,
+                user_id=user["id"],
             )
             if unlock_stats is not None:
                 unlock_stats = dict(unlock_stats)
@@ -1448,9 +1489,17 @@ def set_active_level(body: ActiveLevelBody, user: dict = Depends(get_current_use
 
 
 @app.get("/api/levels/{level_id}/roads")
-def levels_roads_map(level_id: int, user: dict = Depends(get_current_user)):
+def levels_roads_map(
+    level_id: int,
+    profile: str | None = Query(
+        default=None,
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+        description="Filter fog to this Navigate mode's highways",
+    ),
+    user: dict = Depends(get_current_user),
+):
     """Progress / fog-of-war: locked vs explored road grid."""
-    data = get_level_road_map(user["id"], level_id)
+    data = get_level_road_map(user["id"], level_id, profile=profile)
     if not data:
         raise HTTPException(404, "Level not found")
     if data["level"]["status"] != "ready":
@@ -1923,7 +1972,8 @@ def navigate_page():
 
 @app.get("/achievements")
 def achievements_page():
-    return FileResponse(FRONTEND / "achievements.html")
+    """Legacy Achievements URL → Explorer hub section."""
+    return RedirectResponse(url="/stats#achievements", status_code=302)
 
 
 @app.get("/api")

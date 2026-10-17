@@ -97,7 +97,18 @@ async function loadProgress() {
   }
 
   showStatus("Loading fog of war…");
-  const res = await WardAuth.apiFetch(`/api/levels/${levelId}/roads`);
+  let profile = "small_car";
+  try {
+    const saved = localStorage.getItem("wardrivrr_nav_vehicle");
+    if (saved) profile = String(saved).toLowerCase();
+    if (profile === "car") profile = "small_car";
+  } catch (_) {
+    /* ignore */
+  }
+  const q = new URLSearchParams({ profile });
+  const res = await WardAuth.apiFetch(
+    `/api/levels/${levelId}/roads?${q.toString()}`
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     showStatus(data.detail || "Could not load roads", true);
@@ -107,11 +118,15 @@ async function loadProgress() {
   document.getElementById("progressTitle").textContent =
     data.level?.name || "Progress";
   const s = data.stats || {};
+  const modeHint = data.level?.profile_filter
+    ? ` · ${data.level.profile_filter}`
+    : "";
   document.getElementById("progressSub").textContent =
     `${s.explored_km ?? 0} km driven · ${s.locked_km ?? 0} km dark` +
     (data.level?.explored_pct != null
       ? ` · ${Number(data.level.explored_pct).toFixed(1)}%`
-      : "");
+      : "") +
+    modeHint;
 
   if (!map) {
     map = L.map("progressMap", { zoomControl: true, attributionControl: true });

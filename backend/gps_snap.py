@@ -1,14 +1,15 @@
 """
-Snap noisy GPS onto driveable road_segments (fog unlock geometry).
+Snap noisy GPS onto driveable road_segments (fog unlock geometry from OSM).
 
-Default threshold: GPS_SNAP_THRESHOLD_M=8 (alias SNAP_TO_ROAD_M), hard-capped at 10.
-Good GNSS only needs a few meters of rail/jitter forgiveness — never widen past 10.
+This is NOT Valhalla tiles — snap targets PostGIS road_segments built for the
+active level. Valhalla is routing only.
+
+Car modes (big_car / small_car): snap within GPS_SNAP_THRESHOLD_M (default 8,
+hard-capped at 10) onto profile highways.
+Foot / bicycle: do not snap — callers unlock by distance around raw GPS.
 
 Within threshold → ST_ClosestPoint on a nearby edge (heading-biased).
 Beyond threshold → hold last good snap if still near (degraded), else raw GPS.
-Never yank across the map to a distant road.
-
-Unlock / fog MUST use snapped lat/lon from snap_to_road().
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import time
 from typing import Any
 
 from db import connect_dict
+from drive_profiles import normalize_profile, profile_highways, profile_uses_road_snap
 
 _SNAP_HARD_MAX_M = 10.0
 _SNAP_DEFAULT_M = 8.0
@@ -31,9 +33,7 @@ GPS_SNAP_ENABLED = (
     os.getenv("GPS_SNAP_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
 )
 _HEADING_PREF_DEG = float(os.getenv("GPS_SNAP_HEADING_PREF_DEG", "55"))
-# Opposite carriageways run ~180° from travel; do not treat reverse as equal.
 _REVERSE_PENALTY_M = float(os.getenv("GPS_SNAP_REVERSE_PENALTY_M", "6.5"))
-# Prefer staying on the last snapped segment when still a close candidate.
 _STICKY_BONUS_M = float(os.getenv("GPS_SNAP_STICKY_BONUS_M", "2.5"))
 _CANDIDATE_LIMIT = 12
 _HOLD_MAX_S = max(0.0, min(float(os.getenv("GPS_SNAP_HOLD_MAX_S", "6")), 8.0))
@@ -43,7 +43,6 @@ _last_good: dict[int, dict[str, Any]] = {}
 
 
 def snap_threshold_m() -> float:
-    # Floor 1 m, hard ceiling 10 m (rail / jitter only — do not widen).
     return max(1.0, min(float(GPS_SNAP_THRESHOLD_M), _SNAP_HARD_MAX_M))
 
 
@@ -57,6 +56,28 @@ def resolve_level_id(user_id: int) -> int | None:
     except Exception:
         pass
     return None
+
+
+def resolve_drive_profile(user_id: int, level_id: int | None = None) -> str:
+    """Navigate mode: prefer user setting, else level last-used, else small_car."""
+    try:
+        from db import get_user_setting
+
+        raw = get_user_setting(user_id, "drive_profile", None)
+        if raw:
+            return normalize_profile(raw)
+    except Exception:
+        pass
+    if level_id is not None:
+        try:
+            from levels import get_level
+
+            lv = get_level(user_id, int(level_id))
+            if lv and lv.get("profile"):
+                return normalize_profile(lv.get("profile"))
+        except Exception:
+            pass
+    return "small_car"
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -88,8 +109,11 @@ def _query_candidates(
     lat: float,
     lon: float,
     threshold_m: float,
+    highways: list[str],
 ) -> list[dict[str, Any]]:
     pad = max(0.00045, (threshold_m + 25.0) / 100_000.0)
+    if not highways:
+        return []
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
@@ -106,18 +130,9 @@ def _query_candidates(
                         ST_ClosestPoint(rs.geom, pt.g) AS cp,
                         rs.geom AS geom
                       FROM road_segments rs
-                      JOIN levels lv ON lv.id = rs.level_id
                       CROSS JOIN pt
                       WHERE rs.level_id = %s
-                        AND (
-                          lv.profile <> 'car'
-                          OR rs.highway IN (
-                            'motorway', 'motorway_link', 'trunk', 'trunk_link',
-                            'primary', 'primary_link', 'secondary', 'secondary_link',
-                            'tertiary', 'tertiary_link', 'unclassified',
-                            'residential', 'living_street', 'service'
-                          )
-                        )
+                        AND rs.highway = ANY(%s)
                         AND rs.geom && ST_Expand(pt.g, %s)
                         AND ST_DWithin(rs.geom::geography, pt.g::geography, %s)
                       ORDER BY dist_m ASC
@@ -154,7 +169,15 @@ def _query_candidates(
                       )) AS lon_b
                     FROM cand
                     """,
-                    (lon, lat, level_id, pad, threshold_m, _CANDIDATE_LIMIT),
+                    (
+                        lon,
+                        lat,
+                        level_id,
+                        highways,
+                        pad,
+                        threshold_m,
+                        _CANDIDATE_LIMIT,
+                    ),
                 )
                 return list(cur.fetchall() or [])
             except Exception:
@@ -174,24 +197,23 @@ def _query_candidates(
                       NULL::float AS lat_b,
                       NULL::float AS lon_b
                     FROM road_segments rs
-                    JOIN levels lv ON lv.id = rs.level_id
                     CROSS JOIN pt
                     WHERE rs.level_id = %s
-                      AND (
-                        lv.profile <> 'car'
-                        OR rs.highway IN (
-                          'motorway', 'motorway_link', 'trunk', 'trunk_link',
-                          'primary', 'primary_link', 'secondary', 'secondary_link',
-                          'tertiary', 'tertiary_link', 'unclassified',
-                          'residential', 'living_street', 'service'
-                        )
-                      )
+                      AND rs.highway = ANY(%s)
                       AND rs.geom && ST_Expand(pt.g, %s)
                       AND ST_DWithin(rs.geom::geography, pt.g::geography, %s)
                     ORDER BY dist_m ASC
                     LIMIT %s
                     """,
-                    (lon, lat, level_id, pad, threshold_m, _CANDIDATE_LIMIT),
+                    (
+                        lon,
+                        lat,
+                        level_id,
+                        highways,
+                        pad,
+                        threshold_m,
+                        _CANDIDATE_LIMIT,
+                    ),
                 )
                 return list(cur.fetchall() or [])
     except Exception:
@@ -208,13 +230,6 @@ def _pick_candidate(
     heading_deg: float | None,
     preferred_segment_id: int | None = None,
 ) -> dict[str, Any] | None:
-    """
-    Pick the edge under the vehicle.
-
-    Heading is travel-direction only: reverse alignment (opposite dual-
-    carriageway) gets a large distance penalty so the far lane does not win
-    just because GPS sits between the two roads.
-    """
     if not rows:
         return None
     pref = int(preferred_segment_id) if preferred_segment_id is not None else None
@@ -234,7 +249,6 @@ def _pick_candidate(
             if edge_brg is not None:
                 d_fwd = _angle_diff(heading_deg, edge_brg)
                 d_rev = _angle_diff(heading_deg, (edge_brg + 180) % 360)
-                # Prefer the orientation that matches travel; reverse costs metres.
                 if d_rev + 15.0 < d_fwd:
                     heading_pen = _REVERSE_PENALTY_M + max(0.0, d_rev - _HEADING_PREF_DEG) * 0.75
                 elif d_fwd > _HEADING_PREF_DEG:
@@ -257,21 +271,22 @@ def snap_to_road(
     user_id: int | None = None,
     heading_deg: float | None = None,
     threshold_m: float | None = None,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """
-    Snap (lon, lat) onto level road geometry.
-
-    Positional form (legacy callers): snap_to_road(lon, lat, level_id)
-    Keyword form preferred when user_id/heading available.
+    Snap (lon, lat) onto level road_segments for car profiles.
+    Foot/bicycle: returns raw coords (snapped=False, mode=distance).
     """
     if lat is None or lon is None:
         raise TypeError("lat and lon are required")
     requested_thr = float(
         threshold_m if threshold_m is not None else snap_threshold_m()
     )
-    # Keep the hard ceiling even for direct callers passing threshold_m.
     thr = max(1.0, min(requested_thr, _SNAP_HARD_MAX_M))
     uid = int(user_id) if user_id is not None else 0
+    mode = normalize_profile(profile) if profile else (
+        resolve_drive_profile(uid, level_id) if uid else "small_car"
+    )
     out: dict[str, Any] = {
         "lat": float(lat),
         "lon": float(lon),
@@ -281,15 +296,23 @@ def snap_to_road(
         "held": False,
         "degraded": False,
         "distance_m": None,
-        "dist_m": None,  # alias for older callers
+        "dist_m": None,
         "threshold_m": thr,
         "segment_id": None,
         "enabled": GPS_SNAP_ENABLED,
+        "profile": mode,
+        "snap_mode": "road" if profile_uses_road_snap(mode) else "distance",
     }
     if not GPS_SNAP_ENABLED or level_id is None:
         return out
 
-    rows = _query_candidates(int(level_id), float(lat), float(lon), thr)
+    # Ped / bike: keep raw GPS — unlock uses a radius around the fix.
+    if not profile_uses_road_snap(mode):
+        out["enabled"] = False
+        return out
+
+    highways = sorted(profile_highways(mode))
+    rows = _query_candidates(int(level_id), float(lat), float(lon), thr, highways)
     preferred_sid = None
     if uid:
         with _lock:

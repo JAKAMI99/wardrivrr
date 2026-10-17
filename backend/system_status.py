@@ -159,6 +159,196 @@ def _http_ok(
         return False, str(exc)
 
 
+def _http_json(
+    url: str,
+    timeout_s: float = 2.5,
+    *,
+    username: str | None = None,
+    password: str | None = None,
+) -> tuple[object | None, str | None]:
+    import base64
+    import urllib.error
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, method="GET")
+        if username is not None:
+            token = base64.b64encode(
+                f"{username}:{password or ''}".encode("utf-8")
+            ).decode("ascii")
+            req.add_header("Authorization", f"Basic {token}")
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            return json.loads(raw), None
+    except urllib.error.HTTPError as exc:
+        return None, f"HTTP {exc.code}"
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _parse_kismet_source_line(line: str) -> dict | None:
+    """Parse `source=iface:name=…:type=…` from kismet_site.conf."""
+    s = line.strip()
+    if not s.startswith("source=") or s.startswith("#"):
+        return None
+    body = s[len("source=") :].strip()
+    if not body:
+        return None
+    parts = body.split(":")
+    interface = parts[0].strip() or None
+    name = None
+    stype = None
+    for part in parts[1:]:
+        if "=" not in part:
+            continue
+        key, val = part.split("=", 1)
+        key = key.strip().lower()
+        val = val.strip()
+        if key == "name":
+            name = val
+        elif key == "type":
+            stype = val
+    return {
+        "interface": interface,
+        "name": name,
+        "type": stype,
+        "running": None,
+        "source": "config",
+    }
+
+
+def _kismet_sources_from_conf() -> list[dict]:
+    candidates = [
+        ROOT / "deploy" / "kismet" / "kismet_site.conf",
+        Path("/etc/kismet/kismet_site.conf"),
+    ]
+    out: list[dict] = []
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        for line in text.splitlines():
+            parsed = _parse_kismet_source_line(line)
+            if parsed:
+                out.append(parsed)
+        if out:
+            break
+    return out
+
+
+def _kismet_sources_from_http(
+    base: str, *, username: str, password: str
+) -> list[dict]:
+    """Prefer live datasources from Kismet HTTP API."""
+    urls = [
+        f"{base}/datasource/all_sources.json",
+        f"{base}/datasource/sources.json",
+    ]
+    payload = None
+    for url in urls:
+        data, _err = _http_json(url, username=username or None, password=password)
+        if data is not None:
+            payload = data
+            break
+    if payload is None:
+        return []
+
+    rows: list = []
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        for key in (
+            "datasource.list",
+            "datasources",
+            "sources",
+            "kismet.datasource.list",
+        ):
+            val = payload.get(key)
+            if isinstance(val, list):
+                rows = val
+                break
+        if not rows:
+            # Some builds nest under a single object keyed by UUID
+            for val in payload.values():
+                if isinstance(val, dict) and (
+                    "kismet.datasource.interface" in val
+                    or "kismet.datasource.type" in val
+                ):
+                    rows.append(val)
+
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        interface = (
+            row.get("kismet.datasource.interface")
+            or row.get("interface")
+            or row.get("kismet.datasource.capture_interface")
+        )
+        name = row.get("kismet.datasource.name") or row.get("name")
+        stype = row.get("kismet.datasource.type") or row.get("type")
+        running = row.get("kismet.datasource.running")
+        if running is None:
+            running = row.get("running")
+        out.append(
+            {
+                "interface": interface,
+                "name": name,
+                "type": stype,
+                "running": running,
+                "source": "http",
+            }
+        )
+    return out
+
+
+def _classify_kismet_radios(sources: list[dict]) -> dict:
+    wifi = {"present": False, "interface": None, "name": None}
+    bluetooth = {"present": False, "interface": None}
+    summaries: list[dict] = []
+    for src in sources:
+        stype = (src.get("type") or "").lower()
+        iface = src.get("interface")
+        name = src.get("name")
+        summaries.append(
+            {
+                "interface": iface,
+                "name": name,
+                "type": src.get("type"),
+                "running": src.get("running"),
+                "source": src.get("source"),
+            }
+        )
+        is_wifi = "wifi" in stype or "wlan" in stype or stype in {
+            "linuxwifi",
+            "nexmon",
+            "hak5wifi",
+        }
+        is_bt = "bluetooth" in stype or "ble" in stype or stype in {
+            "linuxbluetooth",
+            "nrf",
+        }
+        # Heuristic when type missing: wlx*/wlan* → wifi, hci* → bluetooth
+        if not stype and iface:
+            il = str(iface).lower()
+            if il.startswith(("wlx", "wlan", "wlp", "mon")):
+                is_wifi = True
+            elif il.startswith("hci"):
+                is_bt = True
+        if is_wifi and not wifi["present"]:
+            wifi = {
+                "present": True,
+                "interface": iface,
+                "name": name,
+            }
+        if is_bt and not bluetooth["present"]:
+            bluetooth = {"present": True, "interface": iface}
+    return {"wifi": wifi, "bluetooth": bluetooth, "sources": summaries}
+
+
 def _active_pbf_ready() -> bool:
     try:
         from valhalla_prep import active_pbf_ready
@@ -200,7 +390,42 @@ def kismet_service_status() -> dict:
         out["detail"] = detail or (
             f"Kismet not reachable at {base} — is kismet.service running?"
         )
+
+    sources: list[dict] = []
+    if ok:
+        sources = _kismet_sources_from_http(base, username=user, password=password)
+    if not sources:
+        sources = _kismet_sources_from_conf()
+    radios = _classify_kismet_radios(sources)
+    out["wifi"] = radios["wifi"]
+    out["bluetooth"] = radios["bluetooth"]
+    out["sources"] = radios["sources"]
     return out
+
+
+def _active_map_label() -> str | None:
+    """Human label for the PBF Valhalla is building (from active.json)."""
+    try:
+        from paths import DATA
+
+        meta_path = DATA / "valhalla" / "active.json"
+        if not meta_path.is_file():
+            return None
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        name = (meta.get("name") or "").strip()
+        mode = (meta.get("mode") or "").strip()
+        gid = (meta.get("geofabrik_id") or "").strip()
+        if name and gid:
+            return f"{name} ({gid})"
+        if name:
+            return name
+        if gid:
+            return gid
+        if mode:
+            return mode
+    except Exception:
+        return None
+    return None
 
 
 def valhalla_service_status() -> dict:
@@ -215,12 +440,16 @@ def valhalla_service_status() -> dict:
         out["http_ok"] = http_ok
         out["pbf_ready"] = _active_pbf_ready()
         out["regional_pbf"] = _regional_pbf_ready()
+        map_label = _active_map_label()
+        out["map_label"] = map_label
         if http_ok:
             out["ok"] = True
             out["running"] = True
             out["found"] = True
             out["status"] = "reachable"
-            out["detail"] = f"HTTP OK at {url}"
+            out["detail"] = (
+                f"HTTP OK at {url}" + (f" · map {map_label}" if map_label else "")
+            )
         elif not out["pbf_ready"] and out["regional_pbf"]:
             out["ok"] = False
             out["status"] = "waiting for seed"
@@ -238,9 +467,11 @@ def valhalla_service_status() -> dict:
         elif out.get("found") and out.get("running"):
             out["ok"] = False
             out["status"] = "building tiles"
+            which = map_label or "active.osm.pbf"
             out["detail"] = (
-                f"Valhalla is building routing tiles (first city can take several "
-                f"minutes). Drive waits automatically."
+                f"Building routing tiles for {which} "
+                f"(from leftover/city extract — not from opening Drive). "
+                f"Can take several minutes."
             )
         elif out.get("found"):
             out["ok"] = False
@@ -287,8 +518,8 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
         host = "127.0.0.1"
     port = int(port or os.getenv("GPSD_PORT", "2947"))
     device = _gpsd_configured_device()
-    device_present = Path(device).exists()
-    # Also note common USB GPS nodes for Status meta
+    # /dev may be invisible inside the API container — Path.exists is a hint only.
+    path_present = Path(device).exists()
     usb_nodes = [
         p
         for p in ("/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1")
@@ -307,7 +538,8 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
         "host": host,
         "port": port,
         "device": device,
-        "device_present": device_present,
+        "device_present": path_present,
+        "device_path_visible": path_present,
         "usb_gps_nodes": usb_nodes,
         "detail": None,
     }
@@ -319,6 +551,7 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
             buf = b""
             tpv = None
             sky = None
+            gpsd_devices: list[str] = []
             try:
                 for _ in range(50):
                     chunk = sock.recv(4096)
@@ -335,30 +568,52 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
                         except json.JSONDecodeError:
                             continue
                         cls = msg.get("class")
-                        if cls == "TPV" and tpv is None:
+                        if cls == "DEVICES":
+                            for d in msg.get("devices") or []:
+                                path = d.get("path") if isinstance(d, dict) else None
+                                if path:
+                                    gpsd_devices.append(str(path))
+                        elif cls == "DEVICE":
+                            path = msg.get("path")
+                            if path:
+                                gpsd_devices.append(str(path))
+                        elif cls == "TPV" and tpv is None:
                             tpv = msg
                         elif cls == "SKY" and sky is None:
                             sky = msg
-                    if tpv:
+                    if tpv and (gpsd_devices or sky is not None):
                         break
             except TimeoutError:
                 pass
             except socket.timeout:
                 pass
+
+            # Prefer gpsd's own device list over container /dev visibility
+            if gpsd_devices:
+                result["usb_gps_nodes"] = sorted(set(gpsd_devices + usb_nodes))
+                result["device_present"] = True
+                if device not in gpsd_devices and gpsd_devices:
+                    # Keep configured path, but note what gpsd actually opened
+                    result["gpsd_device"] = gpsd_devices[0]
+            elif tpv is not None:
+                # Talking to a receiver (even mode 0/1) ⇒ dongle is not "missing"
+                result["device_present"] = True
+
             if not tpv:
-                if not device_present:
+                if not result["device_present"]:
                     result["detail"] = (
-                        f"gpsd running — plug in GPS receiver "
-                        f"(configured {device} is missing)"
+                        f"gpsd running — no receiver reported "
+                        f"(configured {device}"
+                        f"{'' if path_present else '; /dev not visible to API container'})"
                     )
-                elif usb_nodes and device not in usb_nodes:
+                elif usb_nodes and device not in usb_nodes and device not in gpsd_devices:
                     result["detail"] = (
-                        f"gpsd running — {device} missing; saw {', '.join(usb_nodes)} "
+                        f"gpsd running — {device} missing; saw {', '.join(result['usb_gps_nodes'])} "
                         "(update /etc/default/gpsd DEVICES=…)"
                     )
                 else:
                     result["detail"] = (
-                        f"gpsd running, {device} present — waiting for satellites "
+                        f"gpsd running, receiver present — waiting for satellites "
                         "(go outdoors / wait for warm start)"
                     )
                 return result
@@ -376,7 +631,16 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
                 result["satellites"] = len(sats)
                 result["satellites_used"] = sum(1 for s in sats if s.get("used"))
             if mode < 2:
-                result["detail"] = "no fix (waiting for satellites)"
+                nsat = result.get("satellites")
+                used = result.get("satellites_used")
+                sat_bit = (
+                    f" · {used}/{nsat} sats used"
+                    if nsat is not None and used is not None
+                    else ""
+                )
+                result["detail"] = (
+                    f"no fix yet (mode {mode}{sat_bit}) — receiver OK, waiting for sky"
+                )
             return result
     except OSError as exc:
         result["detail"] = f"{exc} (gpsd host {host}:{port}, device {device})"

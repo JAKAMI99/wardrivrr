@@ -129,7 +129,7 @@ def _parse_tpv(msg: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
-    from gps_snap import resolve_level_id, snap_to_road
+    from gps_snap import resolve_drive_profile, resolve_level_id, snap_to_road
     from gps_state import get_fix, set_fix
 
     if user_id not in _session_started_at:
@@ -149,12 +149,14 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
         return
 
     level_id = resolve_level_id(user_id)
+    profile = resolve_drive_profile(user_id, level_id)
     snap = snap_to_road(
         fix["lon"],
         fix["lat"],
         level_id,
         user_id=user_id,
         heading_deg=fix.get("heading_deg"),
+        profile=profile,
     )
     use_lat = snap["lat"]
     use_lon = snap["lon"]
@@ -181,13 +183,21 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
             from levels import unlock_near_point
 
             if level_id is not None:
+                unlock_lon = (
+                    fix["lon"] if snap.get("snap_mode") == "distance" else use_lon
+                )
+                unlock_lat = (
+                    fix["lat"] if snap.get("snap_mode") == "distance" else use_lat
+                )
                 unlock_stats = unlock_near_point(
                     int(level_id),
-                    use_lon,
-                    use_lat,
+                    unlock_lon,
+                    unlock_lat,
                     accuracy_m=fix.get("accuracy_m") or 12.0,
                     heading_deg=fix.get("heading_deg"),
                     segment_id=snap.get("segment_id"),
+                    profile=profile,
+                    user_id=user_id,
                 )
                 _last_unlock_at[user_id] = now_mono
         except Exception:
