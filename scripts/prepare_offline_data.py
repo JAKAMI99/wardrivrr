@@ -59,7 +59,7 @@ def main() -> int:
     build_oui_db(force=args.force)
     print(f"[prepare] oui ok={oui_available()}")
 
-    print("[prepare] done — see thanks.md for attribution")
+    print("[prepare] done — see CREDITS.md for attribution")
     return 0
 
 

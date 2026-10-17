@@ -119,7 +119,8 @@ Containers: `wardrivrr_api`, `wardrivrr_postgis`, `wardrivrr_valhalla`.
 | `backend/` | FastAPI + `Dockerfile` |
 | `frontend/` | Web UI |
 | `deploy/` | Compose overlay, systemd, Kismet examples |
-| `scripts/` | Helpers (Docker ensure, wipe, ingest) |
+| `scripts/` | Helpers (Docker ensure, wipe, ingest, `prepare_offline_data.py`) |
+| `docker/prepare-data.sh` | Download cities / postal / IEEE OUI / Geofabrik index into `data/` |
 | `tools/drive_sim/` | Replay without live GPS |
 | `postgis/init/` | DB bootstrap SQL |
 | `data/` | Map packs, Valhalla runtime, Kismet logs (gitignored) |
@@ -128,4 +129,4 @@ Containers: `wardrivrr_api`, `wardrivrr_postgis`, `wardrivrr_valhalla`.
 
 ## Credits
 
-Upstream map and place data: [CREDITS.md](CREDITS.md).
+Upstream map, place, and MAC/OUI data: [CREDITS.md](CREDITS.md).

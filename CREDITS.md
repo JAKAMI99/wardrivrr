@@ -37,6 +37,17 @@ Turn / roundabout / arrive glyphs in the Drive HUD are vendored from
 
 - https://github.com/mapbox/mapbox-gl-directions
 
+## IEEE Registration Authority (MAC / OUI)
+
+Public MA-L / MA-M / MA-S assignment lists used to resolve Wi‑Fi / Bluetooth
+BSSID prefixes to an organization name (vendor). Downloaded at setup into
+`data/oui/oui.sqlite` (and refreshed on first API start if missing).
+
+IEEE is the authoritative registrar for these assignments — not a third-party scrape.
+
+- https://standards-oui.ieee.org/
+- CSV registries: `oui/oui.csv`, `oui28/mam.csv`, `oui36/oui36.csv`
+
 ---
 
 When new upstream data providers are added, credit them here and link a donate or support page if one exists.
