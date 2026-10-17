@@ -1,7 +1,7 @@
 # Base stack: PostGIS + Valhalla.
-# Car mini-PC (API + Kismet + GHCR image): also use deploy/compose.car.yml
+# Vehicle host (API + host Kismet): also use deploy/compose.car.yml
 #   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
-# Prefer GHCR: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest (see scripts/car_up.sh)
+# Image: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest (see ./run.sh)
 
 services:
   postgis:
@@ -17,7 +17,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgis/init:/docker-entrypoint-initdb.d
-    # Conservative defaults for mini-PCs; override in deploy/compose.car.yml if needed
     command: postgres -c shared_buffers=128MB -c work_mem=16MB -c maintenance_work_mem=64MB -c effective_cache_size=512MB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -26,10 +25,8 @@ services:
       retries: 30
       start_period: 90s
 
-  # Builds tiles from data/valhalla/active.osm.pbf.
-  # Regional packs stay in data/pbf/{GeofabrikId}.osm.pbf; car_up / prepare seeds or clips
-  # them into active.osm.pbf. Do NOT bind-mount a single missing file (Docker creates a dir).
-  # Mount the whole folder; skip starting until active.osm.pbf exists (see car_up.sh).
+  # Tiles from data/valhalla/active.osm.pbf (seeded/clipped by ./run.sh or API prepare).
+  # Regional packs live in data/pbf/; do not bind-mount a missing single file.
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
     container_name: wardrivrr_valhalla
@@ -43,8 +40,6 @@ services:
       build_admins: "False"
       build_time_zones: "False"
       serve_tiles: "True"
-      # Concurrent HTTP workers (defaults to nproc). One /route is still one A*
-      # job — threads help overlapping status/replan/build, not a single path.
       server_threads: ${VALHALLA_SERVER_THREADS:-4}
     volumes:
       - ./data/valhalla:/custom_files

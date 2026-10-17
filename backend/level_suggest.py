@@ -139,7 +139,7 @@ def suggest_level_at(user_id: int, lat: float, lon: float) -> dict[str, Any]:
             "name": label,
             "place_query": label,
             "place_kind": place_kind,
-            "profile": "car",
+            "profile": "small_car",
             "geofabrik_id": pack["id"],
             "geoname_id": None,
             "parent_geoname_id": None,

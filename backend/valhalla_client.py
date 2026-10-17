@@ -106,10 +106,12 @@ def route(
     units: str = "kilometers",
     heading_deg: float | None = None,
     heading_tolerance: float = 45.0,
+    costing_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     locations: [{"lat": …, "lon": …}, …]  (first = origin, last = destination)
     heading_deg: preferred departure bearing (0=N, 90=E) applied to the origin.
+    costing_options: optional Valhalla options for this costing model.
     Returns Valhalla /route JSON.
     """
     if len(locations) < 2:
@@ -147,14 +149,14 @@ def route(
                 p.get("heading_tolerance", heading_tolerance)
             )
         locs.append(loc)
-    return _post(
-        "/route",
-        {
-            "locations": locs,
-            "costing": costing,
-            "directions_options": {"units": units, "language": language},
-        },
-    )
+    body: dict[str, Any] = {
+        "locations": locs,
+        "costing": costing,
+        "directions_options": {"units": units, "language": language},
+    }
+    if costing_options:
+        body["costing_options"] = {costing: dict(costing_options)}
+    return _post("/route", body)
 
 
 def decode_polyline6(encoded: str) -> list[list[float]]:

@@ -1,5 +1,5 @@
 """
-Achievement catalog + progress (see docs/achievement.md).
+Achievement catalog + progress.
 """
 
 from __future__ import annotations
@@ -43,6 +43,8 @@ def _unit_label(unit: str) -> str:
         return "samples"
     if unit == "starlink_networks":
         return "Starlink hotspots"
+    if unit == "segments_explored":
+        return "tiles"
     return ""
 
 
@@ -62,7 +64,28 @@ def _how_for_tier(unit: str, threshold: float | int, override: str | None = None
         return f"Collect {t} observation points above 700 m altitude"
     if unit == "starlink_networks":
         return f"Detect {t} distinct Starlink hotspots"
+    if unit == "segments_explored":
+        return f"Unlock {t} road tiles across your levels"
     return f"Reach {t}"
+
+
+def _tier(
+    n: int,
+    threshold: float | int,
+    unit: str,
+    title: str,
+    xp: int,
+    *,
+    master: bool = False,
+) -> dict[str, Any]:
+    return {
+        "tier": n,
+        "threshold": threshold,
+        "unit": unit,
+        "title": title,
+        "xp": xp,
+        "master": master,
+    }
 
 
 CATALOG: list[dict[str, Any]] = [
@@ -72,9 +95,11 @@ CATALOG: list[dict[str, Any]] = [
         "description": "Drive between 00:00 and 06:00 local time.",
         "flavour": "The APs never sleep. Neither do you.",
         "tiers": [
-            {"tier": 1, "threshold": 50.0, "unit": "km_night_total", "title": "Night owl", "xp": 100},
-            {"tier": 2, "threshold": 200.0, "unit": "km_night_total", "title": "Night owl II", "xp": 250},
-            {"tier": 3, "threshold": 500.0, "unit": "km_night_total", "title": "Night owl III", "xp": 600},
+            _tier(1, 50.0, "km_night_total", "Night owl", 400),
+            _tier(2, 200.0, "km_night_total", "Night owl II", 1200),
+            _tier(3, 500.0, "km_night_total", "Night owl III", 3000),
+            _tier(4, 1500.0, "km_night_total", "Night owl IV", 7000),
+            _tier(5, 5000.0, "km_night_total", "Night owl Mastered", 15000, master=True),
         ],
     },
     {
@@ -83,9 +108,11 @@ CATALOG: list[dict[str, Any]] = [
         "description": "Drive a meme distance in a single calendar day.",
         "flavour": "42 → 67 → 133.7. Respect the lore.",
         "tiers": [
-            {"tier": 1, "threshold": 42.0, "unit": "km_day_best", "title": "Memelord", "xp": 150},
-            {"tier": 2, "threshold": 67.0, "unit": "km_day_best", "title": "Memelord II", "xp": 300},
-            {"tier": 3, "threshold": 133.7, "unit": "km_day_best", "title": "Memelord III", "xp": 700},
+            _tier(1, 42.0, "km_day_best", "Memelord", 500),
+            _tier(2, 67.0, "km_day_best", "Memelord II", 1500),
+            _tier(3, 133.7, "km_day_best", "Memelord III", 4000),
+            _tier(4, 250.0, "km_day_best", "Memelord IV", 8000),
+            _tier(5, 420.0, "km_day_best", "Memelord Mastered", 16000, master=True),
         ],
     },
     {
@@ -94,27 +121,11 @@ CATALOG: list[dict[str, Any]] = [
         "description": "Collect triangulated networks in your local database.",
         "flavour": "More boxes. More packets. More everything.",
         "tiers": [
-            {
-                "tier": 1,
-                "threshold": 50_000,
-                "unit": "networks_total",
-                "title": "Hack all the things",
-                "xp": 200,
-            },
-            {
-                "tier": 2,
-                "threshold": 200_000,
-                "unit": "networks_total",
-                "title": "Hack all the things II",
-                "xp": 500,
-            },
-            {
-                "tier": 3,
-                "threshold": 500_000,
-                "unit": "networks_total",
-                "title": "Hack all the things III",
-                "xp": 1200,
-            },
+            _tier(1, 50_000, "networks_total", "Hack all the things", 1000),
+            _tier(2, 150_000, "networks_total", "Hack all the things II", 3000),
+            _tier(3, 300_000, "networks_total", "Hack all the things III", 6000),
+            _tier(4, 500_000, "networks_total", "Hack all the things IV", 10000),
+            _tier(5, 750_000, "networks_total", "Hack all the things Mastered", 18000, master=True),
         ],
     },
     {
@@ -123,13 +134,20 @@ CATALOG: list[dict[str, Any]] = [
         "description": "Collect one million triangulated networks.",
         "flavour": "ctOS would be proud. Probably.",
         "tiers": [
-            {
-                "tier": 1,
-                "threshold": 1_000_000,
-                "unit": "networks_total",
-                "title": "Aden Pierce",
-                "xp": 2500,
-            },
+            _tier(1, 1_000_000, "networks_total", "Aden Pierce", 20000, master=True),
+        ],
+    },
+    {
+        "id": "fog_eater",
+        "title": "Fog eater",
+        "description": "Unlock road tiles (chunks) across all your levels.",
+        "flavour": "Eat the map. Leave no fog behind.",
+        "tiers": [
+            _tier(1, 1_000, "segments_explored", "Fog eater", 600),
+            _tier(2, 5_000, "segments_explored", "Fog eater II", 2000),
+            _tier(3, 20_000, "segments_explored", "Fog eater III", 5000),
+            _tier(4, 50_000, "segments_explored", "Fog eater IV", 10000),
+            _tier(5, 100_000, "segments_explored", "Fog eater Mastered", 22000, master=True),
         ],
     },
     {
@@ -138,13 +156,7 @@ CATALOG: list[dict[str, Any]] = [
         "description": "Collect observation points with GPS altitude below 0 m.",
         "flavour": "Dead reckoning in the bathyscape.",
         "tiers": [
-            {
-                "tier": 1,
-                "threshold": 500,
-                "unit": "samples_below_sea",
-                "title": "Below sea",
-                "xp": 200,
-            },
+            _tier(1, 500, "samples_below_sea", "Below sea", 800, master=True),
         ],
     },
     {
@@ -153,13 +165,7 @@ CATALOG: list[dict[str, Any]] = [
         "description": "Collect observation points with GPS altitude above 700 m.",
         "flavour": "Thin air, thick RF.",
         "tiers": [
-            {
-                "tier": 1,
-                "threshold": 500,
-                "unit": "samples_mountain",
-                "title": "Mountainclimber",
-                "xp": 200,
-            },
+            _tier(1, 500, "samples_mountain", "Mountainclimber", 800, master=True),
         ],
     },
     {
@@ -168,27 +174,11 @@ CATALOG: list[dict[str, Any]] = [
         "description": "Detect distinct Starlink user Wi‑Fi hotspots (default STARLINK SSID).",
         "flavour": "Low Earth orbit, high RSSI envy.",
         "tiers": [
-            {
-                "tier": 1,
-                "threshold": 10,
-                "unit": "starlink_networks",
-                "title": "Transmitting to space",
-                "xp": 150,
-            },
-            {
-                "tier": 2,
-                "threshold": 50,
-                "unit": "starlink_networks",
-                "title": "Transmitting to space II",
-                "xp": 400,
-            },
-            {
-                "tier": 3,
-                "threshold": 100,
-                "unit": "starlink_networks",
-                "title": "Transmitting to space III",
-                "xp": 900,
-            },
+            _tier(1, 10, "starlink_networks", "Transmitting to space", 500),
+            _tier(2, 50, "starlink_networks", "Transmitting to space II", 1500),
+            _tier(3, 100, "starlink_networks", "Transmitting to space III", 4000),
+            _tier(4, 250, "starlink_networks", "Transmitting to space IV", 8000),
+            _tier(5, 500, "starlink_networks", "Transmitting to space Mastered", 15000, master=True),
         ],
     },
 ]
@@ -406,10 +396,21 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
                 (user_id,),
             )
             unlocked_rows = cur.fetchall()
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS n
+                FROM road_segments rs
+                JOIN levels l ON l.id = rs.level_id
+                WHERE l.user_id = %s
+                  AND rs.is_explored = TRUE
+                """,
+                (user_id,),
+            )
+            segments_explored = int((cur.fetchone() or {}).get("n") or 0)
     finally:
         conn.close()
 
-    # Starlink progress only when special detections are enabled (see docs/anomalies.md)
+    # Starlink progress only when special detections are enabled
     starlink_networks = 0
     try:
         from anomalies import anomaly_alerts_enabled, count_starlink_networks
@@ -433,6 +434,7 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
         "samples_below_sea": samples_below_sea,
         "samples_mountain": samples_mountain,
         "starlink_networks": starlink_networks,
+        "segments_explored": segments_explored,
         "unlocked": unlocked,
         "today": today.isoformat(),
     }
@@ -488,6 +490,8 @@ def _metric_value(snap: dict[str, Any], unit: str) -> float:
         return float(snap["samples_mountain"])
     if unit == "starlink_networks":
         return float(snap.get("starlink_networks") or 0)
+    if unit == "segments_explored":
+        return float(snap.get("segments_explored") or 0)
     return 0.0
 
 
@@ -524,6 +528,9 @@ def evaluate_achievements(user_id: int) -> list[dict[str, Any]]:
                             ),
                         )
                         if cur.rowcount:
+                            is_master = bool(tier.get("master")) or int(
+                                tier["tier"]
+                            ) >= len(ach["tiers"])
                             newly.append(
                                 {
                                     "id": ach["id"],
@@ -532,6 +539,8 @@ def evaluate_achievements(user_id: int) -> list[dict[str, Any]]:
                                     "description": ach["description"],
                                     "flavour": ach.get("flavour"),
                                     "xp": int(tier.get("xp") or 0),
+                                    "mastered": is_master,
+                                    "status_label": "Mastered" if is_master else "Unlocked",
                                 }
                             )
         conn.commit()
@@ -549,6 +558,7 @@ def list_achievements(user_id: int) -> dict[str, Any]:
     xp_available = 0
     for ach in CATALOG:
         tiers_out = []
+        n_tiers = len(ach["tiers"])
         for tier in ach["tiers"]:
             key = (ach["id"], int(tier["tier"]))
             unlocked = key in snap["unlocked"]
@@ -561,6 +571,8 @@ def list_achievements(user_id: int) -> dict[str, Any]:
             unit = tier["unit"]
             unit_label = tier.get("unit_label") or _unit_label(unit)
             how = _how_for_tier(unit, thr, tier.get("how"))
+            is_master = bool(tier.get("master")) or int(tier["tier"]) >= n_tiers
+            mastered = bool(unlocked and is_master)
             tiers_out.append(
                 {
                     "tier": int(tier["tier"]),
@@ -573,6 +585,11 @@ def list_achievements(user_id: int) -> dict[str, Any]:
                     "progress": min(val, thr) if thr else val,
                     "progress_raw": val,
                     "unlocked": unlocked,
+                    "is_master_tier": is_master,
+                    "mastered": mastered,
+                    "status_label": (
+                        "Mastered" if mastered else ("Unlocked" if unlocked else "Locked")
+                    ),
                     "unlocked_at": (
                         snap["unlocked"][key]["unlocked_at"].isoformat()
                         if unlocked and snap["unlocked"][key].get("unlocked_at")
@@ -587,6 +604,7 @@ def list_achievements(user_id: int) -> dict[str, Any]:
                 "description": ach["description"],
                 "flavour": ach.get("flavour"),
                 "tiers": tiers_out,
+                "mastered": bool(tiers_out and tiers_out[-1].get("mastered")),
             }
         )
     activity = activity_xp_breakdown(snap)
@@ -613,6 +631,7 @@ def list_achievements(user_id: int) -> dict[str, Any]:
             "samples_below_sea": snap["samples_below_sea"],
             "samples_mountain": snap["samples_mountain"],
             "starlink_networks": snap.get("starlink_networks") or 0,
+            "segments_explored": snap.get("segments_explored") or 0,
             "today": snap["today"],
         },
         "achievements": out,

@@ -39,7 +39,7 @@ _last_good: dict[int, dict[str, Any]] = {}
 
 
 def snap_threshold_m() -> float:
-    # Floor 1 m, hard ceiling 10 m — Balduin: receiver is good, rail lag is meters
+    # Floor 1 m, hard ceiling 10 m (rail / jitter only — do not widen).
     return max(1.0, min(float(GPS_SNAP_THRESHOLD_M), _SNAP_HARD_MAX_M))
 
 

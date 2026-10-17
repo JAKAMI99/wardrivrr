@@ -1,27 +1,22 @@
-#!/usr/bin/env bash
-# First-time car mini-PC setup: interactive Wi-Fi / BT / GPS, write configs, local build, up stack.
-# GHCR pull is optional (trusted CI image); default is build on the mini-PC.
+﻿#!/usr/bin/env bash
+# First-time vehicle host setup: Wi-Fi / BT / GPS, .env, image, compose up.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-echo "=== wardrivrr car setup ==="
+echo "=== wardrivrr setup ==="
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "Docker Engine not found. Install it yourself, then re-run:"
-  echo "  https://docs.docker.com/engine/install/"
+  echo "Install Docker Engine first: https://docs.docker.com/engine/install/"
   exit 1
 fi
 if ! docker compose version >/dev/null 2>&1; then
-  echo "Docker Compose plugin missing (docker compose). Install Compose v2 and retry."
+  echo "Docker Compose v2 plugin required."
   exit 1
 fi
 if ! docker info >/dev/null 2>&1; then
-  echo "Cannot talk to Docker (permission denied on /var/run/docker.sock)."
-  echo "Fix (once), then log out/in or run: newgrp docker"
-  echo "  sudo usermod -aG docker \"\$USER\""
-  echo "Or for this session only: sudo ./scripts/car_setup.sh"
+  echo "Cannot talk to Docker. Fix once: sudo usermod -aG docker \"\$USER\" && newgrp docker"
   exit 1
 fi
 
@@ -34,9 +29,8 @@ set_env() {
   fi
 }
 
-# --- gpsd ---
 if ! command -v gpsd >/dev/null 2>&1; then
-  echo "Installing gpsd (needs sudo)…"
+  echo "Installing gpsd..."
   sudo apt-get update -qq
   sudo apt-get install -y gpsd gpsd-clients
 fi
@@ -44,10 +38,10 @@ fi
 GPS_TTY=""
 mapfile -t TTYS < <(ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || true)
 if [[ ${#TTYS[@]} -eq 0 ]]; then
-  echo "No /dev/ttyUSB* or /dev/ttyACM* found. Plug in the USB GPS, or continue and fix later."
+  echo "No GPS serial device found."
   read -r -p "GPS device path (blank to skip): " GPS_TTY
 else
-  echo "GPS serial candidates:"
+  echo "GPS devices:"
   for i in "${!TTYS[@]}"; do echo "  [$i] ${TTYS[$i]}"; done
   read -r -p "Pick index [0]: " idx
   idx=${idx:-0}
@@ -55,24 +49,21 @@ else
 fi
 
 if [[ -n "$GPS_TTY" ]]; then
-  echo "Configuring gpsd for $GPS_TTY…"
-  echo "DEVICES=\"$GPS_TTY\"" | sudo tee /etc/default/gpsd >/dev/null
-  echo 'GPSD_OPTIONS="-n"' | sudo tee -a /etc/default/gpsd >/dev/null
-  echo 'USBAUTO="true"' | sudo tee -a /etc/default/gpsd >/dev/null
-  sudo systemctl enable --now gpsd || sudo service gpsd restart || true
+  sudo tee /etc/default/gpsd >/dev/null <<EOF
+DEVICES="$GPS_TTY"
+GPSD_OPTIONS="-n -G"
+USBAUTO="true"
+START_DAEMON="true"
+EOF
+  sudo systemctl enable --now gpsd || true
 fi
 
-# --- Wi-Fi iface ---
 echo
-echo "Wi-Fi interfaces (pick the Alfa / monitor adapter — NOT the hotspot uplink):"
+echo "Wi-Fi interfaces (monitor adapter, not hotspot uplink):"
 ip -o link show | awk -F': ' '/wlan|wlx/{print "  "$2}' || true
 read -r -p "Monitor Wi-Fi iface [wlan1]: " WLAN
 WLAN=${WLAN:-wlan1}
-if [[ "$WLAN" == "wlan0" ]]; then
-  echo "WARNING: wlan0 is often the internal NIC — confirm this is your Alfa."
-fi
 
-# --- BT ---
 echo
 hciconfig 2>/dev/null || true
 read -r -p "Use Bluetooth HCI? [y/N]: " USE_BT
@@ -83,7 +74,6 @@ if [[ "$USE_BT" =~ ^[Yy] ]]; then
   BT_IFACE=${BT_IFACE:-hci0}
 fi
 
-# --- Credentials ---
 mkdir -p deploy/kismet
 read -r -p "Kismet username [wardrivrr]: " KUSER
 KUSER=${KUSER:-wardrivrr}
@@ -91,26 +81,24 @@ read -r -s -p "Kismet password (blank = random): " KPASS
 echo
 if [[ -z "$KPASS" ]]; then
   KPASS="$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-  echo "Generated Kismet password; it will be saved in .env."
+  echo "Generated Kismet password (saved in .env)."
 fi
 read -r -p "JWT secret (blank = random): " JWT
-if [[ -z "$JWT" ]]; then
-  JWT="$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-fi
+[[ -z "$JWT" ]] && JWT="$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
-# Local image name by default (compose still has a build: block).
 IMAGE="wardrivrr-api:local"
-read -r -p "Docker image tag for local builds [$IMAGE]: " IMAGE_IN
+read -r -p "Local image tag [$IMAGE]: " IMAGE_IN
 IMAGE=${IMAGE_IN:-$IMAGE}
-read -r -p "Prefer GitHub GHCR image instead of local build? [y/N]: " USE_GHCR
+read -r -p "Prefer GHCR image instead of local build? [y/N]: " USE_GHCR
 USE_GHCR=${USE_GHCR:-n}
 if [[ "$USE_GHCR" =~ ^[Yy] ]]; then
   GH_OWNER=""
   if git remote get-url origin >/dev/null 2>&1; then
     GH_OWNER="$(git remote get-url origin | sed -E 's#.*(github.com[:/])([^/]+)/.*#\2#' | tr '[:upper:]' '[:lower:]')"
   fi
-  read -r -p "GitHub owner/org for GHCR [${GH_OWNER:-jakami99}]: " OWNER_IN
-  OWNER_IN=${OWNER_IN:-${GH_OWNER:-jakami99}}
+  read -r -p "GitHub owner/org for GHCR${GH_OWNER:+ [$GH_OWNER]}: " OWNER_IN
+  OWNER_IN=${OWNER_IN:-$GH_OWNER}
+  [[ -z "$OWNER_IN" ]] && { echo "Owner required for GHCR."; exit 1; }
   IMAGE="ghcr.io/${OWNER_IN}/wardrivrr:latest"
   read -r -p "WARDRIVRR_IMAGE [$IMAGE]: " IMAGE_IN
   IMAGE=${IMAGE_IN:-$IMAGE}
@@ -120,19 +108,17 @@ mkdir -p "$ROOT/data/kismet_logs/wardrivrr"
 chmod -R a+rwX "$ROOT/data/kismet_logs" 2>/dev/null || true
 LOG_PREFIX="$ROOT/data/kismet_logs/wardrivrr"
 {
-  echo "# Generated by scripts/car_setup.sh — do not commit"
+  echo "# Generated by deploy.sh - do not commit"
   echo "server_name=wardrivrr"
   echo "httpd_bind_address=0.0.0.0"
   echo "httpd_port=2501"
   echo "httpd_username=${KUSER}"
   echo "httpd_password=${KPASS}"
   echo "gps=gpsd:host=127.0.0.1,port=2947"
-  # Comment Wi-Fi source if iface missing so Kismet still starts (BT-only OK)
   if ip -o link show "$WLAN" >/dev/null 2>&1; then
     echo "source=${WLAN}:name=MonitorWifi:type=linuxwifi"
   else
     echo "#source=${WLAN}:name=MonitorWifi:type=linuxwifi"
-    echo "# (iface $WLAN not present — uncomment after plugging Alfa)"
   fi
   if [[ -n "$BT_IFACE" ]]; then
     echo "source=${BT_IFACE}:name=linuxbt:type=linuxbluetooth"
@@ -145,23 +131,17 @@ LOG_PREFIX="$ROOT/data/kismet_logs/wardrivrr"
   echo "channel_hop=true"
   echo "channel_hop_speed=5/sec"
   echo "retry_on_source_error=true"
-} > deploy/kismet/kismet_site.conf
+} >deploy/kismet/kismet_site.conf
 
-# --- Host Kismet (official apt — no Docker Hub image) ---
 install_host_kismet() {
-  if command -v kismet >/dev/null 2>&1; then
-    echo "Kismet already installed: $(command -v kismet)"
-    return 0
-  fi
-  echo "Installing Kismet on the host from kismetwireless.net apt (not Docker)…"
+  command -v kismet >/dev/null 2>&1 && return 0
+  echo "Installing Kismet (host apt)..."
   local codename
   codename="$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")"
   case "$codename" in
     trixie|bookworm|noble|jammy|focal|plucky|resolute|kali) ;;
     *)
-      echo "Unrecognized VERSION_CODENAME='$codename'."
       echo "Install Kismet manually: https://www.kismetwireless.app/packages/"
-      echo "Then copy deploy/kismet/kismet_site.conf → /etc/kismet/kismet_site.conf"
       return 1
       ;;
   esac
@@ -171,7 +151,6 @@ install_host_kismet() {
   echo "deb [signed-by=/usr/share/keyrings/kismet-archive-keyring.gpg] https://www.kismetwireless.net/repos/apt/release/${codename} ${codename} main" \
     | sudo tee /etc/apt/sources.list.d/kismet.list >/dev/null
   sudo apt-get update -qq
-  # Noninteractive: prefer suid capture helpers (recommended by Kismet)
   echo "kismet kismet/install-setuid boolean true" | sudo debconf-set-selections || true
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y kismet
 }
@@ -181,17 +160,13 @@ if command -v kismet >/dev/null 2>&1; then
   sudo mkdir -p /etc/kismet
   sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf
   sudo usermod -aG kismet "$USER" 2>/dev/null || true
-  # Prefer package unit; avoid duplicate wardrivrr-kismet
   sudo systemctl disable --now wardrivrr-kismet 2>/dev/null || true
-  sudo rm -rf /etc/systemd/system/kismet.service.d 2>/dev/null || true
   sudo systemctl daemon-reload
   sudo systemctl enable --now kismet || true
-  echo "Host Kismet: http://127.0.0.1:2501/  (user $KUSER)"
 else
-  echo "WARNING: Kismet not installed yet — stack will still start."
+  echo "WARNING: Kismet not installed - stack will still start."
 fi
 
-# gpsd TCP for host-network API
 GPS_DEV="${GPS_TTY:-}"
 [[ -z "$GPS_DEV" && -e /dev/ttyACM0 ]] && GPS_DEV="/dev/ttyACM0"
 [[ -z "$GPS_DEV" && -e /dev/ttyUSB0 ]] && GPS_DEV="/dev/ttyUSB0"
@@ -212,7 +187,6 @@ if [[ ! -f .env ]]; then
     cp .env.example .env
   fi
 fi
-# Host-network API talks to services on localhost / published ports
 set_env DB_HOST 127.0.0.1
 set_env GPSD_HOST 127.0.0.1
 set_env GPSD_PORT 2947
@@ -225,47 +199,40 @@ set_env JWT_SECRET_KEY "$JWT"
 set_env WARDRIVRR_IMAGE "$IMAGE"
 set_env FORCE_LOCAL_BUILD 1
 set_env VALHALLA_URL "http://127.0.0.1:8002"
+set_env HOST_PROJECT "$ROOT"
+set_env HOST_DATA_ROOT "$ROOT/data"
+set_env WARDRIVRR_COMPOSE_ROOT "/host/project"
+
+if ! grep -qE '^VALHALLA_SERVER_THREADS=' .env 2>/dev/null; then
+  _n="$(nproc 2>/dev/null || echo 4)"
+  _t=$((_n - 1))
+  [[ "$_t" -lt 2 ]] && _t=2
+  [[ "$_t" -gt 12 ]] && _t=12
+  set_env VALHALLA_SERVER_THREADS "$_t"
+fi
 
 FORCE_BUILD=1
 export WARDRIVRR_IMAGE="$IMAGE"
 export FORCE_LOCAL_BUILD=1
 if [[ "$USE_GHCR" =~ ^[Yy] ]]; then
   echo
-  echo "Private GHCR login (PAT with read:packages):"
-  echo "  echo \$GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin"
+  echo "GHCR login: echo \$GITHUB_TOKEN | docker login ghcr.io -u USER --password-stdin"
   read -r -p "Pull GHCR image now? [y/N]: " DOPULL
   DOPULL=${DOPULL:-n}
-  if [[ "$DOPULL" =~ ^[Yy] ]]; then
-    if docker pull "$IMAGE"; then
-      echo "Pulled $IMAGE (GitHub Actions / GHCR)."
-      FORCE_BUILD=0
-      set_env FORCE_LOCAL_BUILD 0
-      export FORCE_LOCAL_BUILD=0
-    else
-      echo "Pull failed — building locally."
-      FORCE_BUILD=1
-    fi
+  if [[ "$DOPULL" =~ ^[Yy] ]] && docker pull "$IMAGE"; then
+    FORCE_BUILD=0
+    set_env FORCE_LOCAL_BUILD 0
+    export FORCE_LOCAL_BUILD=0
+  else
+    echo "Building locally."
   fi
 fi
 
-# Postgres container user must read bind-mounted init SQL (host umask often 0600).
-mkdir -p postgis/init
+mkdir -p postgis/init data/valhalla data/pbf
 chmod a+rx postgis postgis/init 2>/dev/null || true
 chmod a+r postgis/init/*.sql 2>/dev/null || true
+[[ -d data/valhalla/active.osm.pbf ]] && rm -rf data/valhalla/active.osm.pbf
 
-mkdir -p data/valhalla data/pbf
-if [[ -d data/valhalla/active.osm.pbf ]]; then
-  echo "Removing bogus directory data/valhalla/active.osm.pbf…"
-  rm -rf data/valhalla/active.osm.pbf
-fi
-
-# So API can clip/restart Valhalla via host Docker
-set_env HOST_PROJECT "$ROOT"
-set_env HOST_DATA_ROOT "$ROOT/data"
-set_env WARDRIVRR_COMPOSE_ROOT "/host/project"
-set_env VALHALLA_URL "http://127.0.0.1:8002"
-
-# Seed Valhalla feed from regional pack name (never "active" on disk in data/pbf)
 pick_regional_pbf() {
   local f best="" best_sz=0 sz
   shopt -s nullglob
@@ -282,31 +249,22 @@ pick_regional_pbf() {
 }
 REGIONAL="$(pick_regional_pbf || true)"
 if [[ -n "${REGIONAL:-}" ]] && [[ ! -f data/valhalla/active.osm.pbf ]]; then
-  echo "Seeding data/valhalla/active.osm.pbf from $REGIONAL"
-  if ! ln "$REGIONAL" data/valhalla/active.osm.pbf 2>/dev/null; then
-    cp -f "$REGIONAL" data/valhalla/active.osm.pbf
-  fi
+  echo "Seeding Valhalla from $REGIONAL"
+  ln "$REGIONAL" data/valhalla/active.osm.pbf 2>/dev/null || cp -f "$REGIONAL" data/valhalla/active.osm.pbf
   printf '%s\n' "{\"mode\":\"seed\",\"source_pbf\":\"$REGIONAL\"}" >data/valhalla/active.json
 fi
 
 COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
 "${COMPOSE[@]}" config --quiet
-if [[ "$FORCE_BUILD" == "1" ]]; then
-  echo "Building API image locally…"
-  "${COMPOSE[@]}" build api
-fi
+[[ "$FORCE_BUILD" == "1" ]] && "${COMPOSE[@]}" build api
+
 SERVICES=(api postgis)
-if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
-  SERVICES+=(valhalla)
-else
-  echo "Valhalla: skipped until a regional pack exists in data/pbf/."
-fi
+[[ -f data/valhalla/active.osm.pbf && -s data/valhalla/active.osm.pbf ]] && SERVICES+=(valhalla)
 "${COMPOSE[@]}" up -d "${SERVICES[@]}"
 
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "=== Setup done ==="
-IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-echo "Open http://${IP:-<mini-ip>}:8000/ → Navigate"
-echo "Status: http://${IP:-<mini-ip>}:8000/status"
-echo "Later boots: ./scripts/car_up.sh"
-echo "Check gpsd: cgps -s   |   Kismet: http://${IP:-<mini-ip>}:2501/"
+echo "UI:     http://${IP:-127.0.0.1}:8000/"
+echo "Status: http://${IP:-127.0.0.1}:8000/status"
+echo "Later:  ./run.sh"

@@ -157,7 +157,10 @@ class ExploreRouteBody(BaseModel):
 class LevelCreateBody(BaseModel):
     name: str
     place_query: str
-    profile: str = Field(pattern="^(foot|bicycle|car)$")
+    profile: str = Field(
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+        description="Drive preset: big_car | small_car | bicycle | foot (car→small_car)",
+    )
     geofabrik_id: str
     place_bbox: list[float] | None = None  # west,south,east,north
     place_boundary: dict | None = None  # GeoJSON Polygon / MultiPolygon

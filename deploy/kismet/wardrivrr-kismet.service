@@ -6,7 +6,7 @@ Wants=gpsd.service
 [Service]
 Type=simple
 User=root
-# Site overrides live in /etc/kismet/kismet_site.conf (installed by car_setup.sh)
+# Site overrides: /etc/kismet/kismet_site.conf (from ./deploy.sh)
 ExecStart=/usr/bin/kismet --no-ncurses --daemonize=false
 Restart=on-failure
 RestartSec=5

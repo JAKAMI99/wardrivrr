@@ -7,12 +7,11 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/jakami/wardrivrr
+# Edit WorkingDirectory / Exec* paths to match the clone location.
+WorkingDirectory=/opt/wardrivrr
 Environment=FORCE_LOCAL_BUILD=1
-Environment=HOME=/home/jakami
-# Run as root so docker/gpsd/kismet sudo bits in car_up always work on the car box
-ExecStart=/bin/bash /home/jakami/wardrivrr/scripts/car_up.sh
-ExecStop=/usr/bin/docker compose -f /home/jakami/wardrivrr/docker-compose.yml -f /home/jakami/wardrivrr/deploy/compose.car.yml --env-file /home/jakami/wardrivrr/.env stop
+ExecStart=/bin/bash /opt/wardrivrr/run.sh
+ExecStop=/usr/bin/docker compose -f /opt/wardrivrr/docker-compose.yml -f /opt/wardrivrr/deploy/compose.car.yml --env-file /opt/wardrivrr/.env stop
 TimeoutStartSec=900
 StandardOutput=journal
 StandardError=journal

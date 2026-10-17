@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
     <script src="/static/theme.js?v=9"></script>
-    <link rel="stylesheet" href="/static/navigate.css?v=39" />
+    <link rel="stylesheet" href="/static/navigate.css?v=43" />
   </head>
   <body class="nav-body" data-nav-night="0">
     <div class="app-shell nav-shell">
@@ -107,9 +107,9 @@
             <span id="statRoute">—</span>
             <small>km left</small>
           </div>
-          <div class="nav-stat">
+          <div class="nav-stat nav-stat-level" id="statLevelCell" title="Unlocked road tiles in this level">
             <span id="statLevel">—</span>
-            <small>level</small>
+            <small id="statTiles">— tiles</small>
           </div>
           <div class="nav-stat nav-stat-xp" title="Explorer XP — networks, BT/BLE, and a bit from driving">
             <div class="nav-xp-top">
@@ -132,8 +132,9 @@
           </button>
           <button type="button" class="nav-icon-btn is-muted-look" id="btnMuteSounds" title="Sounds on (tap to mute)" aria-label="Toggle achievement sounds" aria-pressed="false">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+              <path class="nav-mute-cross" d="M23 9l-6 6M17 9l6 6" hidden/>
               <path d="M11 5L6 9H2v6h4l5 4V5z"/>
-              <path d="M23 9l-6 6M17 9l6 6"/>
+              <path class="nav-sound-waves" d="M15.5 8.5a5 5 0 010 7M19 5.5a9 9 0 010 13"/>
             </svg>
           </button>
           <button type="button" class="nav-icon-btn is-on" id="btnViewMode" title="3D view (tap for 2D)" aria-label="Toggle 2D or 3D view" aria-pressed="true">
@@ -151,9 +152,33 @@
               <path d="M5 19L19 5"/>
             </svg>
           </button>
+          <button type="button" class="nav-icon-btn is-on" id="btnDriveMode" title="Drive mode" aria-label="Drive mode menu" aria-expanded="false" aria-controls="navModeSheet">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h10"/>
+            </svg>
+          </button>
           <input type="checkbox" id="toggleDeadEnds" class="nav-sr-only" tabindex="-1" aria-hidden="true" />
           <p class="nav-hint muted" id="navHint" hidden>Waiting for GPS…</p>
         </section>
+
+        <div id="navModeSheet" class="nav-mode-sheet" hidden>
+          <div class="nav-mode-card" role="dialog" aria-labelledby="navModeTitle">
+            <header class="nav-mode-head">
+              <h2 id="navModeTitle">Drive mode</h2>
+              <button type="button" class="btn" id="btnModeClose">Close</button>
+            </header>
+            <p class="nav-mode-current">
+              This level: <strong id="navModeLabel">—</strong>
+            </p>
+            <p class="muted nav-mode-blurb" id="navModeBlurb">—</p>
+            <p class="muted nav-mode-hint">
+              Modes are chosen when you create a level (which roads enter the map).
+              Create another level of the same place to switch style.
+            </p>
+            <ul class="nav-mode-presets" id="navModePresets"></ul>
+            <a class="btn btn-primary nav-mode-levels" href="/levels">Create / open levels</a>
+          </div>
+        </div>
 
         <section class="nav-toolbar nav-debug-toolbar" id="navDebugToolbar" hidden aria-label="Debug controls">
           <button type="button" class="btn btn-primary" id="btnSpawn">Spawn</button>
@@ -186,6 +211,6 @@
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=5"></script>
-    <script src="/static/navigate.js?v=50"></script>
+    <script src="/static/navigate.js?v=53"></script>
   </body>
 </html>

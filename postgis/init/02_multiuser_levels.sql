@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS levels (
     geofabrik_id TEXT,
     geofabrik_name TEXT,
     pbf_url TEXT,
-    profile TEXT NOT NULL CHECK (profile IN ('foot', 'bicycle', 'car')),
+    profile TEXT NOT NULL CHECK (profile IN ('foot', 'bicycle', 'car', 'big_car', 'small_car')),
     status TEXT NOT NULL DEFAULT 'pending',
     road_km DOUBLE PRECISION DEFAULT 0,
     disk_bytes BIGINT DEFAULT 0,
@@ -108,7 +108,8 @@ CREATE TABLE IF NOT EXISTS road_segments (
     geom GEOMETRY(LineString, 4326) NOT NULL,
     length_m DOUBLE PRECISION NOT NULL DEFAULT 0,
     is_explored BOOLEAN NOT NULL DEFAULT FALSE,
-    explored_at TIMESTAMPTZ
+    explored_at TIMESTAMPTZ,
+    last_driven_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS road_segments_level_idx ON road_segments(level_id);

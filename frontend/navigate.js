@@ -81,6 +81,8 @@ const state = {
   levelId: null,
   levelName: "—",
   levelBoundary: null,
+  levelProfile: "small_car",
+  levelProfileLabel: "Small car",
   spawned: false,
   spawnMode: false,
   lat: 51.286,
@@ -713,7 +715,41 @@ function applyDayNight(force = false) {
     // Liberty/dark ship their own building-3d — always sync visibility after style swap
     enableBuildings(!!state.buildingsOn);
     ensureMarker();
+    fixOnewayArrows();
   });
+}
+
+/**
+ * OpenFreeMap dark uses the vertical "oneway" sprite with icon-rotate 0/180.
+ * Line placement aligns the icon's horizontal axis, so those arrows sit
+ * across the road (90° left of travel). Bright already uses 90/-90.
+ * Liberty's horizontal "arrow" sprite is already along the road.
+ */
+function fixOnewayArrows() {
+  const map = state.map;
+  if (!map) return;
+  if (typeof map.isStyleLoaded === "function" && !map.isStyleLoaded()) return;
+  let style;
+  try {
+    style = map.getStyle();
+  } catch {
+    return;
+  }
+  for (const layer of style?.layers || []) {
+    if (layer.layout?.["icon-image"] !== "oneway") continue;
+    const raw = layer.layout?.["icon-rotate"];
+    const current = typeof raw === "number" ? raw : 0;
+    if (current === 90 || current === -90) continue;
+    const opposite =
+      current === 180 ||
+      current === -180 ||
+      String(layer.id).includes("opposite");
+    try {
+      map.setLayoutProperty(layer.id, "icon-rotate", opposite ? -90 : 90);
+    } catch {
+      /* style mid-swap */
+    }
+  }
 }
 
 function findBuildingSource(style) {
@@ -915,6 +951,9 @@ async function refreshFog(force = false) {
     state.fogExploredGeo = data.explored;
     applyFogData(data.locked, data.explored);
     applyFogThemeColors();
+    if (data.stats && data.stats.explored_segments != null) {
+      updateLevelTiles(data.stats.explored_segments);
+    }
     if (data.stats?.explored_km != null && !state.sessionUnlockM) {
       /* keep session unlock from live drives; fog stats are cumulative */
     }
@@ -1223,95 +1262,102 @@ function ensureToastHost() {
   return host;
 }
 
-function playAchievementSound() {
+let achievementAudioCtx = null;
+
+function armAchievementAudio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!achievementAudioCtx || achievementAudioCtx.state === "closed") {
+    achievementAudioCtx = new Ctx();
+  }
+  if (achievementAudioCtx.state === "suspended") {
+    achievementAudioCtx.resume().catch(() => {});
+  }
+  return achievementAudioCtx;
+}
+
+function playTone(ctx, freq, t0, dur, peak, type) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type || "triangle";
+  osc.frequency.value = freq;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+
+function playAchievementSound(mastered) {
   if (!state.achievementSounds) return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
+  const ctx = armAchievementAudio();
+  if (!ctx) return;
+  const run = () => {
+    if (ctx.state !== "running") return;
     const now = ctx.currentTime;
-    const notes = [523.25, 659.25, 783.99];
+    const notes = mastered
+      ? [523.25, 659.25, 783.99, 1046.5]
+      : [523.25, 659.25, 783.99];
     notes.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.value = freq;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      const t0 = now + i * 0.09;
-      gain.gain.setValueAtTime(0.001, t0);
-      gain.gain.exponentialRampToValueAtTime(0.07, t0 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
-      osc.start(t0);
-      osc.stop(t0 + 0.24);
+      playTone(ctx, freq, now + i * 0.09, mastered ? 0.3 : 0.22, mastered ? 0.08 : 0.07);
     });
-    setTimeout(() => ctx.close().catch(() => {}), 800);
-  } catch {
-    /* ignore */
-  }
+  };
+  if (ctx.state === "running") run();
+  else ctx.resume().then(run).catch(() => {});
+}
+
+function escToast(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function showAchievementToasts(list) {
   if (!list?.length) return;
   const host = ensureToastHost();
-  playAchievementSound();
+  playAchievementSound(list.some((a) => a.mastered));
   for (const a of list) {
     const el = document.createElement("div");
-    el.className = "nav-ach-toast";
+    const mastered = !!a.mastered;
+    el.className = "nav-ach-toast" + (mastered ? " is-mastered" : "");
     const xp = Number(a.xp) || 0;
     const xpBit = xp ? `<em class="nav-ach-xp">+${xp} XP</em>` : "";
-    el.innerHTML = `<strong>${a.title || "Achievement"}</strong>${xpBit}<span>${a.flavour || a.description || ""}</span>`;
+    const status = mastered ? "Mastered" : a.status_label || "Unlocked";
+    const blurb = a.flavour || a.description || "";
+    el.innerHTML = `<strong>${escToast(a.title || "Achievement")}</strong><em class="nav-ach-status">${escToast(status)}</em>${xpBit}<span>${escToast(blurb)}</span>`;
     host.appendChild(el);
     setTimeout(() => el.classList.add("is-on"), 20);
     setTimeout(() => {
       el.classList.remove("is-on");
       setTimeout(() => el.remove(), 400);
-    }, 5200);
+    }, mastered ? 6800 : 5200);
   }
 }
 
 function playAnomalySound(kind) {
   if (!state.achievementSounds) return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
+  const ctx = armAchievementAudio();
+  if (!ctx) return;
+  const run = () => {
+    if (ctx.state !== "running") return;
     const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
     if (kind === "space") {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(520, now);
-      osc.frequency.exponentialRampToValueAtTime(220, now + 0.28);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
-      osc.start(now);
-      osc.stop(now + 0.34);
+      playTone(ctx, 520, now, 0.16, 0.07, "sine");
+      playTone(ctx, 220, now + 0.12, 0.2, 0.06, "sine");
     } else if (kind === "train") {
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(180, now);
-      osc.frequency.setValueAtTime(240, now + 0.08);
-      osc.frequency.setValueAtTime(180, now + 0.16);
-      gain.gain.setValueAtTime(0.07, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-      osc.start(now);
-      osc.stop(now + 0.24);
+      playTone(ctx, 180, now, 0.1, 0.07);
+      playTone(ctx, 240, now + 0.08, 0.1, 0.06);
     } else {
-      osc.type = "square";
-      osc.frequency.setValueAtTime(880, now);
-      gain.gain.setValueAtTime(0.05, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-      osc.start(now);
-      osc.stop(now + 0.14);
+      playTone(ctx, 880, now, 0.12, 0.05, "square");
     }
-    setTimeout(() => ctx.close().catch(() => {}), 500);
-  } catch {
-    /* ignore audio failures */
-  }
+  };
+  if (ctx.state === "running") run();
+  else ctx.resume().then(run).catch(() => {});
 }
 
 function showAnomalyToasts(list) {
@@ -1477,9 +1523,82 @@ function currentPitch() {
   return state.view3d ? PITCH_3D : PITCH_2D;
 }
 
+const DRIVE_MODE_PRESETS = [
+  {
+    id: "big_car",
+    label: "Big car",
+    blurb: "Main & medium roads only. Few turns, skip cul-de-sacs.",
+    skipDeadEnds: true,
+  },
+  {
+    id: "small_car",
+    label: "Small car",
+    blurb: "Full street grid. Dead ends only if ≥ 70 m (server).",
+    skipDeadEnds: false,
+  },
+  {
+    id: "bicycle",
+    label: "Bike",
+    blurb: "Cycleways & streets. Every dead end counts.",
+    skipDeadEnds: false,
+  },
+  {
+    id: "foot",
+    label: "On foot",
+    blurb: "Paths, tracks, gravel & grass. Every dead end.",
+    skipDeadEnds: false,
+  },
+];
+
+function normalizeDriveProfile(profile) {
+  const p = String(profile || "small_car").toLowerCase();
+  if (p === "car") return "small_car";
+  return DRIVE_MODE_PRESETS.some((x) => x.id === p) ? p : "small_car";
+}
+
+function applyLevelProfile(profile) {
+  const p = normalizeDriveProfile(profile);
+  const meta = DRIVE_MODE_PRESETS.find((x) => x.id === p) || DRIVE_MODE_PRESETS[1];
+  state.levelProfile = p;
+  state.levelProfileLabel = meta.label;
+  // Match routing dead-end toggle to the level preset (user can still flip it)
+  setExcludeDeadEnds(!!meta.skipDeadEnds);
+  syncDriveModeUi();
+}
+
+function syncDriveModeUi() {
+  const label = document.getElementById("navModeLabel");
+  const blurb = document.getElementById("navModeBlurb");
+  const list = document.getElementById("navModePresets");
+  if (label) label.textContent = state.levelProfileLabel || "—";
+  const meta =
+    DRIVE_MODE_PRESETS.find((x) => x.id === state.levelProfile) || null;
+  if (blurb) blurb.textContent = meta?.blurb || "—";
+  if (list) {
+    list.innerHTML = DRIVE_MODE_PRESETS.map((x) => {
+      const cur = x.id === state.levelProfile ? " is-current" : "";
+      return `<li class="${cur}"><strong>${x.label}</strong><span>${x.blurb}</span></li>`;
+    }).join("");
+  }
+  const btn = document.getElementById("btnDriveMode");
+  if (btn) {
+    btn.title = `Mode: ${state.levelProfileLabel}`;
+    btn.classList.add("is-on");
+    btn.classList.remove("is-muted-look");
+  }
+}
+
+function setDriveModeSheetOpen(open) {
+  const sheet = document.getElementById("navModeSheet");
+  const btn = document.getElementById("btnDriveMode");
+  if (!sheet) return;
+  sheet.hidden = !open;
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) syncDriveModeUi();
+}
+
 function loadNavPrefs() {
-  const dead = localStorage.getItem(DEAD_ENDS_KEY);
-  state.excludeDeadEnds = dead === "1";
+  // Dead-end default comes from level profile (applyLevelProfile), not localStorage
   const v3 = localStorage.getItem(VIEW_3D_KEY);
   if (v3 === "0" || v3 === "1") {
     state.view3d = v3 === "1";
@@ -1748,6 +1867,35 @@ function fmtUnlockKm(meters) {
 function updateUnlockHud() {
   const el = document.getElementById("statUnlock");
   if (el) el.textContent = fmtUnlockKm(state.sessionUnlockM);
+}
+
+function fmtTileCount(count) {
+  const v = Math.max(0, Math.round(Number(count) || 0));
+  const noun = v === 1 ? "tile" : "tiles";
+  let num;
+  if (v >= 10000) {
+    const k = Math.round((v / 1000) * 10) / 10;
+    num = `${String(k).replace(/\.0$/, "")}k`;
+  } else {
+    num = v.toLocaleString("en-US");
+  }
+  return `${num} ${noun}`;
+}
+
+function updateLevelTiles(count) {
+  const el = document.getElementById("statTiles");
+  const cell = document.getElementById("statLevelCell");
+  if (!el) return;
+  if (count == null || !Number.isFinite(Number(count))) {
+    el.textContent = "— tiles";
+    if (cell) cell.title = "Unlocked road tiles in this level";
+    return;
+  }
+  const v = Math.max(0, Math.round(Number(count)));
+  el.textContent = fmtTileCount(v);
+  if (cell) {
+    cell.title = `${v.toLocaleString("en-US")} road ${v === 1 ? "tile" : "tiles"} unlocked in this level`;
+  }
 }
 
 function setRadioCell(prefix, pack) {
@@ -2753,6 +2901,7 @@ async function resolveLevel() {
   }
   if (!state.levelId) {
     setNavHint("No level yet — drive to a place to generate one.");
+    updateLevelTiles(null);
     await refreshXpHud(true);
     return;
   }
@@ -2761,6 +2910,7 @@ async function resolveLevel() {
   );
   state.levelName = lv.name || `Level ${state.levelId}`;
   state.levelBoundary = lv.boundary || null;
+  applyLevelProfile(lv.profile_norm || lv.profile);
   document.getElementById("statLevel").textContent = state.levelName;
   if (lv.bbox?.length === 4) {
     state.lon = (lv.bbox[0] + lv.bbox[2]) / 2;
@@ -2815,6 +2965,7 @@ function initMap() {
     ensureRouteLayers();
     applyRouteThemeColors();
     enableBuildings(state.view3d && state.webglOk);
+    fixOnewayArrows();
     bindMapCameraGestures();
   });
 
@@ -2878,9 +3029,14 @@ function syncMuteIcon() {
   const btn = document.getElementById("btnMuteSounds");
   if (!btn) return;
   const soundOn = !!state.achievementSounds;
-  // Always mute glyph — grayed when sound is on, colorful when muted
+  // Sound on: speaker + waves (no glow). Muted: glowing speaker with cross behind.
   btn.classList.toggle("is-on", !soundOn);
   btn.classList.toggle("is-muted-look", soundOn);
+  const cross = btn.querySelector(".nav-mute-cross");
+  if (cross) {
+    if (soundOn) cross.setAttribute("hidden", "");
+    else cross.removeAttribute("hidden");
+  }
   btn.setAttribute("aria-pressed", soundOn ? "false" : "true");
   btn.title = soundOn ? "Sounds on (tap to mute)" : "Muted (tap to enable)";
 }
@@ -2947,7 +3103,11 @@ function bindControls() {
   document.getElementById("btnNavToggle")?.addEventListener("click", () => {
     toggleNavigation();
   });
+  const armAudio = () => armAchievementAudio();
+  window.addEventListener("pointerdown", armAudio, { passive: true });
+  window.addEventListener("keydown", armAudio);
   document.getElementById("btnMuteSounds")?.addEventListener("click", () => {
+    armAchievementAudio();
     setAchievementSounds(!state.achievementSounds);
   });
   document.getElementById("btnViewMode")?.addEventListener("click", () => {
@@ -2983,6 +3143,17 @@ function bindControls() {
   document.getElementById("toggleDeadEnds")?.addEventListener("change", (e) => {
     setExcludeDeadEnds(!!e.target.checked);
   });
+  document.getElementById("btnDriveMode")?.addEventListener("click", () => {
+    const sheet = document.getElementById("navModeSheet");
+    setDriveModeSheetOpen(!!sheet?.hidden);
+  });
+  document.getElementById("btnModeClose")?.addEventListener("click", () => {
+    setDriveModeSheetOpen(false);
+  });
+  document.getElementById("navModeSheet")?.addEventListener("click", (e) => {
+    if (e.target?.id === "navModeSheet") setDriveModeSheetOpen(false);
+  });
+  syncDriveModeUi();
   document.getElementById("toggleBuildings")?.addEventListener("change", (e) => {
     setView3d(!!e.target.checked);
   });

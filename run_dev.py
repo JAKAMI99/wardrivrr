@@ -216,7 +216,7 @@ def spawn_uvicorn(env: dict) -> subprocess.Popen:
     }
     if sys.platform == "win32":
         # Own process group so taskkill /T can tear the tree down without
-        # broadcasting Ctrl+C to this console (which stops run.bat).
+        # broadcasting Ctrl+C to this console (which stops debug.bat).
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     return subprocess.Popen(cmd, **kwargs)
 

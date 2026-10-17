@@ -297,11 +297,34 @@ html[data-theme="crt"] .nav-maneuver-dist {
   opacity: 0.85;
 }
 
+.nav-hud-stats .nav-stat-level {
+  flex: 1.2 1 0;
+  min-width: 4.4rem;
+}
+
+.nav-hud-stats .nav-stat-level > span#statLevel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(0.78rem, 2vw, 1.02rem);
+}
+
 .nav-hud-stats small {
   color: var(--nav-muted);
   font-size: 0.62rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.nav-hud-stats #statTiles {
+  display: block;
+  margin-top: 0.08rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--nav-cyan);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Vertical control stack — right edge, fat-finger / Android Auto scale */
@@ -449,9 +472,25 @@ html[data-theme="crt"] .nav-maneuver-dist {
   transform: scale(0.96);
 }
 
-/* Colorful = active feature; grayed = inactive / “sounds playing” for mute */
+/* Colorful = active feature; grayed = inactive */
 .nav-icon-btn.is-muted-look {
   color: rgba(160, 168, 180, 0.72);
+  opacity: 0.9;
+}
+
+/* Mute: glowing when off; cross sits behind speaker (painted first in SVG) */
+#btnMuteSounds.is-on .nav-mute-cross {
+  display: block;
+  opacity: 0.85;
+}
+#btnMuteSounds.is-on .nav-sound-waves {
+  display: none;
+}
+#btnMuteSounds:not(.is-on) .nav-mute-cross {
+  display: none;
+}
+#btnMuteSounds:not(.is-on) .nav-sound-waves {
+  display: block;
   opacity: 0.9;
 }
 
@@ -478,6 +517,104 @@ html[data-theme="crt"] .nav-maneuver-dist {
 .nav-sr-only {
   /* Mirror for prefs / level-prompt sync — real control is #btnDeadEnds */
   display: none !important;
+}
+
+.nav-mode-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  padding: 0.75rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  pointer-events: auto;
+}
+
+.nav-mode-sheet[hidden] {
+  display: none !important;
+}
+
+.nav-mode-card {
+  width: min(420px, 100%);
+  max-height: min(72dvh, 560px);
+  overflow: auto;
+  background: var(--nav-panel);
+  border: 2px solid color-mix(in srgb, var(--nav-cyan) 40%, transparent);
+  border-radius: 1.15rem;
+  padding: 1rem 1.1rem 1.15rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+.nav-mode-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.nav-mode-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.nav-mode-current {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.nav-mode-blurb {
+  margin: 0 0 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.nav-mode-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.nav-mode-presets {
+  list-style: none;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.nav-mode-presets li {
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--nav-cyan) 22%, transparent);
+  background: color-mix(in srgb, var(--nav-panel) 70%, #000);
+}
+
+.nav-mode-presets li.is-current {
+  border-color: var(--nav-cyan);
+  background: color-mix(in srgb, var(--nav-cyan) 16%, var(--nav-panel));
+}
+
+.nav-mode-presets strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.nav-mode-presets span {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--nav-muted);
+  line-height: 1.3;
+}
+
+.nav-mode-levels {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .nav-debug-toolbar {
@@ -748,7 +885,60 @@ html[data-theme="crt"] .nav-maneuver-dist {
   display: block;
   color: var(--ok, #2ad48a);
   font-size: 0.95rem;
+  margin-bottom: 0.1rem;
+}
+
+.nav-ach-toast .nav-ach-status {
+  display: block;
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ok, #2ad48a);
   margin-bottom: 0.15rem;
+}
+
+.nav-ach-toast.is-mastered {
+  border-color: rgba(255, 210, 90, 0.85);
+  background: linear-gradient(160deg, rgba(28, 24, 14, 0.96), rgba(48, 36, 10, 0.96));
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    0 0 18px rgba(230, 179, 37, 0.35);
+}
+
+.nav-ach-toast.is-mastered strong,
+.nav-ach-toast.is-mastered .nav-ach-status {
+  color: #ffd76a;
+}
+
+html[data-theme="kidcore"] .nav-ach-toast.is-mastered,
+html[data-theme="kawaii"] .nav-ach-toast.is-mastered {
+  color: #5b2b6b;
+  border: 3px solid #5b2b6b;
+  background: linear-gradient(160deg, #fff7ae 0%, #ffe566 50%, #ffc857 100%);
+  box-shadow: 4px 4px 0 #ff9f1c, 7px 7px 0 #ff2d95;
+}
+
+html[data-theme="kidcore"] .nav-ach-toast.is-mastered strong,
+html[data-theme="kidcore"] .nav-ach-toast.is-mastered .nav-ach-status,
+html[data-theme="kawaii"] .nav-ach-toast.is-mastered strong,
+html[data-theme="kawaii"] .nav-ach-toast.is-mastered .nav-ach-status,
+html[data-theme="kidcore"] .nav-ach-toast.is-mastered span,
+html[data-theme="kawaii"] .nav-ach-toast.is-mastered span {
+  color: #5b2b6b;
+}
+
+html[data-theme="crt"] .nav-ach-toast.is-mastered {
+  border-color: #ffe066;
+  background: rgba(5, 11, 5, 0.94);
+  box-shadow: 0 0 18px rgba(255, 224, 102, 0.4);
+}
+
+html[data-theme="crt"] .nav-ach-toast.is-mastered strong,
+html[data-theme="crt"] .nav-ach-toast.is-mastered .nav-ach-status {
+  color: #ffe066;
+  text-shadow: 0 0 8px rgba(255, 224, 102, 0.65);
 }
 
 .nav-ach-toast .nav-ach-xp {
