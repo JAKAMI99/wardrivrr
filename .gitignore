@@ -31,9 +31,8 @@ tools/drive_sim/track_cache*.json
 data/incoming/*
 !data/incoming/.gitkeep
 data/users/
-data/valhalla/active.json
-data/valhalla/active.osm.pbf
-data/valhalla/tiles/
+data/valhalla/*
+!data/valhalla/.gitkeep
 data/cities/*.sqlite
 data/cities/*.sqlite.building
 data/cities/SOURCE.txt
@@ -45,6 +44,9 @@ data/geocode/*.sqlite.building
 data/geocode/address_packs.json
 data/geocode_reverse_cache.json
 data/geofabrik-index-v1.json
+
+# Local scratch at repo root
+/tmp_*
 
 # Node / editor junk
 node_modules/
