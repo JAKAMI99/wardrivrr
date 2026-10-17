@@ -39,6 +39,8 @@ PROFILE_HIGHWAYS: dict[str, set[str]] = {
         "secondary_link",
         "tertiary",
         "tertiary_link",
+        # Village / through-town connectors (OSM "medium" roads without a class)
+        "unclassified",
     },
     "small_car": {
         "motorway",

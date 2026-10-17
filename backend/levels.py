@@ -1516,6 +1516,47 @@ _OBSERVATION_REFRESH_S = 60.0
 _observation_refresh_at: dict[tuple[int, int], float] = {}
 
 
+def _coerce_multilinestring(geom: Any) -> dict[str, Any]:
+    """
+    MapLibre fog layers only draw LineString / MultiLineString. ST_Collect can
+    return a GeometryCollection (or a JSON string) — coerce so roads actually
+    paint when the tile counter already updated.
+    """
+    empty: dict[str, Any] = {"type": "MultiLineString", "coordinates": []}
+    if geom is None:
+        return empty
+    if isinstance(geom, (bytes, bytearray)):
+        try:
+            geom = geom.decode("utf-8")
+        except Exception:
+            return empty
+    if isinstance(geom, str):
+        try:
+            geom = json.loads(geom)
+        except json.JSONDecodeError:
+            return empty
+    if not isinstance(geom, dict):
+        return empty
+
+    def _parts(g: dict) -> list:
+        t = g.get("type")
+        if t == "LineString":
+            c = g.get("coordinates") or []
+            return [c] if len(c) >= 2 else []
+        if t == "MultiLineString":
+            return [c for c in (g.get("coordinates") or []) if c and len(c) >= 2]
+        if t == "GeometryCollection":
+            out: list = []
+            for child in g.get("geometries") or []:
+                if isinstance(child, dict):
+                    out.extend(_parts(child))
+            return out
+        return []
+
+    coords = _parts(geom)
+    return {"type": "MultiLineString", "coordinates": coords}
+
+
 def get_level_road_map(
     user_id: int,
     level_id: int,
@@ -1542,17 +1583,28 @@ def get_level_road_map(
     mode = normalize_profile(profile) if profile else None
     highways = sorted(profile_highways(mode)) if mode else None
 
+    # Force linework MultiLineString: ST_Collect alone can yield GeometryCollection
+    # which MapLibre line layers silently skip (tile counts still update).
+    geom_sql = """
+      COALESCE(
+        ST_AsGeoJSON(
+          ST_CollectionExtract(ST_Collect(ST_Force2D(geom)), 2)
+        )::json,
+        '{"type":"MultiLineString","coordinates":[]}'::json
+      )
+    """
+
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
             if highways:
                 cur.execute(
-                    """
+                    f"""
                     SELECT
                       is_explored,
                       COUNT(*)::int AS n,
                       COALESCE(SUM(length_m), 0)::float AS length_m,
-                      ST_AsGeoJSON(ST_Collect(geom))::json AS geom
+                      {geom_sql} AS geom
                     FROM road_segments
                     WHERE level_id = %s AND highway = ANY(%s)
                     GROUP BY is_explored
@@ -1561,12 +1613,12 @@ def get_level_road_map(
                 )
             else:
                 cur.execute(
-                    """
+                    f"""
                     SELECT
                       is_explored,
                       COUNT(*)::int AS n,
                       COALESCE(SUM(length_m), 0)::float AS length_m,
-                      ST_AsGeoJSON(ST_Collect(geom))::json AS geom
+                      {geom_sql} AS geom
                     FROM road_segments
                     WHERE level_id = %s
                     GROUP BY is_explored
@@ -1582,7 +1634,7 @@ def get_level_road_map(
     locked_n = explored_n = 0
     locked_m = explored_m = 0.0
     for row in rows:
-        geom = row["geom"] or locked
+        geom = _coerce_multilinestring(row.get("geom"))
         if row["is_explored"]:
             explored = geom
             explored_n = row["n"]

@@ -2,12 +2,12 @@ const statusUpdated = document.getElementById("statusUpdated");
 const deployModeLabel = document.getElementById("deployModeLabel");
 
 function fmt(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return "-";
   return new Intl.NumberFormat().format(n);
 }
 
 function fmtCoord(n, digits = 5) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return "-";
   return Number(n).toFixed(digits);
 }
 
@@ -64,7 +64,7 @@ function paintGps(gps) {
     setBadge(badge, "warn", "No fix");
     title.textContent = "GPS listening";
     detail.textContent =
-      gps.detail || "gpsd up — waiting for satellites";
+      gps.detail || "gpsd up - waiting for satellites";
   }
   fillDl(meta, [
     ["Host", `${gps?.host}:${gps?.port}`],
@@ -97,7 +97,7 @@ function paintContainer(prefix, info, fallbackTitle) {
     paintNa(badge, title, detail, meta, fallbackTitle, info?.detail);
     return;
   }
-  // Prefer API state (HTTP probes) — API container has no Docker CLI
+  // Prefer API state (HTTP probes) - API container has no Docker CLI
   if (info?.state === "ok" || info?.http_ok || info?.running) {
     setBadge(badge, "live", "OK");
     title.textContent = info.name || fallbackTitle;
@@ -146,7 +146,7 @@ function paintContainer(prefix, info, fallbackTitle) {
     } else if (bt.present === false) {
       btLabel = "no";
     }
-    rows.push(["Wi‑Fi", wifiLabel], ["Bluetooth", btLabel]);
+    rows.push(["Wi-Fi", wifiLabel], ["Bluetooth", btLabel]);
   }
   if (info.map_label) {
     rows.push(["Map", info.map_label]);
@@ -175,7 +175,7 @@ function paintDb(db, postgisContainer) {
     ["Host", `${db.host}:${db.port}`],
     ["Size", db.size_human],
     ["Networks", fmt(db.networks)],
-    ["Wi‑Fi", fmt(db.networks_wifi)],
+    ["Wi-Fi", fmt(db.networks_wifi)],
     ["BT", fmt(db.networks_bt)],
     ["BLE", fmt(db.networks_ble)],
     ["Samples", fmt(db.samples)],
@@ -195,7 +195,7 @@ function paintStorage(storage, db) {
   setBadge(badge, "live", "OK");
   document.getElementById("storageTitle").textContent = "Storage";
   document.getElementById("storageDetail").textContent =
-    `Raw files ${storage?.raw_incoming_human || "0 B"} · DB ${db?.size_human || "—"}`;
+    `Raw files ${storage?.raw_incoming_human || "0 B"} · DB ${db?.size_human || "-"}`;
   fillDl(document.getElementById("storageMeta"), [
     ["Raw path", storage?.raw_incoming_path],
     ["Raw size", storage?.raw_incoming_human],

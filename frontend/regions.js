@@ -15,7 +15,7 @@ let prepareMeta = null; // last prepare job result (pack reuse info)
 let existingOsmIds = new Set();
 
 function fmt(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return "-";
   return new Intl.NumberFormat().format(n);
 }
 
@@ -57,7 +57,7 @@ function packLine(lv) {
 }
 
 function fmtEta(sec) {
-  if (sec == null || !Number.isFinite(sec)) return "estimating…";
+  if (sec == null || !Number.isFinite(sec)) return "estimating...";
   if (sec <= 0) return "almost done";
   if (sec < 60) return `~${Math.ceil(sec)}s left`;
   const m = Math.floor(sec / 60);
@@ -187,10 +187,10 @@ async function beginPrepare(city) {
   document.getElementById("areaChoices").innerHTML = "";
   document.getElementById("previewTitle").textContent = city.label;
   document.getElementById("previewSub").textContent = "";
-  document.getElementById("prepareStatus").textContent = "Starting download…";
+  document.getElementById("prepareStatus").textContent = "Starting download...";
   document.getElementById("prepareFill").style.width = "2%";
   document.getElementById("preparePct").textContent = "0%";
-  document.getElementById("prepareEta").textContent = "estimating…";
+  document.getElementById("prepareEta").textContent = "estimating...";
   setMapLoading(true);
   goStep(2);
   ensurePreviewMap();
@@ -240,7 +240,7 @@ async function pollPrepareJob() {
   document.getElementById("prepareFill").style.width = `${pct}%`;
   document.getElementById("preparePct").textContent = `${pct}%`;
   document.getElementById("prepareStatus").textContent =
-    result.message || (job.status === "queued" ? "Waiting in queue…" : "Working…");
+    result.message || (job.status === "queued" ? "Waiting in queue..." : "Working...");
   document.getElementById("prepareEta").textContent = fmtEta(result.eta_seconds);
 
   if (job.status === "done") {
@@ -295,7 +295,7 @@ async function showAreaChoices(result) {
   box.innerHTML = html;
   box.hidden = false;
   document.getElementById("previewSub").textContent =
-    "Pick the whole city or a district — boundary shows on the map first";
+    "Pick the whole city or a district - boundary shows on the map first";
   box.querySelectorAll("[data-area-i]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.disabled) return;
@@ -336,8 +336,8 @@ async function selectAreaOption(index) {
   setFixedLevelName(selectedPlace.label);
   document.getElementById("previewTitle").textContent = selectedPlace.label;
   document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-    ? "Loading district boundary…"
-    : "Whole-city boundary — this will be your playable region";
+    ? "Loading district boundary..."
+    : "Whole-city boundary - this will be your playable region";
   fillConfirm();
   setAreaNextEnabled(false);
   ensurePreviewMap();
@@ -389,7 +389,7 @@ async function searchPlaces(e) {
   const q = document.getElementById("placeQuery").value.trim();
   if (!q) return;
   const box = document.getElementById("placeResults");
-  box.innerHTML = `<p class="muted">Searching places…</p>`;
+  box.innerHTML = `<p class="muted">Searching places...</p>`;
   const res = await WardAuth.apiFetch(
     `/api/levels/places/search?q=${encodeURIComponent(q)}`
   );
@@ -399,7 +399,7 @@ async function searchPlaces(e) {
     return;
   }
   if (!data.length) {
-    box.innerHTML = `<p class="muted">No places found. Try “Berlin, Germany”.</p>`;
+    box.innerHTML = `<p class="muted">No places found. Try "Berlin, Germany".</p>`;
     return;
   }
   placeResults = data.slice();
@@ -408,8 +408,8 @@ async function searchPlaces(e) {
 }
 
 function setFixedLevelName(label) {
-  const name = label || "—";
-  document.getElementById("levelName").value = name === "—" ? "" : name;
+  const name = label || "-";
+  document.getElementById("levelName").value = name === "-" ? "" : name;
   const el = document.getElementById("levelNameDisplay");
   if (el) el.textContent = name;
 }
@@ -429,8 +429,8 @@ function fillConfirm() {
   if (usedBy != null) {
     sizeLine +=
       usedBy === 0
-        ? " — not used by any of your regions yet"
-        : ` — already used by ${usedBy} of your region${usedBy === 1 ? "" : "s"}`;
+        ? " - not used by any of your regions yet"
+        : ` - already used by ${usedBy} of your region${usedBy === 1 ? "" : "s"}`;
   }
   sizeLine += ".";
   document.getElementById("confirmSize").textContent = sizeLine;
@@ -483,7 +483,7 @@ async function pollJob() {
   document.getElementById("progressFill").style.width = `${pct}%`;
   document.getElementById("progressPct").textContent = `${pct}%`;
   document.getElementById("progressMessage").textContent =
-    result.message || (job.status === "queued" ? "Waiting in queue…" : "Working…");
+    result.message || (job.status === "queued" ? "Waiting in queue..." : "Working...");
   document.getElementById("progressEta").textContent = fmtEta(result.eta_seconds);
   if (result.stage) setStage(result.stage);
 
@@ -514,14 +514,14 @@ async function generateLevel() {
   const name = selectedPlace.label;
   setFixedLevelName(name);
   goStep(5);
-  document.getElementById("progressTitle").textContent = `Building ${name}…`;
+  document.getElementById("progressTitle").textContent = `Building ${name}...`;
   document.getElementById("progressFill").style.width = "2%";
   setStage("extract");
 
   const payload = {
     name,
     place_query: selectedPlace.place_query || selectedPlace.label,
-    // Default Navigate mode only — map imports the full playable graph
+    // Default Navigate mode only - map imports the full playable graph
     profile: "small_car",
     geofabrik_id: selectedPlace.map_pack.id,
     place_bbox: selectedPlace.bbox,
@@ -557,7 +557,7 @@ async function generateLevel() {
 }
 
 function fmtPct(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return "-";
   return `${Number(n).toFixed(1)}%`;
 }
 
@@ -584,7 +584,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
           <span class="level-status status-${lv.status}">${lv.status}</span>
         </span>
       </header>
-      <p class="muted level-mode-line">Vehicle mode → Drive</p>
+      <p class="muted level-mode-line">Vehicle mode -> Drive</p>
       ${placeHint}
       <ul class="level-stats">
         <li>${fmtPct(lv.explored_pct)} explored${done ? " · done" : ""}</li>
@@ -696,7 +696,7 @@ async function loadLevels() {
     return;
   }
   if (!data.length) {
-    el.innerHTML = `<p class="muted">No regions yet — preload a place above, or let Drive offer one by location.</p>`;
+    el.innerHTML = `<p class="muted">No regions yet - preload a place above, or let Drive offer one by location.</p>`;
     return;
   }
   const settings = await WardAuth.apiFetch("/api/settings").then((r) => r.json());
@@ -712,7 +712,7 @@ async function loadLevels() {
           ? fmtPct(cityPct)
           : partPcts.length
             ? fmtPct(partPcts.reduce((a, b) => a + b, 0) / partPcts.length)
-            : "—";
+            : "-";
       const districtsDone = g.parts.filter((p) => isLevelComplete(p)).length;
       const districtsTotal = g.parts.length;
       const districtLine =

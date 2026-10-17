@@ -35,7 +35,7 @@ _last_eval_at: dict[int, float] = {}
 _eval_lock = threading.Lock()
 ACH_EVAL_MIN_INTERVAL_S = float(os.getenv("ACH_EVAL_MIN_INTERVAL_S", "15"))
 
-# Activity XP (on top of achievement unlock XP) — networks + fog tiles
+# Activity XP (on top of achievement unlock XP) - networks + fog tiles
 XP_PER_WIFI_NET = 5
 XP_PER_BT_NET = 4
 XP_PER_BLE_NET = 3
@@ -73,7 +73,7 @@ def _how_for_tier(unit: str, threshold: float | int, override: str | None = None
         return override
     t = _fmt_threshold(threshold)
     if unit == "km_night_total":
-        return f"Drive {t} km between 00:00–06:00"
+        return f"Drive {t} km between 00:00-06:00"
     if unit == "km_day_best":
         return f"Drive {t} km in one calendar day"
     if unit == "networks_total":
@@ -128,7 +128,7 @@ CATALOG: list[dict[str, Any]] = [
         "id": "memelord",
         "title": "Memelord",
         "description": "Drive a meme distance in a single calendar day.",
-        "flavour": "42 → 67 → 133.7. Respect the lore.",
+        "flavour": "42 -> 67 -> 133.7. Respect the lore.",
         "tiers": [
             _tier(1, 42.0, "km_day_best", "Memelord", 500),
             _tier(2, 67.0, "km_day_best", "Memelord II", 1500),
@@ -193,7 +193,7 @@ CATALOG: list[dict[str, Any]] = [
     {
         "id": "transmitting_to_space",
         "title": "Transmitting to space",
-        "description": "Detect distinct Starlink user Wi‑Fi hotspots (default STARLINK SSID).",
+        "description": "Detect distinct Starlink user Wi-Fi hotspots (default STARLINK SSID).",
         "flavour": "Low Earth orbit, high RSSI envy.",
         "tiers": [
             _tier(1, 10, "starlink_networks", "Transmitting to space", 500),
@@ -207,7 +207,7 @@ CATALOG: list[dict[str, Any]] = [
         "id": "wall_of_flippers",
         "title": "Wall of Flippers",
         "description": "Spot distinct Flipper Zero devices (BLE MAC OUI or Flipper name).",
-        "flavour": "80:E1:26 walking by. Don’t pet the dolphin.",
+        "flavour": "80:E1:26 walking by. Don't pet the dolphin.",
         "tiers": [
             _tier(1, 1, "flipper_networks", "Wall of Flippers", 200),
             _tier(2, 3, "flipper_networks", "Wall of Flippers II", 500),
@@ -505,7 +505,7 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
             networks_wifi = int(net_row.get("wifi") or 0)
             networks_bt = int(net_row.get("bt") or 0)
             networks_ble = int(net_row.get("ble") or 0)
-            # Mistyped / unknown radios still pay — treat leftovers as Wi‑Fi
+            # Mistyped / unknown radios still pay - treat leftovers as Wi-Fi
             typed = networks_wifi + networks_bt + networks_ble
             if networks_total > typed:
                 networks_wifi += networks_total - typed
@@ -653,7 +653,7 @@ def activity_xp_breakdown(
         },
         {
             "id": "wifi",
-            "label": "Wi‑Fi",
+            "label": "Wi-Fi",
             "xp": from_wifi,
             "count": wifi,
             "rate": XP_PER_WIFI_NET,
@@ -996,7 +996,7 @@ def explorer_progress_from_xp(xp: int) -> dict[str, Any]:
 def explorer_progress(user_id: int) -> dict[str, Any]:
     """
     Explorer level from achievement unlocks + activity XP
-    (Wi‑Fi / BT / BLE finds, new/old fog tiles).
+    (Wi-Fi / BT / BLE finds, new/old fog tiles).
     """
     ensure_achievements_schema()
     snap = _progress_snapshot(user_id)

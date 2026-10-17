@@ -55,9 +55,9 @@ app = FastAPI(
     version="0.5.0",
     description=(
         "Local triangulated network database API. "
-        "Authenticate with `X-API-Key: wr_…` or `Authorization: Bearer <jwt|wr_…>`."
+        "Authenticate with `X-API-Key: wr_...` or `Authorization: Bearer <jwt|wr_...>`."
     ),
-    docs_url=None,  # custom /api/docs — auto-authorizes from WebUI login token
+    docs_url=None,  # custom /api/docs - auto-authorizes from WebUI login token
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
@@ -189,7 +189,7 @@ class ExploreRouteBody(BaseModel):
 class LevelCreateBody(BaseModel):
     name: str
     place_query: str
-    # Last-used Navigate default only — map always imports the full playable graph
+    # Last-used Navigate default only - map always imports the full playable graph
     profile: str | None = Field(
         default="small_car",
         pattern="^(foot|bicycle|car|big_car|small_car)$",
@@ -400,8 +400,8 @@ def me(user: dict = Depends(get_current_user)):
 def _normalize_username(raw: str) -> str:
     name = (raw or "").strip()
     if len(name) < 2 or len(name) > 64:
-        raise HTTPException(400, "Username must be 2–64 characters")
-    # Letters, digits, underscore, hyphen, period — no spaces
+        raise HTTPException(400, "Username must be 2-64 characters")
+    # Letters, digits, underscore, hyphen, period - no spaces
     if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name):
         raise HTTPException(
             400, "Username may only use letters, numbers, _ . -"
@@ -582,7 +582,7 @@ def create_key(body: ApiKeyCreateBody, user: dict = Depends(get_current_user)):
             )
             row = cur.fetchone()
         conn.commit()
-        return {**row, "key": raw, "note": "Copy now — key is shown only once."}
+        return {**row, "key": raw, "note": "Copy now - key is shown only once."}
     finally:
         conn.close()
 
@@ -709,7 +709,7 @@ def health(user: dict | None = Depends(get_optional_user)):
             cur.execute("SELECT PostGIS_Version() AS postgis")
             pg = cur.fetchone()
             if not user:
-                # Liveness probe (Docker healthcheck / run.sh) — no data counts
+                # Liveness probe (Docker healthcheck / run.sh) - no data counts
                 conn.close()
                 return {"ok": True, "postgis": pg["postgis"], "authenticated": False}
             cur.execute(
@@ -899,7 +899,7 @@ def patch_settings(body: SettingsBody, user: dict = Depends(get_current_user)):
 
 @app.put("/api/navigation/active")
 def set_navigation_active(body: NavigationBody, user: dict = Depends(get_current_user)):
-    """UI calls this when turn-by-turn starts/stops — throttles background geocode."""
+    """UI calls this when turn-by-turn starts/stops - throttles background geocode."""
     set_user_setting(
         user["id"], "navigation_active", "true" if body.active else "false"
     )
@@ -1244,7 +1244,7 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
         fix = get_fix(user["id"])
     if lat is None or lon is None:
         if not fix:
-            raise HTTPException(400, "No GPS fix — spawn on the map or send lat/lon")
+            raise HTTPException(400, "No GPS fix - spawn on the map or send lat/lon")
         lat, lon = fix["lat"], fix["lon"]
     if heading is None and fix:
         heading = fix.get("heading_deg")
@@ -1273,7 +1273,7 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
-        # e.g. connection dropped mid-build — never 500 the HUD
+        # e.g. connection dropped mid-build - never 500 the HUD
         raise HTTPException(
             503,
             f"Valhalla error (still building?). {exc}",
@@ -1283,7 +1283,7 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
 
 @app.get("/api/system/status")
 def system_status(user: dict = Depends(get_current_user)):
-    # Includes the car's live GPS position — never serve it anonymously.
+    # Includes the car's live GPS position - never serve it anonymously.
     return collect_system_status(user_id=user["id"])
 
 
@@ -1401,7 +1401,7 @@ def levels_place_parts(
     user: dict = Depends(get_current_user),
 ):
     """
-    OSM districts (next admin level) for a large city — names/centroids only.
+    OSM districts (next admin level) for a large city - names/centroids only.
 
     Full polygons load when a district is selected. Small cities return [].
     """
@@ -1593,7 +1593,7 @@ def network_search(
     localization_mode: str | None = Query(default=None, pattern="^(2d|3d)$"),
     place: str | None = Query(
         default=None,
-        description="Place name → geocoded bbox (e.g. Berlin, or street + city)",
+        description="Place name -> geocoded bbox (e.g. Berlin, or street + city)",
     ),
     postalcode: str | None = Query(default=None, description="ZIP / postal code (e.g. 10115)"),
     zip_code: str | None = Query(
@@ -1614,7 +1614,7 @@ def network_search(
     latrange2: float | None = None,
     longrange1: float | None = None,
     longrange2: float | None = None,
-    near: str | None = Query(default=None, description="lat,lon — order by distance"),
+    near: str | None = Query(default=None, description="lat,lon - order by distance"),
     radius_m: float = Query(default=500.0, ge=1, le=50000),
     search_after: str | None = Query(default=None, alias="searchAfter"),
     limit: int = Query(default=100, ge=1, le=1000),
@@ -1780,7 +1780,7 @@ def api_geocode(
     country: str | None = Query(default="de"),
     user: dict = Depends(get_current_user),
 ):
-    """Resolve Berlin / 10115 → bbox for composing searches."""
+    """Resolve Berlin / 10115 -> bbox for composing searches."""
     _ = user
     pc = postalcode or zip_code
     if pc:
@@ -2013,7 +2013,7 @@ def regions_page():
 
 @app.get("/levels")
 def levels_page_redirect():
-    """Legacy Levels URL → Regions."""
+    """Legacy Levels URL -> Regions."""
     return RedirectResponse(url="/regions", status_code=302)
 
 
@@ -2024,7 +2024,7 @@ def progress_page():
 
 @app.get("/discover")
 def discover_page_redirect():
-    """Legacy Discover URL → Progress (fog of war)."""
+    """Legacy Discover URL -> Progress (fog of war)."""
     return RedirectResponse(url="/progress", status_code=302)
 
 
@@ -2035,7 +2035,7 @@ def navigate_page():
 
 @app.get("/achievements")
 def achievements_page():
-    """Legacy Achievements URL → Explorer hub section."""
+    """Legacy Achievements URL -> Explorer hub section."""
     return RedirectResponse(url="/stats#achievements", status_code=302)
 
 
@@ -2049,14 +2049,14 @@ def api_page():
 def swagger_ui():
     """
     Swagger UI that auto-authorizes with the WebUI JWT from localStorage
-    (`wardrivrr_token` — same origin as the API menu).
+    (`wardrivrr_token` - same origin as the API menu).
     """
     html = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>wardrivrr — API</title>
+  <title>wardrivrr - API</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"/>
   <style>
     body { margin: 0; background: #fafafa; }
@@ -2071,7 +2071,7 @@ def swagger_ui():
   </style>
 </head>
 <body>
-  <div id="authBanner" class="auth-banner">Authorizing with your WebUI login…</div>
+  <div id="authBanner" class="auth-banner">Authorizing with your WebUI login...</div>
   <div id="swagger-ui"></div>
   <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
@@ -2083,7 +2083,7 @@ def swagger_ui():
     var banner = document.getElementById("authBanner");
     if (!token) {
       banner.className = "auth-banner warn";
-      banner.textContent = "No WebUI login token found — use Authorize, or open Swagger from the API page while logged in.";
+      banner.textContent = "No WebUI login token found - use Authorize, or open Swagger from the API page while logged in.";
     } else {
       banner.textContent = "Authorized with your current WebUI login (Bearer). You can still change it via Authorize.";
     }

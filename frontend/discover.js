@@ -79,11 +79,11 @@ function paintRoads(data) {
 async function loadDiscover() {
   const levelId = await resolveLevelId();
   if (!levelId) {
-    showStatus("No ready region yet — preload one under Regions, or Drive will offer one by location.", true);
+    showStatus("No ready region yet - preload one under Regions, or Drive will offer one by location.", true);
     return;
   }
 
-  showStatus("Loading road grid…");
+  showStatus("Loading road grid...");
   const res = await WardAuth.apiFetch(`/api/levels/${levelId}/roads`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

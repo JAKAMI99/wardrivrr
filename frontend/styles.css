@@ -91,11 +91,11 @@ select {
   min-height: 100dvh;
 }
 
-/* —— Site nav —— */
+/* -- Site nav -- */
 .site-nav {
   position: sticky;
   top: 0;
-  /* Above Leaflet map panes (~200–700) so account dropdown stays clickable */
+  /* Above Leaflet map panes (~200-700) so account dropdown stays clickable */
   z-index: 1100;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -188,7 +188,7 @@ select {
   color: var(--accent);
 }
 
-/* —— Home —— */
+/* -- Home -- */
 .home-main {
   flex: 1;
   width: min(1100px, 100%);
@@ -787,7 +787,7 @@ a.module:hover {
   box-shadow: none;
 }
 
-/* —— Stats (gamified) —— */
+/* -- Stats (gamified) -- */
 .stats-kicker {
   margin: 0 0 8px;
   color: var(--accent);
@@ -925,7 +925,7 @@ a.module:hover {
   animation: rise 0.55s var(--ease) 0.18s both;
 }
 
-/* —— Explorer hub —— */
+/* -- Explorer hub -- */
 .explorer-hero {
   margin-bottom: 28px;
 }
@@ -1177,7 +1177,7 @@ a.module:hover {
   }
 }
 
-/* —— Database / map tool —— */
+/* -- Database / map tool -- */
 .db-shell {
   flex: 1;
   display: flex;
@@ -1985,7 +1985,7 @@ a.module:hover {
   vertical-align: middle;
 }
 
-/* Routing profile icons — classic: sleek thin stroke */
+/* Routing profile icons - classic: sleek thin stroke */
 .profile-icon {
   display: inline-flex;
   align-items: center;
@@ -2242,7 +2242,7 @@ a.btn.is-disabled {
   font-size: 1.05rem;
 }
 
-/* —— Slim nav + account menu —— */
+/* -- Slim nav + account menu -- */
 .site-nav-tail {
   grid-column: 3;
   justify-self: end;
@@ -2253,7 +2253,7 @@ a.btn.is-disabled {
   min-width: 0;
 }
 
-/* Global appearance (theme) — next to profile */
+/* Global appearance (theme) - next to profile */
 .nav-theme-menu {
   position: relative;
 }
@@ -2370,7 +2370,7 @@ a.btn.is-disabled {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
-/* Drive is always a distinct CTA — not the same “active pill” as other tabs */
+/* Drive is always a distinct CTA - not the same "active pill" as other tabs */
 .site-links a.nav-drive {
   color: var(--accent);
   font-weight: 700;
@@ -2566,7 +2566,7 @@ a.btn.is-disabled {
   }
 }
 
-/* —— Home drive spotlight —— */
+/* -- Home drive spotlight -- */
 .home-kicker {
   margin: 0 0 0.35rem;
   font-size: 0.75rem;
@@ -2588,7 +2588,7 @@ a.btn.is-disabled {
   }
 }
 
-/* —— Achievements —— */
+/* -- Achievements -- */
 .ach-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
