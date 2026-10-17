@@ -95,7 +95,10 @@
           <!-- Step 3: Profile -->
           <div class="wizard-pane" id="step3" hidden>
             <h2>How will you explore?</h2>
-            <p class="muted">This sets which roads are included.</p>
+            <p class="muted">
+              This picks which roads enter the map. Parking lots are never included.
+              You can make several levels of the same city with different modes.
+            </p>
             <form class="settings-form" id="setupForm">
               <p class="level-name-fixed">
                 Level name
@@ -104,6 +107,48 @@
               <input type="hidden" id="levelName" />
               <fieldset class="profile-picks">
                 <legend>Mode</legend>
+                <label class="profile-card">
+                  <input type="radio" name="profile" value="big_car" />
+                  <span class="profile-icon profile-icon-big_car" data-kidcore-skip aria-hidden="true">
+                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                        d="M3.5 14.2h17M5.2 14.2l1.6-4.5c.3-.9 1.2-1.5 2.1-1.5h6.2c.9 0 1.8.6 2.1 1.5l1.6 4.5"/>
+                      <circle class="profile-svg-body" cx="7.2" cy="16.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <circle class="profile-svg-body" cx="16.8" cy="16.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M9 8.8h6"/>
+                    </svg>
+                  </span>
+                  <span class="profile-label">Big car</span>
+                  <span class="profile-blurb">Main &amp; medium roads. Few turns, no cul-de-sacs.</span>
+                </label>
+                <label class="profile-card">
+                  <input type="radio" name="profile" value="small_car" checked />
+                  <span class="profile-icon profile-icon-small_car profile-icon-car" data-kidcore-skip aria-hidden="true">
+                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                        d="M4.2 14.5h15.6M6 14.5l1.4-4.2c.3-.9 1.1-1.5 2-1.5h5.2c.9 0 1.7.6 2 1.5l1.4 4.2"/>
+                      <circle class="profile-svg-body" cx="7.4" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <circle class="profile-svg-body" cx="16.6" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                        d="M9.2 9h5.6"/>
+                    </svg>
+                  </span>
+                  <span class="profile-label">Small car</span>
+                  <span class="profile-blurb">Full street grid. Dead ends only if ≥ 70&nbsp;m.</span>
+                </label>
+                <label class="profile-card">
+                  <input type="radio" name="profile" value="bicycle" />
+                  <span class="profile-icon profile-icon-bicycle" data-kidcore-skip aria-hidden="true">
+                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
+                      <circle class="profile-svg-body" cx="6.2" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <circle class="profile-svg-body" cx="17.8" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                        d="M6.2 16.2 10.5 9.2h3.2l2.6 7M10.5 9.2 12.8 16.2M13.7 9.2h3.4M14.2 6.4h2.6"/>
+                    </svg>
+                  </span>
+                  <span class="profile-label">Bike</span>
+                  <span class="profile-blurb">Cycleways &amp; streets. Every dead end counts.</span>
+                </label>
                 <label class="profile-card">
                   <input type="radio" name="profile" value="foot" />
                   <span class="profile-icon profile-icon-foot" data-kidcore-skip aria-hidden="true">
@@ -119,32 +164,7 @@
                     </svg>
                   </span>
                   <span class="profile-label">On foot</span>
-                </label>
-                <label class="profile-card">
-                  <input type="radio" name="profile" value="bicycle" />
-                  <span class="profile-icon profile-icon-bicycle" data-kidcore-skip aria-hidden="true">
-                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
-                      <circle class="profile-svg-body" cx="6.2" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                      <circle class="profile-svg-body" cx="17.8" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-                        d="M6.2 16.2 10.5 9.2h3.2l2.6 7M10.5 9.2 12.8 16.2M13.7 9.2h3.4M14.2 6.4h2.6"/>
-                    </svg>
-                  </span>
-                  <span class="profile-label">Bicycle</span>
-                </label>
-                <label class="profile-card">
-                  <input type="radio" name="profile" value="car" checked />
-                  <span class="profile-icon profile-icon-car" data-kidcore-skip aria-hidden="true">
-                    <svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" focusable="false">
-                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-                        d="M4.2 14.5h15.6M6 14.5l1.4-4.2c.3-.9 1.1-1.5 2-1.5h5.2c.9 0 1.7.6 2 1.5l1.4 4.2"/>
-                      <circle class="profile-svg-body" cx="7.4" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                      <circle class="profile-svg-body" cx="16.6" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-                        d="M9.2 9h5.6"/>
-                    </svg>
-                  </span>
-                  <span class="profile-label">Car</span>
+                  <span class="profile-blurb">Paths, tracks, gravel &amp; grass. Every dead end.</span>
                 </label>
               </fieldset>
             </form>
@@ -222,6 +242,6 @@
     ></script>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=4"></script>
-    <script src="/static/levels.js?v=4"></script>
+    <script src="/static/levels.js?v=5"></script>
   </body>
 </html>

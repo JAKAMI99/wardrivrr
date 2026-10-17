@@ -1,4 +1,4 @@
-# Thanks
+# Credits
 
 This project would not be possible without the people and organisations who publish open geographic data and keep the infrastructure behind it running.
 
@@ -32,4 +32,4 @@ Exact city (and city-part) outlines for the levels map come from OpenStreetMap v
 
 ---
 
-When new upstream data providers are added, thank them here and link a donate or support page if one exists.
+When new upstream data providers are added, credit them here and link a donate or support page if one exists.

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from admin_areas import pbf_path_for_extract
+from cpu_workers import valhalla_server_threads
 from levels import get_level
 from paths import DATA, ROOT
 
@@ -241,6 +242,14 @@ def _compose_cmd() -> list[str]:
     return compose
 
 
+def _compose_env() -> dict[str, str]:
+    """Shell env for compose — scales Valhalla threads to accessible cores."""
+    env = {k: str(v) for k, v in os.environ.items() if v is not None}
+    threads = str(valhalla_server_threads())
+    env["VALHALLA_SERVER_THREADS"] = threads
+    return env
+
+
 def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
     """Recreate Valhalla so it rebuilds tiles from data/valhalla/active.osm.pbf."""
     if not active_pbf_ready():
@@ -253,13 +262,20 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
             f"docker-compose.yml not found at {root} — set WARDRIVRR_COMPOSE_ROOT"
         )
 
+    cenv = _compose_env()
+    threads = cenv["VALHALLA_SERVER_THREADS"]
     steps: list[dict[str, Any]] = []
     for args in (
         ["stop", "valhalla"],
         ["rm", "-f", "valhalla"],
     ):
         proc = subprocess.run(
-            [*compose, *args], cwd=str(root), capture_output=True, text=True, timeout=120
+            [*compose, *args],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=cenv,
         )
         steps.append({"cmd": args, "code": proc.returncode})
 
@@ -274,13 +290,24 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
         capture_output=True,
         text=True,
         timeout=120,
+        env=cenv,
     )
     steps.append(
-        {"cmd": ["up", "-d"], "code": proc.returncode, "err": (proc.stderr or "")[-400:]}
+        {
+            "cmd": ["up", "-d"],
+            "code": proc.returncode,
+            "err": (proc.stderr or "")[-400:],
+            "server_threads": threads,
+        }
     )
     if proc.returncode != 0:
         raise ValhallaPrepError(f"Could not start Valhalla: {proc.stderr or proc.stdout}")
-    return {"restarted": True, "wiped_tiles": do_wipe, "steps": steps}
+    return {
+        "restarted": True,
+        "wiped_tiles": do_wipe,
+        "server_threads": int(threads),
+        "steps": steps,
+    }
 
 
 def ensure_valhalla_after_regional_pbf(
@@ -304,7 +331,7 @@ def ensure_valhalla_after_regional_pbf(
             out["valhalla"] = {
                 "restarted": False,
                 "detail": str(exc),
-                "hint": "Run ./scripts/car_up.sh on the host to start Valhalla",
+                "hint": "Run ./run.sh on the host to start Valhalla",
             }
     else:
         out["valhalla"] = {

@@ -12,9 +12,9 @@ from db import connect, db_kwargs
 ROOT = Path(__file__).resolve().parents[1]
 INCOMING = ROOT / "data" / "incoming"
 
-KISMET_NAMES = ("wardrivrr_kismet", "tesla_kismet", "kismet")
-POSTGIS_NAMES = ("wardrivrr_postgis", "tesla_postgis")
-VALHALLA_NAMES = ("wardrivrr_valhalla", "tesla_valhalla", "valhalla")
+KISMET_CONTAINER = "wardrivrr_kismet"
+POSTGIS_CONTAINER = "wardrivrr_postgis"
+VALHALLA_CONTAINER = "wardrivrr_valhalla"
 
 
 def deployment_mode() -> str:
@@ -93,22 +93,20 @@ def _docker_inspect(name: str) -> dict | None:
     return data[0] if data else None
 
 
-def container_status(names: tuple[str, ...]) -> dict:
-    """Optional Docker enrichment. API image has no docker CLI — callers must use HTTP probes."""
+def container_status(name: str) -> dict:
+    """Optional Docker enrichment. Prefer HTTP probes — API may lack docker CLI."""
     if not docker_available():
         return {
             "ok": False,
             "running": False,
             "found": False,
-            "name": None,
+            "name": name,
             "status": "docker unavailable",
-            "detail": None,  # not an error by itself inside the API container
+            "detail": None,
             "docker_cli": False,
         }
-    for name in names:
-        info = _docker_inspect(name)
-        if not info:
-            continue
+    info = _docker_inspect(name)
+    if info:
         state = info.get("State") or {}
         running = bool(state.get("Running"))
         return {
@@ -126,9 +124,9 @@ def container_status(names: tuple[str, ...]) -> dict:
         "ok": False,
         "running": False,
         "found": False,
-        "name": None,
+        "name": name,
         "status": "not found",
-        "detail": f"No container matching {', '.join(names)}",
+        "detail": None,
         "docker_cli": True,
     }
 
@@ -189,7 +187,7 @@ def kismet_service_status() -> dict:
     password = os.getenv("KISMET_PASSWORD") or ""
     url = f"{base}/system/status.json"
     ok, detail = _http_ok(url, username=user or None, password=password)
-    out = container_status(KISMET_NAMES)
+    out = container_status(KISMET_CONTAINER)
     out["url"] = base
     out["http_ok"] = ok
     if ok:
@@ -206,8 +204,8 @@ def kismet_service_status() -> dict:
 
 
 def valhalla_service_status() -> dict:
-    """Probe Valhalla HTTP; do not require Docker CLI inside the API container."""
-    out = container_status(VALHALLA_NAMES)
+    """Probe Valhalla HTTP; Docker inspect is optional enrichment only."""
+    out = container_status(VALHALLA_CONTAINER)
     try:
         from valhalla_client import valhalla_base_url, valhalla_reachable
 
@@ -227,7 +225,7 @@ def valhalla_service_status() -> dict:
             out["ok"] = False
             out["status"] = "waiting for seed"
             out["detail"] = (
-                "Regional pack in data/pbf/ — run ./scripts/car_up.sh (or re-download) "
+                "Regional pack in data/pbf/ — run ./run.sh (or re-download) "
                 "to seed active.osm.pbf and rebuild Valhalla"
             )
         elif not out["pbf_ready"]:
@@ -237,10 +235,12 @@ def valhalla_service_status() -> dict:
                 "No map pack yet — download a Geofabrik region (lands in data/pbf/*.osm.pbf); "
                 "Valhalla then builds from data/valhalla/active.osm.pbf"
             )
-        elif not out.get("detail"):
+        else:
+            out["ok"] = False
+            out["status"] = out["status"] if out.get("found") else "unreachable"
             out["detail"] = (
                 f"Valhalla not reachable at {url} — tiles may still be building "
-                "(docker logs -f wardrivrr_valhalla on the host)"
+                f"(docker logs -f {VALHALLA_CONTAINER} on the host)"
             )
     except Exception as exc:
         out["http_ok"] = False
@@ -535,7 +535,7 @@ def collect_system_status(user_id: int | None = None) -> dict:
     db = database_status(user_id=user_id)
     kismet = kismet_service_status()
     # PostGIS: DB probe is authoritative; docker inspect is optional
-    postgis_container = container_status(POSTGIS_NAMES)
+    postgis_container = container_status(POSTGIS_CONTAINER)
     if db.get("ok"):
         postgis_container["ok"] = True
         postgis_container["running"] = True

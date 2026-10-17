@@ -252,6 +252,36 @@ html[data-theme="kawaii"] .badge.live {
   border: 2px solid #5b2b6b;
 }
 
+html[data-theme="kidcore"] .badge.mastered,
+html[data-theme="kawaii"] .badge.mastered {
+  background: linear-gradient(135deg, #ffe566, #ff9f1c);
+  color: #5b2b6b;
+  border: 3px solid #5b2b6b;
+  box-shadow: 3px 3px 0 #ff2d95;
+}
+
+html[data-theme="kidcore"] .ach-card.is-mastered,
+html[data-theme="kawaii"] .ach-card.is-mastered {
+  border-color: #ff9f1c !important;
+  box-shadow: 6px 6px 0 #ffe566, 10px 10px 0 #ff2d95 !important;
+  background:
+    linear-gradient(160deg, #fff7ae 0%, #ffe566 45%, #ffc857 100%) !important;
+}
+
+html[data-theme="crt"] .badge.mastered {
+  color: #ffe066;
+  border-color: #ffe066;
+  background: rgba(255, 224, 102, 0.12);
+  box-shadow: 0 0 14px rgba(255, 224, 102, 0.45);
+  text-shadow: 0 0 8px rgba(255, 224, 102, 0.65);
+}
+
+html[data-theme="crt"] .ach-card.is-mastered {
+  border-color: #ffe066;
+  box-shadow: 0 0 24px rgba(255, 224, 102, 0.35);
+  background: rgba(20, 28, 8, 0.92);
+}
+
 /* Stacking: page-glow (0) < kidcore-decor (1) < app-shell / content (2+) */
 .app-shell {
   z-index: 2;

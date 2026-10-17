@@ -17,17 +17,12 @@ import math
 from typing import Any
 
 from db import connect_dict
+from drive_profiles import normalize_profile, routing_policy
 from levels import get_level
 from valhalla_client import ValhallaError, route, summarize_route
 
-PROFILE_COSTING = {
-    "car": "auto",
-    "bicycle": "bicycle",
-    "foot": "pedestrian",
-}
-
-# Never route into cul-de-sac tips shorter than this (metres).
-DEAD_END_MIN_M = 40.0
+# Fallback when profile has no min (legacy callers)
+DEAD_END_MIN_M = 70.0
 
 # First metres of a new route must continue along current heading.
 # Replans take a second or two; by then the car has already moved — a straight
@@ -354,14 +349,19 @@ def plan_explore_route(
     if level.get("status") != "ready":
         raise ValueError("Level is not ready")
 
-    profile = (level.get("profile") or "car").lower()
-    costing = PROFILE_COSTING.get(profile, "auto")
+    profile = normalize_profile(level.get("profile"))
+    policy = routing_policy(profile, exclude_dead_ends=exclude_dead_ends)
+    costing = str(policy["costing"])
+    costing_opts = dict(policy.get("costing_options") or {})
+    dead_min = float(policy["dead_end_min_m"])
     search_m = max(2500.0, min(12000.0, target_km * 1000.0 * 1.6))
     heading = float(heading_deg) % 360.0 if heading_deg is not None else None
 
     raw_candidates = _fetch_unexplored_candidates(level_id, lon, lat, search_m)
     candidates = filter_dead_end_candidates(
-        raw_candidates, exclude_all=bool(exclude_dead_ends)
+        raw_candidates,
+        exclude_all=bool(policy["exclude_all_dead_ends"]),
+        min_length_m=dead_min,
     )
 
     # Seed greedy picks from a point ahead so the first real turn is past the lead-in
@@ -403,6 +403,7 @@ def plan_explore_route(
         heading_deg=heading,
         # Tight origin heading — Valhalla must leave facing the drive direction
         heading_tolerance=35.0,
+        costing_options=costing_opts or None,
     )
     summary = summarize_route(raw)
     summary.update(
@@ -410,13 +411,14 @@ def plan_explore_route(
             "level_id": level_id,
             "level_name": level.get("name"),
             "profile": profile,
+            "profile_label": policy.get("label"),
             "costing": costing,
             "target_km": target_km,
             "waypoint_count": len(waypoints),
             "candidate_count": len(candidates),
             "candidate_count_raw": len(raw_candidates),
-            "exclude_dead_ends": bool(exclude_dead_ends),
-            "dead_end_min_m": DEAD_END_MIN_M,
+            "exclude_dead_ends": bool(policy["exclude_all_dead_ends"]),
+            "dead_end_min_m": dead_min,
             "straight_lead_m": STRAIGHT_LEAD_M if lead is not None else 0.0,
             "origin": {"lat": lat, "lon": lon},
             "heading_deg": heading,

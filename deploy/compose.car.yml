@@ -1,17 +1,12 @@
-# Car mini-PC overlay — use with root compose:
+# Vehicle host overlay (with root compose):
 #   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
-#
-# Prefer local API build (FORCE_LOCAL_BUILD=1) or optional GHCR.
-#
-# gpsd + Kismet stay on the HOST (systemd / apt). There is no reliable public
-# `kismetwireless/kismet` Docker Hub image — do not pull one.
-# API reaches host gpsd/Kismet via host-gateway.
+# gpsd + Kismet stay on the host; API reaches them via host-gateway.
 
 services:
   postgis:
     env_file:
       - ./.env
-    # Mini-PC friendly memory (override the base compose if it was higher)
+    # Conservative memory defaults
     command: postgres -c shared_buffers=128MB -c work_mem=16MB -c maintenance_work_mem=64MB -c effective_cache_size=512MB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -57,8 +52,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
       WARDRIVRR_MODE: ${WARDRIVRR_MODE:-full}
       DATA_ROOT: /app/data
-      # HOST_DATA_ROOT = mini-PC path to ./data (docker run -v from API).
-      # WARDRIVRR_COMPOSE_ROOT = in-container mount of the git checkout.
+      # HOST_DATA_ROOT = host path to ./data (docker run -v from API).
+      # WARDRIVRR_COMPOSE_ROOT = in-container mount of the checkout.
       HOST_DATA_ROOT: ${HOST_DATA_ROOT:-}
       WARDRIVRR_COMPOSE_ROOT: /host/project
     volumes:
@@ -78,8 +73,7 @@ services:
       retries: 6
       start_period: 45s
 
-  # Optional legacy profile only — default stack does NOT start a Kismet container.
-  # Prefer host apt packages (see scripts/car_setup.sh).
+  # Optional legacy profile — default stack uses host Kismet (./deploy.sh).
   kismet:
     profiles: ["kismet-docker"]
     image: ${KISMET_DOCKER_IMAGE:-finchsec/kismet:latest}

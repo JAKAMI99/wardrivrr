@@ -1,5 +1,5 @@
-# Copy to /etc/kismet/kismet_site.conf (overrides kismet.conf — prefer this over editing the main file).
-# Passwords must match wardrivrr .env: KISMET_USER / KISMET_PASSWORD
+# Copy to /etc/kismet/kismet_site.conf
+# Passwords must match .env: KISMET_USER / KISMET_PASSWORD
 
 server_name=wardrivrr
 httpd_bind_address=0.0.0.0
@@ -9,13 +9,12 @@ httpd_password=changeme
 
 gps=gpsd:host=127.0.0.1,port=2947
 
-# Wi-Fi monitor adapter (Alfa / USB) — NOT the hotspot uplink
-source=wlx00c0cab49fa8:name=AlfaMonitor:type=linuxwifi
-# Optional Bluetooth
+# Monitor Wi-Fi adapter (not the hotspot uplink)
+source=wlan1:name=MonitorWifi:type=linuxwifi
 source=hci0:name=linuxbt:type=linuxbluetooth
 
-# Host path under the repo so API (./data mount) can ingest kis_db fallback
-log_prefix=/home/jakami/wardrivrr/data/kismet_logs/wardrivrr
+# Absolute path under the clone so the API can ingest kis_db
+log_prefix=/opt/wardrivrr/data/kismet_logs/wardrivrr
 log_types=kismet,kis_db
 log_title_timestamp=true
 

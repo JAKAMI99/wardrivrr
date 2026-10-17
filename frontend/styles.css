@@ -398,6 +398,18 @@ a.module:hover {
   background: rgba(61, 214, 140, 0.08);
 }
 
+.badge.mastered {
+  color: #f0c14b;
+  border-color: rgba(240, 193, 75, 0.55);
+  background: linear-gradient(
+    135deg,
+    rgba(240, 193, 75, 0.22),
+    rgba(201, 146, 46, 0.14)
+  );
+  box-shadow: 0 0 12px rgba(240, 193, 75, 0.28);
+  letter-spacing: 0.06em;
+}
+
 .badge.warn {
   color: var(--warn);
   border-color: rgba(245, 165, 36, 0.35);
@@ -1739,8 +1751,14 @@ a.module:hover {
   padding: 0;
   margin: 0.75rem 0 1rem;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.55rem;
+}
+
+@media (min-width: 720px) {
+  .profile-picks {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 .profile-card {
@@ -1748,13 +1766,15 @@ a.module:hover {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 0.35rem;
-  padding: 0.85rem 0.5rem;
+  padding: 0.85rem 0.55rem 0.75rem;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
   cursor: pointer;
+  text-align: center;
+  min-height: 8.5rem;
 }
 
 .profile-card input {
@@ -1774,6 +1794,43 @@ a.module:hover {
 .profile-label {
   font-size: 0.88rem;
   font-weight: 600;
+}
+
+.profile-blurb {
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.level-status-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.level-complete-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ok, #3dffa8);
+  border: 1px solid color-mix(in srgb, var(--ok, #3dffa8) 55%, transparent);
+  background: color-mix(in srgb, var(--ok, #3dffa8) 14%, transparent);
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  line-height: 1.2;
+}
+
+.level-card.is-complete {
+  border-color: color-mix(in srgb, var(--ok, #3dffa8) 35%, var(--line));
+}
+
+.level-group-title .level-complete-badge {
+  margin-left: 0.35rem;
+  vertical-align: middle;
 }
 
 /* Routing profile icons — classic: sleek thin stroke */
@@ -2436,6 +2493,18 @@ a.btn.is-disabled {
   border-color: color-mix(in srgb, var(--ok) 55%, var(--line));
 }
 
+.ach-card.is-mastered {
+  border-color: color-mix(in srgb, #f0c14b 55%, var(--line));
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, #f0c14b 10%, transparent),
+      transparent 55%
+    ),
+    var(--panel);
+  box-shadow: 0 0 28px color-mix(in srgb, #f0c14b 12%, transparent);
+}
+
 .ach-card.is-preview-locked {
   border-color: var(--line);
 }
@@ -2479,11 +2548,24 @@ a.btn.is-disabled {
   color: var(--ok);
 }
 
+.ach-tier-pill.is-master {
+  border-color: color-mix(in srgb, #f0c14b 60%, var(--line));
+  color: #f0c14b;
+  background: color-mix(in srgb, #f0c14b 12%, transparent);
+}
+
 .ach-tier-pill.is-active {
   border-color: var(--accent);
   background: var(--accent-dim);
   color: var(--text);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.ach-tier-pill.is-active.is-master {
+  border-color: #f0c14b;
+  background: color-mix(in srgb, #f0c14b 22%, var(--panel));
+  color: #ffe9a8;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f0c14b 45%, transparent);
 }
 
 .ach-card h3 {
@@ -2525,6 +2607,10 @@ a.btn.is-disabled {
   color: var(--ok);
 }
 
+.ach-xp.is-mastered {
+  color: #f0c14b;
+}
+
 .ach-progress-track {
   height: 8px;
   border-radius: 999px;
@@ -2538,6 +2624,10 @@ a.btn.is-disabled {
   background: linear-gradient(90deg, var(--accent), var(--ok));
   border-radius: inherit;
   transition: width 0.35s ease;
+}
+
+.ach-progress-fill.is-mastered {
+  background: linear-gradient(90deg, #c9922e, #f0c14b, #ffe9a8);
 }
 
 .ach-progress-meta {

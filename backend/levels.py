@@ -9,61 +9,30 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from pathlib import Path
 from typing import Any
 
+from cpu_workers import map_build_workers
 from db import connect, connect_dict
+from drive_profiles import (
+    COMPLETE_PCT,
+    VALID_PROFILES,
+    is_complete,
+    is_parking_way,
+    normalize_profile,
+    profile_highways,
+    profile_label,
+)
 from geofabrik import download_pbf, resolve_feature, search_places
 from paths import level_dir
 
-# Workers for clip + segmentize (CPU-bound). Cap to avoid thrashing on small CPUs.
-_BUILD_WORKERS = max(2, min(8, (os.cpu_count() or 4)))
+# Workers for clip + segmentize (CPU-bound). Scales with cores; see cpu_workers.py.
+_BUILD_WORKERS = map_build_workers()
 
-# Highway tags usable per navigation profile (simplified OSM access model)
+# Back-compat export — prefer drive_profiles.profile_highways()
 PROFILE_HIGHWAYS = {
-    "foot": {
-        "footway",
-        "path",
-        "pedestrian",
-        "steps",
-        "living_street",
-        "residential",
-        "service",
-        "unclassified",
-        "tertiary",
-        "secondary",
-        "primary",
-        "track",
-        "bridleway",
-        "cycleway",
-    },
-    "bicycle": {
-        "cycleway",
-        "path",
-        "living_street",
-        "residential",
-        "service",
-        "unclassified",
-        "tertiary",
-        "secondary",
-        "primary",
-        "track",
-        "bridleway",
-        "footway",
-    },
-    "car": {
-        "motorway",
-        "motorway_link",
-        "trunk",
-        "trunk_link",
-        "primary",
-        "primary_link",
-        "secondary",
-        "secondary_link",
-        "tertiary",
-        "tertiary_link",
-        "unclassified",
-        "residential",
-        "living_street",
-        "service",
-    },
+    "foot": profile_highways("foot"),
+    "bicycle": profile_highways("bicycle"),
+    "car": profile_highways("small_car"),
+    "small_car": profile_highways("small_car"),
+    "big_car": profile_highways("big_car"),
 }
 
 SEGMENT_TARGET_M = 35.0
@@ -280,6 +249,10 @@ def _extract_ways_osmium(
             hw = w.tags.get("highway")
             if not hw or hw not in allowed:
                 return
+            # Drop parking lots / aisles entirely from the playable net
+            tags = {k: w.tags.get(k) for k in ("highway", "service", "amenity") if w.tags.get(k)}
+            if is_parking_way(tags):
+                return
             if not w.is_closed() and len(w.nodes) < 2:
                 return
             coords = []
@@ -330,6 +303,8 @@ def _extract_ways_overpass(bbox: list[float], allowed: set[str]):
         tags = el.get("tags") or {}
         hw = tags.get("highway")
         if hw not in allowed:
+            continue
+        if is_parking_way(tags):
             continue
         ways.append((el["id"], hw, tags.get("name"), coords))
     return ways
@@ -417,6 +392,10 @@ def _enrich_levels_pack_meta(levels: list[dict]) -> list[dict]:
         lv["pack_size_bytes"] = summary.get("size_bytes") or lv.get("disk_bytes")
         lv["pack_levels_count"] = n
         lv["pack_other_levels"] = max(0, n - 1) if gid else 0
+        lv["profile_norm"] = normalize_profile(lv.get("profile"))
+        lv["profile_label"] = profile_label(lv.get("profile"))
+        lv["complete"] = is_complete(lv.get("explored_pct"))
+        lv["complete_pct"] = COMPLETE_PCT
     return levels
 
 
@@ -481,8 +460,9 @@ def create_level(
     osm_relation_id: int | None = None,
     osm_admin_level: int | None = None,
 ) -> dict:
-    if profile not in PROFILE_HIGHWAYS:
-        raise ValueError("profile must be foot, bicycle, or car")
+    if profile not in VALID_PROFILES:
+        raise ValueError("profile must be big_car, small_car, bicycle, or foot")
+    profile = normalize_profile(profile)
     kind = (place_kind or "city").strip().lower()
     if kind == "city_part":
         kind = "district"
@@ -708,7 +688,8 @@ def _refresh_explored_from_observations(
                 """
                 UPDATE road_segments rs
                 SET is_explored = TRUE,
-                    explored_at = COALESCE(rs.explored_at, NOW())
+                    explored_at = COALESCE(rs.explored_at, NOW()),
+                    last_driven_at = NOW()
                 WHERE rs.level_id = %s
                   AND rs.is_explored = FALSE
                   AND EXISTS (
@@ -939,16 +920,27 @@ def unlock_near_point(
 
             cur.execute(
                 """
-                UPDATE road_segments
-                SET is_explored = TRUE,
-                    explored_at = COALESCE(explored_at, NOW())
+                SELECT COUNT(*)::int AS n
+                FROM road_segments
                 WHERE level_id = %s
                   AND is_explored = FALSE
                   AND id = ANY(%s)
                 """,
                 (level_id, ids),
             )
-            newly = int(cur.rowcount or 0)
+            newly = int((cur.fetchone() or {}).get("n") or 0)
+            # Always stamp last_driven_at; explored_at only on first unlock
+            cur.execute(
+                """
+                UPDATE road_segments
+                SET is_explored = TRUE,
+                    explored_at = COALESCE(explored_at, NOW()),
+                    last_driven_at = NOW()
+                WHERE level_id = %s
+                  AND id = ANY(%s)
+                """,
+                (level_id, ids),
+            )
             row = _update_level_explored_stats(cur, level_id)
         conn.commit()
     finally:
@@ -1041,7 +1033,7 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
 
     _update_level(level_id, status="processing", disk_bytes=size)
 
-    allowed = PROFILE_HIGHWAYS[level["profile"]]
+    allowed = profile_highways(level.get("profile"))
     place_bbox = level.get("bbox")
     boundary = level.get("boundary")
     if isinstance(boundary, str):
