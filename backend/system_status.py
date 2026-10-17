@@ -94,7 +94,7 @@ def _docker_inspect(name: str) -> dict | None:
 
 
 def container_status(name: str) -> dict:
-    """Optional Docker enrichment. Prefer HTTP probes — API may lack docker CLI."""
+    """Optional Docker enrichment. Prefer HTTP probes - API may lack docker CLI."""
     if not docker_available():
         return {
             "ok": False,
@@ -153,7 +153,7 @@ def _http_ok(
             return 200 <= resp.status < 300, f"HTTP {resp.status}"
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
-            return False, "HTTP 401 — check KISMET_USER / KISMET_PASSWORD match kismet_site.conf"
+            return False, "HTTP 401 - check KISMET_USER / KISMET_PASSWORD match kismet_site.conf"
         return False, f"HTTP {exc.code}"
     except Exception as exc:
         return False, str(exc)
@@ -187,7 +187,7 @@ def _http_json(
 
 
 def _parse_kismet_source_line(line: str) -> dict | None:
-    """Parse `source=iface:name=…:type=…` from kismet_site.conf."""
+    """Parse `source=iface:name=...:type=...` from kismet_site.conf."""
     s = line.strip()
     if not s.startswith("source=") or s.startswith("#"):
         return None
@@ -331,7 +331,7 @@ def _classify_kismet_radios(sources: list[dict]) -> dict:
             "linuxbluetooth",
             "nrf",
         }
-        # Heuristic when type missing: wlx*/wlan* → wifi, hci* → bluetooth
+        # Heuristic when type missing: wlx*/wlan* -> wifi, hci* -> bluetooth
         if not stype and iface:
             il = str(iface).lower()
             if il.startswith(("wlx", "wlan", "wlp", "mon")):
@@ -368,7 +368,7 @@ def _regional_pbf_ready() -> bool:
 
 
 def kismet_service_status() -> dict:
-    """Host or Docker Kismet — probe HTTP with Basic auth from .env."""
+    """Host or Docker Kismet - probe HTTP with Basic auth from .env."""
     base = (os.getenv("KISMET_URL") or "http://127.0.0.1:2501").rstrip("/")
     # Prefer localhost when .env still has the old Docker-bridge hostname
     if "host.docker.internal" in base:
@@ -388,7 +388,7 @@ def kismet_service_status() -> dict:
         out["detail"] = detail or f"HTTP OK at {base}"
     else:
         out["detail"] = detail or (
-            f"Kismet not reachable at {base} — is kismet.service running?"
+            f"Kismet not reachable at {base} - is kismet.service running?"
         )
 
     sources: list[dict] = []
@@ -454,14 +454,14 @@ def valhalla_service_status() -> dict:
             out["ok"] = False
             out["status"] = "waiting for seed"
             out["detail"] = (
-                "Regional pack downloaded — open Drive and generate a city; "
+                "Regional pack downloaded - open Drive and generate a city; "
                 "Valhalla starts automatically"
             )
         elif not out["pbf_ready"]:
             out["ok"] = False
             out["status"] = "waiting for map"
             out["detail"] = (
-                "No map yet — spawn in Drive and generate a city; "
+                "No map yet - spawn in Drive and generate a city; "
                 "Valhalla starts when the level is ready"
             )
         elif out.get("found") and out.get("running"):
@@ -470,21 +470,21 @@ def valhalla_service_status() -> dict:
             which = map_label or "active.osm.pbf"
             out["detail"] = (
                 f"Building routing tiles for {which} "
-                f"(from leftover/city extract — not from opening Drive). "
+                f"(from leftover/city extract - not from opening Drive). "
                 f"Can take several minutes."
             )
         elif out.get("found"):
             out["ok"] = False
             out["status"] = "stopped"
             out["detail"] = (
-                f"{VALHALLA_CONTAINER} stopped — Drive / level create will restart it"
+                f"{VALHALLA_CONTAINER} stopped - Drive / level create will restart it"
             )
         else:
             out["ok"] = False
             out["status"] = "not started"
             out["detail"] = (
-                f"Map extract ready — starting {VALHALLA_CONTAINER} "
-                f"(Drive spawn → generate city also starts it)"
+                f"Map extract ready - starting {VALHALLA_CONTAINER} "
+                f"(Drive spawn -> generate city also starts it)"
             )
     except Exception as exc:
         out["http_ok"] = False
@@ -518,7 +518,7 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
         host = "127.0.0.1"
     port = int(port or os.getenv("GPSD_PORT", "2947"))
     device = _gpsd_configured_device()
-    # /dev may be invisible inside the API container — Path.exists is a hint only.
+    # /dev may be invisible inside the API container - Path.exists is a hint only.
     path_present = Path(device).exists()
     usb_nodes = [
         p
@@ -602,18 +602,18 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
             if not tpv:
                 if not result["device_present"]:
                     result["detail"] = (
-                        f"gpsd running — no receiver reported "
+                        f"gpsd running - no receiver reported "
                         f"(configured {device}"
                         f"{'' if path_present else '; /dev not visible to API container'})"
                     )
                 elif usb_nodes and device not in usb_nodes and device not in gpsd_devices:
                     result["detail"] = (
-                        f"gpsd running — {device} missing; saw {', '.join(result['usb_gps_nodes'])} "
-                        "(update /etc/default/gpsd DEVICES=…)"
+                        f"gpsd running - {device} missing; saw {', '.join(result['usb_gps_nodes'])} "
+                        "(update /etc/default/gpsd DEVICES=...)"
                     )
                 else:
                     result["detail"] = (
-                        f"gpsd running, receiver present — waiting for satellites "
+                        f"gpsd running, receiver present - waiting for satellites "
                         "(go outdoors / wait for warm start)"
                     )
                 return result
@@ -639,7 +639,7 @@ def gpsd_status(host: str | None = None, port: int | None = None) -> dict:
                     else ""
                 )
                 result["detail"] = (
-                    f"no fix yet (mode {mode}{sat_bit}) — receiver OK, waiting for sky"
+                    f"no fix yet (mode {mode}{sat_bit}) - receiver OK, waiting for sky"
                 )
             return result
     except OSError as exc:

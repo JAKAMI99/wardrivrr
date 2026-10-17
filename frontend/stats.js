@@ -3,7 +3,7 @@ let progress = null;
 let period = "today";
 
 const fmt = (n) =>
-  n == null || Number.isNaN(Number(n)) ? "—" : new Intl.NumberFormat().format(n);
+  n == null || Number.isNaN(Number(n)) ? "-" : new Intl.NumberFormat().format(n);
 
 function setPeriod(next) {
   period = next;
@@ -38,7 +38,7 @@ function paintMeters() {
   document.getElementById("mileWifiFill").style.width = `${Math.round(wifi.progress * 100)}%`;
   document.getElementById("mileNetFill").style.width = `${Math.round(nets.progress * 100)}%`;
   document.getElementById("mileWifiLabel").textContent =
-    `${fmt(wifi.current)} Wi‑Fi · ${fmt(wifi.remaining)} to ${fmt(wifi.next)}`;
+    `${fmt(wifi.current)} Wi-Fi · ${fmt(wifi.remaining)} to ${fmt(wifi.next)}`;
   document.getElementById("mileNetLabel").textContent =
     `${fmt(nets.current)} total · ${fmt(nets.remaining)} to ${fmt(nets.next)}`;
   document.getElementById("mileWifiCaption").textContent =
@@ -56,13 +56,13 @@ function paintStreak() {
   if (s.active_today) {
     badge.textContent = "On fire";
     badge.classList.add("live");
-    document.getElementById("streakToday").textContent = "Active — finds today";
+    document.getElementById("streakToday").textContent = "Active - finds today";
     document.getElementById("streakCopy").textContent =
       "Consecutive days with ≥1 new network.";
   } else if (s.grace) {
     badge.textContent = "Grace";
     badge.classList.add("warn");
-    document.getElementById("streakToday").textContent = "Quiet — still recoverable today";
+    document.getElementById("streakToday").textContent = "Quiet - still recoverable today";
     document.getElementById("streakCopy").textContent =
       "One find keeps the chain.";
   } else {
@@ -103,12 +103,12 @@ function paintBest() {
   const first = dashboard.span?.first_seen;
   document.getElementById("spanFirst").textContent = first
     ? new Date(first).toLocaleDateString()
-    : "—";
+    : "-";
 }
 
 function paintExplorerHero() {
   if (!progress) return;
-  const level = progress.level ?? "—";
+  const level = progress.level ?? "-";
   const xp = progress.xp ?? 0;
   const toNext = progress.xp_to_next ?? 0;
   const pct = Math.min(100, Number(progress.progress_pct) || 0);
@@ -131,7 +131,7 @@ function rateCaption(row) {
   const id = row.id || "";
   if (id === "tiles_new") return `${row.rate} XP / new tile`;
   if (id === "tiles_old") return `${row.rate} XP / revisit`;
-  if (id === "wifi") return `${row.rate} XP / Wi‑Fi`;
+  if (id === "wifi") return `${row.rate} XP / Wi-Fi`;
   if (id === "bt") return `${row.rate} XP / Bluetooth`;
   if (id === "ble") return `${row.rate} XP / BLE`;
   return `${row.rate} XP each`;
@@ -143,7 +143,7 @@ function paintBreakdown() {
   const rows = progress?.breakdown || progress?.xp_activity?.breakdown || [];
   const total = Number(progress?.xp) || 0;
   if (!rows.length) {
-    list.innerHTML = `<p class="muted">No XP yet — drive to unlock tiles and find networks.</p>`;
+    list.innerHTML = `<p class="muted">No XP yet - drive to unlock tiles and find networks.</p>`;
     return;
   }
   const maxXp = Math.max(1, ...rows.map((r) => Number(r.xp) || 0));
@@ -178,7 +178,7 @@ function paintBreakdown() {
   }
 }
 
-/* —— Achievements (ported from achievements.js) —— */
+/* -- Achievements (ported from achievements.js) -- */
 function unitLabel(tier) {
   if (tier.unit_label) return tier.unit_label;
   const unit = tier.unit || "";
@@ -192,7 +192,7 @@ function unitLabel(tier) {
 }
 
 function fmtNum(n, { km = false } = {}) {
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(n)) return "-";
   if (km) return n.toFixed(1);
   return Math.round(n).toLocaleString();
 }
@@ -359,8 +359,8 @@ function renderAchievements(data) {
             <div class="ach-progress-fill ${mastered ? "is-mastered" : ""}" data-ach-fill style="width:${p}%"></div>
           </div>
           <div class="ach-progress-meta">
-            <span data-ach-meta-left>${mastered ? "Master tier" : `Tier ${show?.tier ?? "—"}`}</span>
-            <span data-ach-meta-right>${show ? fmtProgress(show) : "—"}</span>
+            <span data-ach-meta-left>${mastered ? "Master tier" : `Tier ${show?.tier ?? "-"}`}</span>
+            <span data-ach-meta-right>${show ? fmtProgress(show) : "-"}</span>
           </div>
         </article>`;
     })
@@ -397,7 +397,7 @@ function paintRadios(system) {
   } else if (wifi.present === false) {
     wEl.textContent = "none";
   } else {
-    wEl.textContent = "—";
+    wEl.textContent = "-";
   }
 
   if (bt.present === true) {
@@ -405,7 +405,7 @@ function paintRadios(system) {
   } else if (bt.present === false) {
     bEl.textContent = "no";
   } else {
-    bEl.textContent = "—";
+    bEl.textContent = "-";
   }
 }
 

@@ -6,7 +6,7 @@ const COLORS = {
   LTE: "#f87171",
 };
 
-/** Mainland + near-Europe envelope — used until ≥100 networks exist. */
+/** Mainland + near-Europe envelope - used until ≥100 networks exist. */
 const EUROPE_BOUNDS = [
   [34.5, -12.0], // SW
   [71.5, 42.0], // NE
@@ -101,7 +101,7 @@ function circle(lat, lon, type) {
   });
 }
 
-// Names come from over-the-air broadcasts — build with textContent, never HTML.
+// Names come from over-the-air broadcasts - build with textContent, never HTML.
 function popup(props) {
   const rows = [
     ["Name", props.name],
@@ -120,7 +120,7 @@ function popup(props) {
     const dt = document.createElement("dt");
     dt.textContent = label;
     const dd = document.createElement("dd");
-    dd.textContent = value ?? "—";
+    dd.textContent = value ?? "-";
     dl.append(dt, dd);
   }
   return dl;
@@ -157,7 +157,7 @@ function queryFromForm() {
 async function search(event) {
   event?.preventDefault();
   const params = queryFromForm();
-  statusEl.textContent = "loading…";
+  statusEl.textContent = "loading...";
   banner.hidden = true;
   const res = await WardAuth.apiFetch(`/api/explore?${params.toString()}`);
   if (!res.ok) {
@@ -181,7 +181,7 @@ async function search(event) {
   if (meta.truncated) {
     banner.hidden = false;
     banner.textContent =
-      "Result capped. Zoom in and enable “Only current map view”, or tighten filters.";
+      "Result capped. Zoom in and enable "Only current map view", or tighten filters.";
   }
   if (bounds.length && !params.get("bbox")) {
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 });

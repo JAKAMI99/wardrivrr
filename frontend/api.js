@@ -59,7 +59,7 @@ function paintResults(data) {
   if (data.geocode) {
     const g = data.geocode;
     hint.textContent = `Area: ${g.display_name} · bbox ${
-      data.bbox ? data.bbox.map((n) => Number(n).toFixed(4)).join(", ") : "—"
+      data.bbox ? data.bbox.map((n) => Number(n).toFixed(4)).join(", ") : "-"
     }`;
   } else if (data.error) {
     hint.textContent = data.error;
@@ -72,17 +72,17 @@ function paintResults(data) {
   for (const r of data.results || []) {
     const tr = document.createElement("tr");
     const acc =
-      r.location_accuracy_m != null ? `±${Number(r.location_accuracy_m).toFixed(0)}` : "—";
-    const addr = r.address || r.place || [r.postcode, r.city].filter(Boolean).join(" ") || "—";
+      r.location_accuracy_m != null ? `±${Number(r.location_accuracy_m).toFixed(0)}` : "-";
+    const addr = r.address || r.place || [r.postcode, r.city].filter(Boolean).join(" ") || "-";
     tr.innerHTML = `
-      <td>${escapeHtml(r.ssid || "—")}</td>
+      <td>${escapeHtml(r.ssid || "-")}</td>
       <td><code>${escapeHtml(r.netid || "")}</code></td>
       <td>${escapeHtml(r.type || "")}</td>
       <td title="Estimated location accuracy">${acc}</td>
       <td title="${escapeAttr(addr)}">${escapeHtml(
-      addr.length > 48 ? addr.slice(0, 46) + "…" : addr
+      addr.length > 48 ? addr.slice(0, 46) + "..." : addr
     )}</td>
-      <td>${r.sample_count ?? "—"}</td>
+      <td>${r.sample_count ?? "-"}</td>
       <td><button type="button" class="btn" data-netid="${escapeAttr(r.netid)}">Detail</button></td>
     `;
     tbody.appendChild(tr);
@@ -115,7 +115,7 @@ async function runSearch(extra = {}) {
   const params = buildParams(extra);
   lastQuery = params;
   updateCurl(params);
-  showToast("Searching…");
+  showToast("Searching...");
   const res = await WardAuth.apiFetch(`/api/v2/network/search?${params.toString()}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -145,7 +145,7 @@ async function showDetail(netid) {
   const r = data.result || {};
   showToast(
     `${r.ssid || "(no ssid)"} · ${r.place || r.city || ""} · samples ${
-      r.samples?.count ?? r.sample_count ?? "—"
+      r.samples?.count ?? r.sample_count ?? "-"
     }`
   );
 }
@@ -185,6 +185,6 @@ document.getElementById("nextPage").addEventListener("click", () => {
   // Same-origin /api/docs reads wardrivrr_token from localStorage and Authorize's Bearer.
   const swagger = document.getElementById("openSwagger");
   if (swagger && !WardAuth.getToken()) {
-    swagger.title = "Log in first — Swagger will pick up your token automatically";
+    swagger.title = "Log in first - Swagger will pick up your token automatically";
   }
 })();

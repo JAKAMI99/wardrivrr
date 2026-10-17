@@ -11,7 +11,7 @@ function unitLabel(tier) {
 }
 
 function fmtNum(n, { km = false } = {}) {
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(n)) return "-";
   if (km) return n.toFixed(1);
   return Math.round(n).toLocaleString();
 }
@@ -180,8 +180,8 @@ function render(data) {
             <div class="ach-progress-fill ${mastered ? "is-mastered" : ""}" data-ach-fill style="width:${p}%"></div>
           </div>
           <div class="ach-progress-meta">
-            <span data-ach-meta-left>${mastered ? "Master tier" : `Tier ${show?.tier ?? "—"}`}</span>
-            <span data-ach-meta-right>${show ? fmtProgress(show) : "—"}</span>
+            <span data-ach-meta-left>${mastered ? "Master tier" : `Tier ${show?.tier ?? "-"}`}</span>
+            <span data-ach-meta-right>${show ? fmtProgress(show) : "-"}</span>
           </div>
         </article>`;
     })

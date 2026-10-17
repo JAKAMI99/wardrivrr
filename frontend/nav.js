@@ -1,4 +1,4 @@
-/* Shared site nav — Drive + links, burger on mobile, account (+ theme) */
+/* Shared site nav - Drive + links, burger on mobile, account (+ theme) */
 (function () {
   const PRIMARY = [
     { href: "/navigate", label: "Drive", match: ["/navigate"], drive: true },

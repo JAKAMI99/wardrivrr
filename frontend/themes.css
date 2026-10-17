@@ -1,4 +1,4 @@
-/* Site-wide themes — Classic Sleek · Kidcore · CRT */
+/* Site-wide themes - Classic Sleek · Kidcore · CRT */
 @import url("https://fonts.googleapis.com/css2?family=Bubblegum+Sans&family=Fredoka:wght@400;500;600;700&display=swap");
 
 :root,
@@ -22,7 +22,7 @@ html[data-theme="classic"] {
   color-scheme: dark;
 }
 
-/* —— KIDCORE: plastic toys, pacifiers, pastel Y2K chaos —— */
+/* -- KIDCORE: plastic toys, pacifiers, pastel Y2K chaos -- */
 html[data-theme="kidcore"],
 html[data-theme="kawaii"] {
   --bg: #ff9ec8;
@@ -64,7 +64,7 @@ html[data-theme="crt"] {
   color-scheme: dark;
 }
 
-/* Kidcore sky: static paint + opacity-only pulse (never filter:/hue-rotate —
+/* Kidcore sky: static paint + opacity-only pulse (never filter:/hue-rotate -
    those force continuous full-viewport GPU compositing on every frame). */
 html[data-theme="kidcore"] .page-glow,
 html[data-theme="kawaii"] .page-glow {
@@ -87,7 +87,7 @@ html[data-theme="kawaii"] .page-glow::before {
 
 html[data-theme="kidcore"] .page-glow::after,
 html[data-theme="kawaii"] .page-glow::after {
-  /* Skip classic grid overlay — doubles paint cost under pastel sky */
+  /* Skip classic grid overlay - doubles paint cost under pastel sky */
   display: none;
 }
 
@@ -124,7 +124,7 @@ html[data-theme="kawaii"] .site-nav {
   background: linear-gradient(90deg, #ff5cab, #7ee8ff 50%, #ffe566);
   border-bottom: 5px solid #5b2b6b;
   box-shadow: 0 6px 0 #fff, 0 10px 24px rgba(91, 43, 107, 0.2);
-  /* Solid candy bar — blur over animated glow is costly */
+  /* Solid candy bar - blur over animated glow is costly */
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -285,7 +285,7 @@ html[data-theme="crt"] .ach-card.is-mastered {
   z-index: 2;
 }
 
-/* Floating stickers / toys — always behind .app-shell / nav / text */
+/* Floating stickers / toys - always behind .app-shell / nav / text */
 .kidcore-decor {
   position: fixed;
   inset: 0;
@@ -298,7 +298,7 @@ html[data-theme="crt"] .ach-card.is-mastered {
 .kidcore-decor .kc-float {
   position: absolute;
   font-size: clamp(1.4rem, 3vw, 2.2rem);
-  /* No filter:drop-shadow on animated nodes — text-shadow is cheaper */
+  /* No filter:drop-shadow on animated nodes - text-shadow is cheaper */
   text-shadow: 2px 2px 0 rgba(91, 43, 107, 0.22);
   animation: kc-bob 7s ease-in-out infinite;
   opacity: 0.82;
@@ -390,7 +390,7 @@ html[data-theme="crt"] .ach-card.is-mastered {
   }
 }
 
-/* Tab hidden — freeze decor + sky so background tabs stop burning GPU */
+/* Tab hidden - freeze decor + sky so background tabs stop burning GPU */
 html.kidcore-paused .page-glow::before,
 html.kidcore-paused .kidcore-decor .kc-float {
   animation-play-state: paused !important;
@@ -496,7 +496,7 @@ html[data-theme="kawaii"] .theme-card.is-active {
   border: 1px solid rgba(0, 0, 0, 0.15);
 }
 
-/* Routing profile icons — theme variants */
+/* Routing profile icons - theme variants */
 html[data-theme="kidcore"] .profile-icon,
 html[data-theme="kawaii"] .profile-icon {
   color: #ff2d95;

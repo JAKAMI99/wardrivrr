@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0e11" />
-    <title>Regions Â· wardrivrr</title>
+    <title>Regions · wardrivrr</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -13,7 +13,7 @@
     />
     <link rel="stylesheet" href="/static/styles.css?v=6" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=8"></script>
+    <script src="/static/theme.js?v=11"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -54,7 +54,7 @@
           <!-- Step 1: Search -->
           <div class="wizard-pane" id="step1">
             <h2>Where do you want to play?</h2>
-            <p class="muted">Cities and towns only â€” e.g. <em>Berlin, Germany</em> (not streets or neighbourhoods)</p>
+            <p class="muted">Cities and towns only - e.g. <em>Berlin, Germany</em> (not streets or neighbourhoods)</p>
             <form id="searchForm" class="settings-form">
               <label>
                 Place
@@ -70,18 +70,18 @@
           <!-- Step 2: Download outlines + choose city / district -->
           <div class="wizard-pane" id="step2" hidden>
             <h2 id="previewTitle">Choose your area</h2>
-            <p class="muted" id="previewSub">Preparing map dataâ€¦</p>
+            <p class="muted" id="previewSub">Preparing map data...</p>
             <div class="level-preview-wrap" id="previewWrap">
               <div id="previewMap" class="level-preview-map is-loading" role="img" aria-label="Area preview"></div>
               <div class="level-preview-overlay" id="previewOverlay" hidden>
-                <p id="prepareStatus">Downloading regional map dataâ€¦</p>
+                <p id="prepareStatus">Downloading regional map data...</p>
                 <div class="level-progress">
                   <div class="level-progress-track">
                     <div class="level-progress-fill" id="prepareFill"></div>
                   </div>
                   <div class="level-progress-meta">
                     <span id="preparePct">0%</span>
-                    <span id="prepareEta">â€”</span>
+                    <span id="prepareEta">-</span>
                   </div>
                 </div>
               </div>
@@ -100,7 +100,7 @@
             <h2>One map for this place</h2>
             <p class="muted">
               Roads for every vehicle mode are imported once. Pick Big car / Small car / Bike / Foot
-              later in <strong>Drive</strong> â€” never preload a second region for the same area.
+              later in <strong>Drive</strong> - never preload a second region for the same area.
               Parking lots stay out.
             </p>
             <p class="muted rebuild-hint">
@@ -110,7 +110,7 @@
             <form class="settings-form" id="setupForm">
               <p class="level-name-fixed">
                 Region name
-                <strong id="levelNameDisplay">â€”</strong>
+                <strong id="levelNameDisplay">-</strong>
               </p>
               <input type="hidden" id="levelName" />
             </form>
@@ -127,7 +127,7 @@
               <p id="confirmPlace"></p>
               <p class="confirm-size" id="confirmSize"></p>
               <p class="muted" id="confirmHint">
-                The regional map pack is kept on disk and reused. Roads are clipped to this boundary â€”
+                The regional map pack is kept on disk and reused. Roads are clipped to this boundary -
                 the full playable graph (every vehicle mode). Switch Big car / Small car / Bike / Foot
                 in Drive.
               </p>
@@ -144,15 +144,15 @@
 
           <!-- Step 5: Progress -->
           <div class="wizard-pane" id="step5" hidden>
-            <h2 id="progressTitle">Building your regionâ€¦</h2>
-            <p class="muted" id="progressMessage">Startingâ€¦</p>
+            <h2 id="progressTitle">Building your region...</h2>
+            <p class="muted" id="progressMessage">Starting...</p>
             <div class="level-progress">
               <div class="level-progress-track">
                 <div class="level-progress-fill" id="progressFill"></div>
               </div>
               <div class="level-progress-meta">
                 <span id="progressPct">0%</span>
-                <span id="progressEta">â€”</span>
+                <span id="progressEta">-</span>
               </div>
             </div>
             <ul class="level-stage-list" id="stageList">
@@ -165,7 +165,7 @@
           <!-- Done -->
           <div class="wizard-pane wizard-done" id="stepDone" hidden>
             <div class="done-burst" aria-hidden="true"></div>
-            <h2>Youâ€™re set</h2>
+            <h2>You're set</h2>
             <p id="doneText" class="muted">Region ready.</p>
             <div class="tools-row">
               <button class="btn btn-primary" type="button" id="doneLoad">View regions</button>
@@ -178,7 +178,7 @@
 
         <section class="tools-panel" aria-label="Your regions" id="regionsListSection">
           <h2>Your regions</h2>
-          <div id="levelsList" class="levels-list">Loadingâ€¦</div>
+          <div id="levelsList" class="levels-list">Loading...</div>
         </section>
       </main>
     </div>
@@ -188,7 +188,7 @@
       crossorigin=""
     ></script>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=7"></script>
+    <script src="/static/nav.js?v=8"></script>
     <script src="/static/regions.js?v=7"></script>
   </body>
 </html>

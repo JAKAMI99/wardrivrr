@@ -1,4 +1,4 @@
-/* Progress — fog of war map (driven vs never driven), theme-coloured */
+/* Progress - fog of war map (driven vs never driven), theme-coloured */
 const params = new URLSearchParams(window.location.search);
 let map = null;
 let lockedLayer = null;
@@ -6,7 +6,7 @@ let exploredLayer = null;
 let boundaryLayer = null;
 
 function fogColors() {
-  // Progress uses a light OSM basemap — keep road strokes readable on it
+  // Progress uses a light OSM basemap - keep road strokes readable on it
   // (Drive theme fog packs are tuned for dark MapLibre styles).
   return {
     explored: "#1a9b6c",
@@ -92,11 +92,11 @@ function paintRoads(data) {
 async function loadProgress() {
   const levelId = await resolveLevelId();
   if (!levelId) {
-    showStatus("No ready region yet — preload one under Regions, or Drive will offer one by location.", true);
+    showStatus("No ready region yet - preload one under Regions, or Drive will offer one by location.", true);
     return;
   }
 
-  showStatus("Loading fog of war…");
+  showStatus("Loading fog of war...");
   let profile = "small_car";
   try {
     const saved = localStorage.getItem("wardrivrr_nav_vehicle");
@@ -145,7 +145,7 @@ async function loadProgress() {
 
 window.addEventListener("wardrivrr:theme", () => {
   if (map && lockedLayer) {
-    // Re-fetch not needed — just recolour from cache via reload paint
+    // Re-fetch not needed - just recolour from cache via reload paint
     loadProgress();
   }
 });
