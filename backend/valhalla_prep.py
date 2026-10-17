@@ -2,9 +2,13 @@
 Prepare Valhalla input under data/valhalla/active.osm.pbf.
 
 Regional Geofabrik packs live in data/pbf/{extract}.osm.pbf (e.g. Arnsberg…).
-Valhalla only sees data/valhalla/ (compose bind mount). We either:
-  - seed active.osm.pbf from a regional pack (first download → full tile build), or
-  - clip the pack to the level bbox (faster, Navigate prepare).
+Valhalla only sees data/valhalla/ (compose bind mount).
+
+Tiles are always scoped to a selected level (city/district):
+  - prefer the level's extract.osm.pbf when present, else
+  - osmium-clip the regional pack to the level bbox, then build.
+
+Do not feed Valhalla the whole regional pack — that is what made first builds crawl.
 """
 
 from __future__ import annotations
@@ -595,11 +599,14 @@ def ensure_valhalla_after_regional_pbf(
     restart: bool = True,
 ) -> dict[str, Any]:
     """
-    After the first (or any) regional pack lands in data/pbf: seed active.osm.pbf
-    and make sure Valhalla is running (recreate when the seed changed).
+    Legacy helper — do not call from pack download / boot.
+
+    Feeding Valhalla a full Regierungsbezirk PBF rebuilds tiles for the entire
+    region. Prefer prepare_valhalla_for_level (bbox clip) instead.
+    Kept for rare debug/manual use only.
     """
     seed = seed_active_from_regional(src, force=force_seed)
-    out: dict[str, Any] = {"ok": True, "seed": seed}
+    out: dict[str, Any] = {"ok": True, "seed": seed, "legacy": True}
     if not restart:
         return out
     need_wipe = bool(seed.get("seeded") or force_seed)

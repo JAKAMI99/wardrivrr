@@ -20,76 +20,10 @@ function fmt(n) {
 }
 
 const COMPLETE_PCT = 90;
-const PROFILE_LABELS = {
-  big_car: "Big car",
-  small_car: "Small car",
-  car: "Small car",
-  bicycle: "Bike",
-  foot: "On foot",
-};
-
-function normalizeProfile(profile) {
-  const p = String(profile || "small_car").toLowerCase();
-  return p === "car" ? "small_car" : p;
-}
 
 function isLevelComplete(lv) {
   if (lv && typeof lv.complete === "boolean") return lv.complete;
   return Number(lv?.explored_pct || 0) >= COMPLETE_PCT;
-}
-
-/** Inline SVG silhouettes; themed via CSS on `.profile-icon`. */
-function profileIconSvg(profile) {
-  const p = normalizeProfile(profile);
-  if (p === "foot") {
-    return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M8.2 21c.4-2.2 1.1-3.6 2.2-4.4 1.4-1 3.1-.6 4.2.2 1 .7 1.6 1.8 1.9 3.2"/>
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M7.5 14.5c-.2-1.8.3-3.4 1.4-4.3 1.2-1 2.9-1.1 4.2-.2 1.1.7 1.8 2 2 3.5"/>
-      <circle class="profile-svg-dot" cx="10.2" cy="7.2" r="1.15" fill="currentColor"/>
-      <circle class="profile-svg-dot" cx="13.6" cy="6.4" r="1" fill="currentColor"/>
-      <circle class="profile-svg-dot" cx="16.2" cy="8.1" r=".85" fill="currentColor"/>
-      <circle class="profile-svg-dot" cx="8.4" cy="9.6" r=".9" fill="currentColor"/>
-    </svg>`;
-  }
-  if (p === "bicycle") {
-    return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-      <circle class="profile-svg-body" cx="6.2" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <circle class="profile-svg-body" cx="17.8" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M6.2 16.2 10.5 9.2h3.2l2.6 7M10.5 9.2 12.8 16.2M13.7 9.2h3.4M14.2 6.4h2.6"/>
-    </svg>`;
-  }
-  if (p === "big_car") {
-    return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M3.5 14.2h17M5.2 14.2l1.6-4.5c.3-.9 1.2-1.5 2.1-1.5h6.2c.9 0 1.8.6 2.1 1.5l1.6 4.5"/>
-      <circle class="profile-svg-body" cx="7.2" cy="16.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <circle class="profile-svg-body" cx="16.8" cy="16.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M9 8.8h6"/>
-    </svg>`;
-  }
-  return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-    <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-      d="M4.2 14.5h15.6M6 14.5l1.4-4.2c.3-.9 1.1-1.5 2-1.5h5.2c.9 0 1.7.6 2 1.5l1.4 4.2"/>
-    <circle class="profile-svg-body" cx="7.4" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
-    <circle class="profile-svg-body" cx="16.6" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
-    <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-      d="M9.2 9h5.6"/>
-  </svg>`;
-}
-
-function profileIconHtml(profile, { size = "" } = {}) {
-  const p = normalizeProfile(profile);
-  const label = PROFILE_LABELS[p] || p;
-  const sizeClass = size ? ` profile-icon--${size}` : "";
-  return `<span class="profile-icon profile-icon-${p}${sizeClass}" data-kidcore-skip title="${label}" aria-label="${label}">${profileIconSvg(p)}</span>`;
-}
-
-function profileLabel(profile) {
-  const p = normalizeProfile(profile);
-  return PROFILE_LABELS[p] || p;
 }
 
 function fmtBytes(n) {
@@ -577,8 +511,6 @@ async function generateLevel() {
     showToast("Pick a place first", true);
     return;
   }
-  const profile =
-    document.querySelector('input[name="profile"]:checked')?.value || "small_car";
   const name = selectedPlace.label;
   setFixedLevelName(name);
   goStep(5);
@@ -589,7 +521,8 @@ async function generateLevel() {
   const payload = {
     name,
     place_query: selectedPlace.place_query || selectedPlace.label,
-    profile,
+    // Default Navigate mode only — map imports the full playable graph
+    profile: "small_car",
     geofabrik_id: selectedPlace.map_pack.id,
     place_bbox: selectedPlace.bbox,
     place_boundary: selectedPlace.boundary,
@@ -635,7 +568,6 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
     ? `<em class="place-kind">District</em>`
     : "";
   const pack = packLine(lv);
-  const mode = lv.profile_label || profileLabel(lv.profile);
   const done = isLevelComplete(lv);
   const placeHint =
     lv.place_query && lv.place_query !== title
@@ -645,7 +577,6 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
     <article class="level-card ${isActive ? "active" : ""} ${nested ? "is-part" : ""} ${done ? "is-complete" : ""}">
       <header>
         <h3 class="level-card-title">
-          ${profileIconHtml(lv.profile, { size: "sm" })}
           <span class="level-card-name">${kind}${escapeHtml(title)}</span>
         </h3>
         <span class="level-status-stack">
@@ -653,7 +584,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
           <span class="level-status status-${lv.status}">${lv.status}</span>
         </span>
       </header>
-      <p class="muted level-mode-line"><span data-kidcore-skip>${escapeHtml(mode)}</span> mode</p>
+      <p class="muted level-mode-line">Vehicle mode → Navigate</p>
       ${placeHint}
       <ul class="level-stats">
         <li>${fmtPct(lv.explored_pct)} explored${done ? " · done" : ""}</li>

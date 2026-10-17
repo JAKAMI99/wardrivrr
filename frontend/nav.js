@@ -9,8 +9,7 @@
   ];
 
   const ACCOUNT = [
-    { href: "/stats", label: "Stats" },
-    { href: "/achievements", label: "Achievements" },
+    { href: "/stats", label: "Explorer" },
     { href: "/api", label: "API" },
     { href: "/settings", label: "Settings" },
   ];

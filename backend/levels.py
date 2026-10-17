@@ -14,11 +14,13 @@ from db import connect, connect_dict
 from drive_profiles import (
     COMPLETE_PCT,
     VALID_PROFILES,
+    all_playable_highways,
     is_complete,
     is_parking_way,
     normalize_profile,
     profile_highways,
     profile_label,
+    profile_uses_road_snap,
 )
 from geofabrik import download_pbf, resolve_feature, search_places
 from paths import level_dir
@@ -405,6 +407,8 @@ def find_duplicate_level(
     place_kind: str,
     osm_relation_id: int | None = None,
     geoname_id: int | None = None,
+    place_query: str | None = None,
+    geofabrik_id: str | None = None,
 ) -> dict | None:
     """Return an existing non-error level for the same city/district outline."""
     kind = (place_kind or "city").strip().lower()
@@ -438,6 +442,25 @@ def find_duplicate_level(
                     """,
                     (user_id, geoname_id),
                 )
+                hit = cur.fetchone()
+                if hit:
+                    return hit
+            # Fallback: same pack + normalized place label (covers missing OSM / GeoNames ids)
+            pq = (place_query or "").strip().lower()
+            gid = (geofabrik_id or "").strip()
+            if pq and gid:
+                cur.execute(
+                    _LEVEL_SELECT
+                    + """
+                    FROM levels
+                    WHERE user_id = %s AND place_kind = %s
+                      AND geofabrik_id = %s
+                      AND lower(trim(place_query)) = %s
+                      AND status <> 'error'
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (user_id, kind, gid, pq),
+                )
                 return cur.fetchone()
         return None
     finally:
@@ -448,7 +471,7 @@ def create_level(
     user_id: int,
     name: str,
     place_query: str,
-    profile: str,
+    profile: str | None,
     geofabrik_id: str,
     place_bbox: list[float] | None = None,
     place_boundary: dict | None = None,
@@ -460,7 +483,8 @@ def create_level(
     osm_relation_id: int | None = None,
     osm_admin_level: int | None = None,
 ) -> dict:
-    if profile not in VALID_PROFILES:
+    # profile = last-used Navigate default only; map always imports full playable graph
+    if profile and profile not in VALID_PROFILES:
         raise ValueError("profile must be big_car, small_car, bicycle, or foot")
     profile = normalize_profile(profile)
     kind = (place_kind or "city").strip().lower()
@@ -489,10 +513,13 @@ def create_level(
         place_kind=kind,
         osm_relation_id=osm_relation_id,
         geoname_id=geoname_id,
+        place_query=place_query,
+        geofabrik_id=geofabrik_id,
     )
     if dup:
         raise ValueError(
-            f"You already have a level for this area: {dup.get('name')} (#{dup.get('id')})"
+            f"You already have a level for this area: {dup.get('name')} (#{dup.get('id')}). "
+            "Switch vehicle mode in Navigate — do not create another level."
         )
 
     feat = resolve_feature(geofabrik_id)
@@ -770,6 +797,118 @@ def _angle_diff_abs(a: float, b: float) -> float:
     return abs(((a - b + 540.0) % 360.0) - 180.0)
 
 
+def _credit_tile_revisits(user_id: int | None, count: int) -> None:
+    if user_id is None or count <= 0:
+        return
+    try:
+        from achievements import record_tile_revisits
+
+        record_tile_revisits(int(user_id), int(count))
+    except Exception:
+        pass
+
+
+def _unlock_by_distance(
+    level_id: int,
+    lon: float,
+    lat: float,
+    *,
+    radius_m: float,
+    highways: list[str],
+    user_id: int | None = None,
+) -> dict[str, float | int]:
+    """Unlock profile highways within radius_m of raw GPS (foot / bicycle)."""
+    if radius_m <= 0 or not highways:
+        return {
+            "newly_explored": 0,
+            "newly_explored_m": 0.0,
+            "explored_km": 0.0,
+            "explored_pct": 0.0,
+            "segment_id": None,
+            "unlocked_ids": [],
+            "mode": "distance_skip",
+            "radius_m": radius_m,
+            "revisited": 0,
+        }
+    pad = max(0.0002, (radius_m + 20.0) / 111320.0)
+    conn = connect_dict()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH pt AS (
+                  SELECT ST_SetSRID(ST_MakePoint(%s, %s), 4326) AS g
+                )
+                SELECT rs.id, rs.is_explored
+                FROM road_segments rs
+                CROSS JOIN pt
+                WHERE rs.level_id = %s
+                  AND rs.highway = ANY(%s)
+                  AND rs.geom && ST_Expand(pt.g, %s)
+                  AND ST_DWithin(rs.geom::geography, pt.g::geography, %s)
+                """,
+                (lon, lat, level_id, highways, pad, radius_m),
+            )
+            rows = list(cur.fetchall() or [])
+            ids = [int(r["id"]) for r in rows]
+            revisited = sum(1 for r in rows if r.get("is_explored"))
+            new_ids = [int(r["id"]) for r in rows if not r.get("is_explored")]
+            if not ids:
+                row = _update_level_explored_stats(cur, level_id)
+                newly, newly_m = 0, 0.0
+            else:
+                cur.execute(
+                    """
+                    SELECT COUNT(*)::int AS n,
+                           COALESCE(SUM(length_m), 0)::float AS m
+                    FROM road_segments
+                    WHERE level_id = %s
+                      AND is_explored = FALSE
+                      AND id = ANY(%s)
+                    """,
+                    (level_id, new_ids or [-1]),
+                )
+                before = cur.fetchone() or {}
+                newly = int(before.get("n") or 0)
+                newly_m = float(before.get("m") or 0.0)
+                cur.execute(
+                    """
+                    UPDATE road_segments
+                    SET is_explored = TRUE,
+                        explored_at = COALESCE(explored_at, NOW()),
+                        last_driven_at = NOW()
+                    WHERE level_id = %s
+                      AND id = ANY(%s)
+                    """,
+                    (level_id, ids),
+                )
+                row = _update_level_explored_stats(cur, level_id)
+        conn.commit()
+    finally:
+        conn.close()
+    _credit_tile_revisits(user_id, revisited)
+    if isinstance(row, dict):
+        explored_km = float(row.get("explored_km") or 0)
+        explored_pct = float(row.get("explored_pct") or 0)
+    elif row:
+        explored_km = float(row[0] or 0)
+        explored_pct = float(row[1] or 0)
+    else:
+        explored_km = 0.0
+        explored_pct = 0.0
+    return {
+        "newly_explored": newly,
+        "newly_explored_m": newly_m,
+        "explored_km": explored_km,
+        "explored_pct": explored_pct,
+        "segment_id": None,
+        "unlocked_ids": ids,
+        "mode": "distance",
+        "radius_m": radius_m,
+        "revisited": revisited,
+    }
+
+
 def unlock_near_point(
     level_id: int,
     lon: float,
@@ -779,15 +918,34 @@ def unlock_near_point(
     heading_deg: float | None = None,
     lateral_m: float | None = None,
     segment_id: int | None = None,
+    profile: str | None = None,
+    user_id: int | None = None,
 ) -> dict[str, float | int]:
     """
-    Fog unlock while snapped to a road.
+    Fog unlock for the active Navigate profile.
 
-    Unlocks the snapped segment, plus at most one ahead continuation that is
-    the same OSM way and aligned with travel heading. Never unlocks behind or
-    cross-street stubs at junctions (those also share the intersection node).
+    Car (big_car / small_car): snapped segment + same-OSM-way ahead continuation.
+    Foot / bicycle: unlock profile highways within accuracy × factor of raw GPS.
     """
-    del accuracy_m, accuracy_factor, lateral_m, lon, lat  # snap corridor only
+    mode = normalize_profile(profile)
+    highways = sorted(profile_highways(mode))
+
+    if not profile_uses_road_snap(mode):
+        acc = float(accuracy_m) if accuracy_m and accuracy_m > 0 else _DEFAULT_GPS_ACCURACY_M
+        if lateral_m is not None and float(lateral_m) > 0:
+            radius = float(lateral_m)
+        else:
+            radius = acc * float(accuracy_factor)
+        return _unlock_by_distance(
+            level_id,
+            lon,
+            lat,
+            radius_m=radius,
+            highways=highways,
+            user_id=user_id,
+        )
+
+    # Car: snap corridor only
     if segment_id is None:
         return {
             "newly_explored": 0,
@@ -917,6 +1075,7 @@ def unlock_near_point(
             before = cur.fetchone() or {}
             newly = int(before.get("n") or 0)
             newly_m = float(before.get("m") or 0.0)
+            revisited = max(0, len(ids) - newly)
             # Always stamp last_driven_at; explored_at only on first unlock
             cur.execute(
                 """
@@ -933,6 +1092,7 @@ def unlock_near_point(
         conn.commit()
     finally:
         conn.close()
+    _credit_tile_revisits(user_id, revisited)
     if isinstance(row, dict):
         explored_km = float(row.get("explored_km") or 0)
         explored_pct = float(row.get("explored_pct") or 0)
@@ -950,6 +1110,7 @@ def unlock_near_point(
         "segment_id": sid,
         "unlocked_ids": ids,
         "mode": "snap_segment",
+        "revisited": revisited,
     }
 
 
@@ -1022,7 +1183,8 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
 
     _update_level(level_id, status="processing", disk_bytes=size)
 
-    allowed = profile_highways(level.get("profile"))
+    # Full playable graph once — Navigate mode filters highways at routing time
+    allowed = all_playable_highways()
     place_bbox = level.get("bbox")
     boundary = level.get("boundary")
     if isinstance(boundary, str):
@@ -1190,7 +1352,7 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
     except Exception:
         addr_job_id = None
 
-    # Seed Valhalla from this level extract and start the container.
+    # Clip/seed Valhalla to this level's city/district only — never the full region.
     valhalla_out = None
     try:
         from valhalla_prep import prepare_valhalla_for_level
@@ -1200,24 +1362,17 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
             user_id, level_id, restart=True, force=False
         )
     except Exception as exc:
-        # Level roads are usable; still try seed+start so Drive can route.
+        # Retry once with force (re-clip bbox). Do not fall back to tiling the
+        # whole regional Geofabrik pack — that is what made builds crawl.
         try:
-            from valhalla_prep import (
-                ensure_valhalla_after_regional_pbf,
-                ensure_valhalla_up,
-            )
+            from valhalla_prep import prepare_valhalla_for_level
 
-            seed_src = dest if isinstance(dest, Path) else Path(str(dest))
-            valhalla_out = ensure_valhalla_after_regional_pbf(
-                seed_src,
-                force_seed=True,
-                restart=True,
+            valhalla_out = prepare_valhalla_for_level(
+                user_id, level_id, restart=True, force=True
             )
-            if not (valhalla_out.get("valhalla") or {}).get("ok"):
-                valhalla_out["valhalla"] = ensure_valhalla_up(wipe=True)
-            valhalla_out = {"fallback_seed": True, "error": str(exc), **valhalla_out}
+            valhalla_out = {"retried": True, "first_error": str(exc), **valhalla_out}
         except Exception as exc2:
-            valhalla_out = {"ok": False, "detail": str(exc), "seed_error": str(exc2)}
+            valhalla_out = {"ok": False, "detail": str(exc), "retry_error": str(exc2)}
 
     report(1.0, "done", "Level ready — addresses fill in the background", 0)
     return {
@@ -1305,11 +1460,34 @@ def search_level_places(query: str, limit: int = 8) -> list[dict]:
     return _search(query, limit=limit)
 
 
-def get_level_road_map(user_id: int, level_id: int) -> dict | None:
+def set_level_default_profile(user_id: int, level_id: int, profile: str | None) -> None:
+    """Persist last-used Navigate mode on the level (not a map rebuild input)."""
+    p = normalize_profile(profile)
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE levels SET profile = %s, updated_at = NOW()
+                WHERE id = %s AND user_id = %s
+                """,
+                (p, level_id, user_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_level_road_map(
+    user_id: int,
+    level_id: int,
+    *,
+    profile: str | None = None,
+) -> dict | None:
     """
     Discover view payload: locked vs explored road grids as MultiLineString GeoJSON.
-    Much smaller than per-segment features.
-    Re-matches observations → segments so new imports show up without rebuilding.
+    Optional profile filters to that mode's highways (Navigate / Progress).
+    Explored flags stay shared; % is scoped to the filtered set when profile is set.
     """
     level = get_level(user_id, level_id)
     if not level:
@@ -1319,22 +1497,40 @@ def get_level_road_map(user_id: int, level_id: int) -> dict | None:
         _refresh_explored_from_observations(level_id, user_id)
         level = get_level(user_id, level_id) or level
 
+    mode = normalize_profile(profile) if profile else None
+    highways = sorted(profile_highways(mode)) if mode else None
+
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT
-                  is_explored,
-                  COUNT(*)::int AS n,
-                  COALESCE(SUM(length_m), 0)::float AS length_m,
-                  ST_AsGeoJSON(ST_Collect(geom))::json AS geom
-                FROM road_segments
-                WHERE level_id = %s
-                GROUP BY is_explored
-                """,
-                (level_id,),
-            )
+            if highways:
+                cur.execute(
+                    """
+                    SELECT
+                      is_explored,
+                      COUNT(*)::int AS n,
+                      COALESCE(SUM(length_m), 0)::float AS length_m,
+                      ST_AsGeoJSON(ST_Collect(geom))::json AS geom
+                    FROM road_segments
+                    WHERE level_id = %s AND highway = ANY(%s)
+                    GROUP BY is_explored
+                    """,
+                    (level_id, highways),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT
+                      is_explored,
+                      COUNT(*)::int AS n,
+                      COALESCE(SUM(length_m), 0)::float AS length_m,
+                      ST_AsGeoJSON(ST_Collect(geom))::json AS geom
+                    FROM road_segments
+                    WHERE level_id = %s
+                    GROUP BY is_explored
+                    """,
+                    (level_id,),
+                )
             rows = cur.fetchall()
     finally:
         conn.close()
@@ -1354,6 +1550,13 @@ def get_level_road_map(user_id: int, level_id: int) -> dict | None:
             locked_n = row["n"]
             locked_m = float(row["length_m"] or 0)
 
+    total_m = locked_m + explored_m
+    explored_pct = (
+        round(100.0 * explored_m / total_m, 2) if total_m > 0 else 0.0
+    )
+    if mode is None:
+        explored_pct = float(level.get("explored_pct") or explored_pct)
+
     bbox = level.get("bbox")
     if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
         bbox = [float(x) for x in bbox]
@@ -1365,9 +1568,10 @@ def get_level_road_map(user_id: int, level_id: int) -> dict | None:
             "id": level["id"],
             "name": level["name"],
             "status": level["status"],
-            "profile": level["profile"],
-            "explored_pct": level.get("explored_pct"),
-            "road_km": level.get("road_km"),
+            "profile": mode or level.get("profile"),
+            "profile_filter": mode,
+            "explored_pct": explored_pct,
+            "road_km": round(total_m / 1000.0, 2) if mode else level.get("road_km"),
         },
         "bbox": bbox,
         "boundary": level.get("boundary"),

@@ -262,33 +262,22 @@ chmod a+rx postgis postgis/init 2>/dev/null || true
 chmod a+r postgis/init/*.sql 2>/dev/null || true
 [[ -d data/valhalla/active.osm.pbf ]] && rm -rf data/valhalla/active.osm.pbf
 
-pick_regional_pbf() {
-  local f best="" best_sz=0 sz
-  shopt -s nullglob
-  for f in data/pbf/*.osm.pbf data/pbf/*.pbf; do
-    [[ -f "$f" ]] || continue
-    sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
-    if [[ "$sz" -gt "$best_sz" && "$sz" -ge 1000 ]]; then
-      best="$f"
-      best_sz=$sz
-    fi
-  done
-  shopt -u nullglob
-  [[ -n "$best" ]] && printf '%s' "$best"
-}
-REGIONAL="$(pick_regional_pbf || true)"
-if [[ -n "${REGIONAL:-}" ]] && [[ ! -f data/valhalla/active.osm.pbf ]]; then
-  echo "Seeding Valhalla from $REGIONAL"
-  ln "$REGIONAL" data/valhalla/active.osm.pbf 2>/dev/null || cp -f "$REGIONAL" data/valhalla/active.osm.pbf
-  printf '%s\n' "{\"mode\":\"seed\",\"source_pbf\":\"$REGIONAL\"}" >data/valhalla/active.json
-fi
+# Valhalla tiles are built for the selected city/district when a level is ready
+# (API prepare_valhalla_for_level). Do not seed active.osm.pbf from a full
+# regional Geofabrik pack here — that tiles hundreds of MB for no reason.
 
 COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
 "${COMPOSE[@]}" config --quiet
 [[ "$FORCE_BUILD" == "1" ]] && "${COMPOSE[@]}" build api
 
 SERVICES=(api postgis)
-[[ -f data/valhalla/active.osm.pbf && -s data/valhalla/active.osm.pbf ]] && SERVICES+=(valhalla)
+# Only start Valhalla if a prior level already left a real active extract.
+if [[ -f data/valhalla/active.osm.pbf && -s data/valhalla/active.osm.pbf ]]; then
+  SERVICES+=(valhalla)
+  echo "Valhalla: starting (existing active extract)"
+else
+  echo "Valhalla: skipped until a level is created"
+fi
 "${COMPOSE[@]}" up -d "${SERVICES[@]}"
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

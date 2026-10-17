@@ -23,8 +23,10 @@ _MAX_GAP_S = 120.0
 XP_PER_WIFI_NET = 5
 XP_PER_BT_NET = 4
 XP_PER_BLE_NET = 3
-# Explored road tiles (segments), not driven metres
+# First unlock of a fog tile (segment)
 XP_PER_TILE = 2
+# Re-driving an already unlocked tile (smaller credit)
+XP_PER_OLD_TILE = 1
 
 def _fmt_threshold(n: float | int) -> str:
     """Human-readable threshold for goal copy (e.g. 1,000,000 or 133.7)."""
@@ -243,7 +245,60 @@ def ensure_achievements_schema() -> None:
                 ON user_achievements(user_id)
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_activity_counters (
+                    user_id INTEGER NOT NULL PRIMARY KEY
+                      REFERENCES users(id) ON DELETE CASCADE,
+                    tiles_revisited INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def record_tile_revisits(user_id: int, count: int) -> int:
+    """Credit re-drives of already unlocked fog tiles. Returns new total."""
+    n = max(0, int(count or 0))
+    if n <= 0:
+        return 0
+    ensure_achievements_schema()
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_activity_counters (user_id, tiles_revisited)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                  tiles_revisited = user_activity_counters.tiles_revisited
+                    + EXCLUDED.tiles_revisited,
+                  updated_at = NOW()
+                RETURNING tiles_revisited
+                """,
+                (user_id, n),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return int(row[0] if row else 0)
+    finally:
+        conn.close()
+
+
+def tiles_revisited_count(user_id: int) -> int:
+    ensure_achievements_schema()
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT tiles_revisited FROM user_activity_counters WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            return int(row[0] if row else 0)
     finally:
         conn.close()
 
@@ -459,6 +514,13 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
                 (user_id,),
             )
             segments_explored = int((cur.fetchone() or {}).get("n") or 0)
+            cur.execute(
+                """
+                SELECT tiles_revisited FROM user_activity_counters WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            tiles_revisited = int((cur.fetchone() or {}).get("tiles_revisited") or 0)
     finally:
         conn.close()
 
@@ -496,35 +558,95 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
         "starlink_networks": starlink_networks,
         "flipper_networks": flipper_networks,
         "segments_explored": segments_explored,
+        "tiles_revisited": tiles_revisited,
         "unlocked": unlocked,
         "today": today.isoformat(),
     }
 
 
-def activity_xp_breakdown(snap: dict[str, Any]) -> dict[str, Any]:
-    """XP from discovered networks + explored fog tiles."""
+def activity_xp_breakdown(
+    snap: dict[str, Any],
+    *,
+    achievements_xp: int = 0,
+) -> dict[str, Any]:
+    """XP from networks, new/old fog tiles, and (optionally) achievements."""
     wifi = int(snap.get("networks_wifi") or 0)
     bt = int(snap.get("networks_bt") or 0)
     ble = int(snap.get("networks_ble") or 0)
-    tiles = int(snap.get("segments_explored") or 0)
+    tiles_new = int(snap.get("segments_explored") or 0)
+    tiles_old = int(snap.get("tiles_revisited") or 0)
+    ach = max(0, int(achievements_xp or 0))
     from_wifi = wifi * XP_PER_WIFI_NET
     from_bt = bt * XP_PER_BT_NET
     from_ble = ble * XP_PER_BLE_NET
-    from_tiles = tiles * XP_PER_TILE
+    from_tiles_new = tiles_new * XP_PER_TILE
+    from_tiles_old = tiles_old * XP_PER_OLD_TILE
+    activity_total = from_wifi + from_bt + from_ble + from_tiles_new + from_tiles_old
+    breakdown = [
+        {
+            "id": "tiles_new",
+            "label": "New tiles",
+            "xp": from_tiles_new,
+            "count": tiles_new,
+            "rate": XP_PER_TILE,
+        },
+        {
+            "id": "tiles_old",
+            "label": "Old tiles",
+            "xp": from_tiles_old,
+            "count": tiles_old,
+            "rate": XP_PER_OLD_TILE,
+        },
+        {
+            "id": "wifi",
+            "label": "Wi‑Fi",
+            "xp": from_wifi,
+            "count": wifi,
+            "rate": XP_PER_WIFI_NET,
+        },
+        {
+            "id": "bt",
+            "label": "Bluetooth",
+            "xp": from_bt,
+            "count": bt,
+            "rate": XP_PER_BT_NET,
+        },
+        {
+            "id": "ble",
+            "label": "BLE",
+            "xp": from_ble,
+            "count": ble,
+            "rate": XP_PER_BLE_NET,
+        },
+        {
+            "id": "achievements",
+            "label": "Achievements",
+            "xp": ach,
+            "count": None,
+            "rate": None,
+        },
+    ]
     return {
         "wifi": from_wifi,
         "bt": from_bt,
         "ble": from_ble,
-        "tiles": from_tiles,
-        # Legacy keys kept at 0 so older UIs don't break
+        "tiles": from_tiles_new,
+        "tiles_new": from_tiles_new,
+        "tiles_old": from_tiles_old,
+        "achievements": ach,
+        # Legacy keys
         "driven": 0,
-        "new_road": from_tiles,
-        "total": from_wifi + from_bt + from_ble + from_tiles,
+        "new_road": from_tiles_new,
+        "total": activity_total,
+        "grand_total": activity_total + ach,
+        "breakdown": breakdown,
         "counts": {
             "wifi": wifi,
             "bt": bt,
             "ble": ble,
-            "tiles": tiles,
+            "tiles": tiles_new,
+            "tiles_new": tiles_new,
+            "tiles_old": tiles_old,
             "km": round(float(snap.get("km_driven_total") or 0), 3),
             "km_new": round(float(snap.get("km_explored_total") or 0), 3),
         },
@@ -533,6 +655,8 @@ def activity_xp_breakdown(snap: dict[str, Any]) -> dict[str, Any]:
             "bt": XP_PER_BT_NET,
             "ble": XP_PER_BLE_NET,
             "tiles": XP_PER_TILE,
+            "tiles_new": XP_PER_TILE,
+            "tiles_old": XP_PER_OLD_TILE,
         },
     }
 
@@ -680,11 +804,12 @@ def list_achievements(user_id: int) -> dict[str, Any]:
                 "mastered": bool(tiers_out and tiers_out[-1].get("mastered")),
             }
         )
-    activity = activity_xp_breakdown(snap)
-    xp_total = xp_earned + int(activity["total"])
+    activity = activity_xp_breakdown(snap, achievements_xp=xp_earned)
+    xp_total = int(activity["grand_total"])
     progress = explorer_progress_from_xp(xp_total)
     progress["xp_achievements"] = xp_earned
     progress["xp_activity"] = activity
+    progress["breakdown"] = activity["breakdown"]
     return {
         "timezone": ACHIEVEMENTS_TZ,
         "xp_earned": xp_earned,
@@ -692,6 +817,7 @@ def list_achievements(user_id: int) -> dict[str, Any]:
         "xp_total": xp_total,
         "xp_available": xp_available,
         "explorer": progress,
+        "breakdown": activity["breakdown"],
         "snapshot": {
             "km_night_total": snap["km_night_total"],
             "km_day_best": snap["km_day_best"],
@@ -706,6 +832,7 @@ def list_achievements(user_id: int) -> dict[str, Any]:
             "starlink_networks": snap.get("starlink_networks") or 0,
             "flipper_networks": snap.get("flipper_networks") or 0,
             "segments_explored": snap.get("segments_explored") or 0,
+            "tiles_revisited": snap.get("tiles_revisited") or 0,
             "today": snap["today"],
         },
         "achievements": out,
@@ -755,13 +882,14 @@ def explorer_progress_from_xp(xp: int) -> dict[str, Any]:
 def explorer_progress(user_id: int) -> dict[str, Any]:
     """
     Explorer level from achievement unlocks + activity XP
-    (Wi‑Fi / BT / BLE finds and explored fog tiles).
+    (Wi‑Fi / BT / BLE finds, new/old fog tiles).
     """
     ensure_achievements_schema()
     snap = _progress_snapshot(user_id)
     ach_xp = _achievement_xp_earned(snap)
-    activity = activity_xp_breakdown(snap)
-    prog = explorer_progress_from_xp(ach_xp + int(activity["total"]))
+    activity = activity_xp_breakdown(snap, achievements_xp=ach_xp)
+    prog = explorer_progress_from_xp(int(activity["grand_total"]))
     prog["xp_achievements"] = ach_xp
     prog["xp_activity"] = activity
+    prog["breakdown"] = activity["breakdown"]
     return prog

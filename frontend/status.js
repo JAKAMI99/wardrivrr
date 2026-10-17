@@ -123,14 +123,35 @@ function paintContainer(prefix, info, fallbackTitle) {
     title.textContent = info.name || fallbackTitle;
     detail.textContent = info.detail || `Status: ${info.status}`;
   }
-  fillDl(meta, [
+  const rows = [
     ["URL", info.url],
     ["Name", info.name],
     ["Status", info.status],
     ["Image", info.image],
     ["Health", info.health],
     ["PBF ready", info.pbf_ready == null ? null : String(info.pbf_ready)],
-  ]);
+  ];
+  if (prefix === "kismet" || info.wifi || info.bluetooth) {
+    const wifi = info.wifi || {};
+    const bt = info.bluetooth || {};
+    let wifiLabel = null;
+    if (wifi.present && (wifi.interface || wifi.name)) {
+      wifiLabel = wifi.interface || wifi.name;
+    } else if (wifi.present === false) {
+      wifiLabel = "none";
+    }
+    let btLabel = null;
+    if (bt.present === true) {
+      btLabel = bt.interface ? `yes · ${bt.interface}` : "yes";
+    } else if (bt.present === false) {
+      btLabel = "no";
+    }
+    rows.push(["Wi‑Fi", wifiLabel], ["Bluetooth", btLabel]);
+  }
+  if (info.map_label) {
+    rows.push(["Map", info.map_label]);
+  }
+  fillDl(meta, rows);
 }
 
 function paintDb(db, postgisContainer) {

@@ -25,8 +25,8 @@ services:
       retries: 30
       start_period: 90s
 
-  # Tiles from data/valhalla/active.osm.pbf (seeded/clipped by ./run.sh or API prepare).
-  # Regional packs live in data/pbf/; do not bind-mount a missing single file.
+  # Tiles from data/valhalla/active.osm.pbf (city/district clip from level prepare).
+  # Regional packs stay in data/pbf/; Valhalla only starts after a level is ready.
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
     container_name: wardrivrr_valhalla

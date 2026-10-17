@@ -84,47 +84,8 @@ if [[ -d data/valhalla/active.osm.pbf ]]; then
   sudo rm -rf data/valhalla/active.osm.pbf 2>/dev/null || rm -rf data/valhalla/active.osm.pbf || true
 fi
 
-pick_regional_pbf() {
-  local f best="" best_sz=0 sz
-  shopt -s nullglob
-  for f in data/pbf/*.osm.pbf data/pbf/*.pbf; do
-    [[ -f "$f" ]] || continue
-    sz=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo 0)
-    if [[ "$sz" -gt "$best_sz" && "$sz" -ge 1000 ]]; then
-      best="$f"
-      best_sz=$sz
-    fi
-  done
-  shopt -u nullglob
-  [[ -n "$best" ]] && printf '%s' "$best"
-}
-
-seed_active_from_regional() {
-  local src="$1"
-  [[ -n "$src" && -f "$src" ]] || return 1
-  mkdir -p data/valhalla
-  if [[ -f data/valhalla/active.osm.pbf ]]; then
-    local asz ssz
-    asz=$(stat -c%s data/valhalla/active.osm.pbf 2>/dev/null || echo 0)
-    ssz=$(stat -c%s "$src" 2>/dev/null || echo 0)
-    if [[ -f data/valhalla/active.json ]] && grep -q '"mode": "clip"' data/valhalla/active.json 2>/dev/null; then
-      echo "Valhalla: keeping level clip"
-      return 0
-    fi
-    if [[ "$asz" == "$ssz" && "$asz" -ge 1000 ]]; then
-      echo "Valhalla: active.osm.pbf already seeded"
-      return 0
-    fi
-  fi
-  echo "Valhalla: seeding from $src"
-  rm -f data/valhalla/active.osm.pbf
-  ln "$src" data/valhalla/active.osm.pbf 2>/dev/null || cp -f "$src" data/valhalla/active.osm.pbf
-  cat >data/valhalla/active.json <<EOF
-{"mode": "seed", "source_pbf": "$src", "updated_at": $(date +%s)}
-EOF
-  rm -rf data/valhalla/valhalla_tiles
-  docker volume rm -f wardrivrr_valhalla_data >/dev/null 2>&1 || true
-}
+# Valhalla active.osm.pbf is produced by the API for the selected level
+# (city/district clip) — never auto-seed from a full regional pack.
 
 # gpsd
 if [[ ! -f /etc/default/gpsd ]] || ! grep -q -- '-G' /etc/default/gpsd 2>/dev/null; then
@@ -176,15 +137,12 @@ if [[ "$PULLED" != "1" ]]; then
   "${COMPOSE[@]}" build api
 fi
 
-REGIONAL="$(pick_regional_pbf || true)"
-[[ -n "${REGIONAL:-}" ]] && seed_active_from_regional "$REGIONAL" || true
-
 SERVICES=(api postgis)
 if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
   SERVICES+=(valhalla)
-  echo "Valhalla: starting"
+  echo "Valhalla: starting (level extract already present)"
 else
-  echo "Valhalla: skipped (no pack in data/pbf/)"
+  echo "Valhalla: skipped until a level is created"
   "${COMPOSE[@]}" stop valhalla >/dev/null 2>&1 || true
 fi
 

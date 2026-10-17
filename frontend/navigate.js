@@ -964,7 +964,10 @@ async function refreshFog(force = false) {
   if (state.fogInFlight) return;
   state.fogInFlight = true;
   try {
-    const res = await WardAuth.apiFetch(`/api/levels/${state.levelId}/roads`);
+    const profile = encodeURIComponent(activeVehicleProfile());
+    const res = await WardAuth.apiFetch(
+      `/api/levels/${state.levelId}/roads?profile=${profile}`
+    );
     if (!res.ok) return;
     const data = await res.json();
     state.lastFogAt = Date.now();
@@ -1604,17 +1607,19 @@ function activeVehicleProfile() {
 }
 
 function applyLevelProfile(profile) {
-  const p = normalizeDriveProfile(profile);
-  const meta = DRIVE_MODE_PRESETS.find((x) => x.id === p) || DRIVE_MODE_PRESETS[1];
-  state.levelProfile = p;
+  // Level.profile is last-used Navigate default only — not baked into the map.
+  // localStorage / explicit pick wins; level default seeds first visit.
+  const fallback = normalizeDriveProfile(profile);
+  const meta =
+    DRIVE_MODE_PRESETS.find((x) => x.id === fallback) || DRIVE_MODE_PRESETS[1];
+  state.levelProfile = fallback;
   state.levelProfileLabel = meta.label;
-  // Keep a manual vehicle pick if the user already chose one this session
   if (!state.driveModePick) {
     try {
       const saved = localStorage.getItem(VEHICLE_KEY);
-      state.driveModePick = saved ? normalizeDriveProfile(saved) : p;
+      state.driveModePick = saved ? normalizeDriveProfile(saved) : fallback;
     } catch (_) {
-      state.driveModePick = p;
+      state.driveModePick = fallback;
     }
   }
   syncDriveModeUi();
@@ -1666,9 +1671,16 @@ function pickDriveMode(profileId) {
   } catch (_) {
     /* ignore */
   }
+  // Persist so gpsd unlock uses the same mode between polls
+  WardAuth.apiFetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ drive_profile: meta.id }),
+  }).catch(() => {});
   syncDriveModeUi();
   setNavHint(`${meta.label} routing.`);
   setDriveModeSheetOpen(false);
+  refreshFog(true);
   if (state.navigationActive && state.routingReady) {
     startExplore({ auto: true, reason: `Rerouting as ${meta.label}…` });
   }
@@ -2161,6 +2173,7 @@ async function pushFix(unlock = true) {
         level_id: state.levelId,
         unlock,
         session_started_at: state.sessionStartedAt,
+        profile: activeVehicleProfile(),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -3143,6 +3156,18 @@ async function startExplore(opts = {}) {
   }
 }
 
+async function clearActiveLevelSetting() {
+  try {
+    await WardAuth.apiFetch("/api/levels/active", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level_id: null }),
+    });
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 async function resolveLevel() {
   const settings = await WardAuth.apiFetch("/api/settings").then((r) => r.json());
   state.anomalyAlerts =
@@ -3159,22 +3184,45 @@ async function resolveLevel() {
   syncMuteIcon();
   const anomalyToggle = document.getElementById("toggleAnomaly");
   if (anomalyToggle) anomalyToggle.checked = state.anomalyAlerts;
-  if (settings.active_level_id) {
-    state.levelId = Number(settings.active_level_id);
-  } else {
+
+  let candidateId = settings.active_level_id
+    ? Number(settings.active_level_id)
+    : null;
+  if (!candidateId) {
     const levels = await WardAuth.apiFetch("/api/levels").then((r) => r.json());
     const ready = (levels || []).find((lv) => lv.status === "ready");
-    state.levelId = ready ? ready.id : null;
+    candidateId = ready ? ready.id : null;
   }
-  if (!state.levelId) {
+
+  if (!candidateId) {
+    state.levelId = null;
     setNavHint("No level yet — drive to a place to generate one.");
     updateLevelTiles(null);
     await refreshXpHud(true);
+    state.firstFixLevelPromptPending = true;
     return;
   }
-  const lv = await WardAuth.apiFetch(`/api/levels/${state.levelId}`).then((r) =>
-    r.json()
-  );
+
+  const res = await WardAuth.apiFetch(`/api/levels/${candidateId}`);
+  const lv = await res.json().catch(() => ({}));
+  // Stale active_level_id after wipe / rebuild — clear and prompt generate
+  if (!res.ok || !lv?.id || lv.status === "error") {
+    await clearActiveLevelSetting();
+    state.levelId = null;
+    state.levelName = "";
+    state.levelBoundary = null;
+    document.getElementById("statLevel").textContent = "—";
+    setNavHint("No level yet — looking up a place to generate…");
+    updateLevelTiles(null);
+    await refreshXpHud(true);
+    state.firstFixLevelPromptPending = true;
+    if (state.spawned) {
+      promptIfUnknownOnSpawn().catch(() => {});
+    }
+    return;
+  }
+
+  state.levelId = lv.id;
   state.levelName = lv.name || `Level ${state.levelId}`;
   state.levelBoundary = lv.boundary || null;
   applyLevelProfile(lv.profile_norm || lv.profile);
@@ -3507,6 +3555,13 @@ async function boot() {
   if (!followed && !DEBUG_NAV) {
     setFollowLiveGps(true); // poll until gpsd appears
     setNavHint("Waiting for GPS…");
+  }
+  // No ready level → open generate prompt once GPS/spawn is live
+  if (!state.levelId) {
+    state.firstFixLevelPromptPending = true;
+    if (state.spawned) {
+      promptIfUnknownOnSpawn().catch(() => {});
+    }
   }
   // Keep polling for late gpsd lock
   setInterval(() => {
