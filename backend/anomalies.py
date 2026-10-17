@@ -142,29 +142,70 @@ def match_network(
     return None
 
 
-def count_starlink_networks(user_id: int) -> int:
-    """Distinct user networks matching Starlink SSID rules."""
+def count_networks_for(user_id: int, counts_for: str) -> int:
+    """Distinct user networks matching rules with the given counts_for key."""
     from db import connect_dict
 
-    rules = [r for r in load_rules() if r.get("counts_for") == "starlink_networks"]
+    rules = [r for r in load_rules() if r.get("counts_for") == counts_for]
     if not rules:
         return 0
+
+    type_set: set[str] = set()
+    for rule in rules:
+        for t in rule.get("network_types") or []:
+            type_set.add(str(t).upper())
+
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT network_id, name, network_type
-                FROM networks
-                WHERE user_id = %s
-                  AND name IS NOT NULL
-                  AND (
-                    upper(btrim(name)) = 'STARLINK'
-                    OR upper(btrim(name)) LIKE 'STARLINK-%%'
-                  )
-                """,
-                (user_id,),
-            )
+            if counts_for == "starlink_networks":
+                cur.execute(
+                    """
+                    SELECT network_id, name, network_type
+                    FROM networks
+                    WHERE user_id = %s
+                      AND name IS NOT NULL
+                      AND (
+                        upper(btrim(name)) = 'STARLINK'
+                        OR upper(btrim(name)) LIKE 'STARLINK-%%'
+                      )
+                    """,
+                    (user_id,),
+                )
+            elif counts_for == "flipper_networks":
+                # Include type aliases; match_network does the real fingerprinting.
+                cur.execute(
+                    """
+                    SELECT network_id, name, network_type
+                    FROM networks
+                    WHERE user_id = %s
+                      AND (
+                        upper(btrim(COALESCE(network_type, '')))
+                          IN ('BT', 'BLE', 'BTLE', 'BLUETOOTH', 'BR/EDR')
+                        OR lower(COALESCE(name, '')) LIKE 'flipper%%'
+                      )
+                    """,
+                    (user_id,),
+                )
+            elif type_set:
+                cur.execute(
+                    """
+                    SELECT network_id, name, network_type
+                    FROM networks
+                    WHERE user_id = %s
+                      AND upper(btrim(COALESCE(network_type, ''))) = ANY(%s)
+                    """,
+                    (user_id, list(type_set)),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT network_id, name, network_type
+                    FROM networks
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
             rows = cur.fetchall() or []
     finally:
         conn.close()
@@ -179,6 +220,16 @@ def count_starlink_networks(user_id: int) -> int:
         ):
             n += 1
     return n
+
+
+def count_starlink_networks(user_id: int) -> int:
+    """Distinct user networks matching Starlink SSID rules."""
+    return count_networks_for(user_id, "starlink_networks")
+
+
+def count_flipper_networks(user_id: int) -> int:
+    """Distinct Flipper Zero BT/BLE devices (Wall of Flippers fingerprints)."""
+    return count_networks_for(user_id, "flipper_networks")
 
 
 def session_anomaly_hits(user_id: int, since: datetime) -> list[dict[str, Any]]:

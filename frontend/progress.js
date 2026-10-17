@@ -6,10 +6,11 @@ let exploredLayer = null;
 let boundaryLayer = null;
 
 function fogColors() {
-  const f = window.WardTheme?.fogPack?.();
+  // Progress uses a light OSM basemap — keep road strokes readable on it
+  // (Drive theme fog packs are tuned for dark MapLibre styles).
   return {
-    explored: f?.explored || "#3dffa8",
-    locked: f?.locked || "#12161e",
+    explored: "#1a9b6c",
+    locked: "#5a6570",
   };
 }
 
@@ -114,10 +115,8 @@ async function loadProgress() {
 
   if (!map) {
     map = L.map("progressMap", { zoomControl: true, attributionControl: true });
-    // OSM + CSS invert (CARTO raster tiles now require an API key)
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      className: "progress-basemap",
       attribution: "&copy; OpenStreetMap",
     }).addTo(map);
   }

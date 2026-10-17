@@ -8,25 +8,6 @@ cd "$ROOT"
 echo "=== wardrivrr setup ==="
 echo "This will install/configure host gpsd + Kismet, write .env, and start Docker."
 
-require_docker() {
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "Docker is not installed."
-    echo "Install Docker Engine: https://docs.docker.com/engine/install/"
-    exit 1
-  fi
-  if ! docker compose version >/dev/null 2>&1; then
-    echo "Docker Compose v2 plugin is missing (need: docker compose)."
-    exit 1
-  fi
-  if ! docker info >/dev/null 2>&1; then
-    echo "Docker is installed but not usable (permission or daemon down)."
-    echo "Fix once: sudo usermod -aG docker \"\$USER\" && newgrp docker"
-    echo "Or start the daemon: sudo systemctl enable --now docker"
-    exit 1
-  fi
-  echo "Docker: ok ($(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unknown))"
-}
-
 require_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
     return 0
@@ -46,8 +27,11 @@ require_root() {
   trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 }
 
-require_docker
+# Sudo first so ensure_docker can install Engine / Compose if missing.
 require_root
+# shellcheck disable=SC1091
+source "$ROOT/scripts/ensure_docker.sh"
+ensure_docker || exit 1
 
 set_env() {
   local key="$1" val="$2" file="${3:-.env}"

@@ -10,25 +10,6 @@ echo "=== wardrivrr ==="
 
 [[ -f .env ]] || { echo "Missing .env - run ./deploy.sh first."; exit 1; }
 
-require_docker() {
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "Docker is not installed."
-    echo "Install Docker Engine: https://docs.docker.com/engine/install/"
-    echo "Then run ./deploy.sh once."
-    exit 1
-  fi
-  if ! docker compose version >/dev/null 2>&1; then
-    echo "Docker Compose v2 plugin is missing (need: docker compose)."
-    exit 1
-  fi
-  if ! docker info >/dev/null 2>&1; then
-    echo "Docker is installed but not usable (permission or daemon down)."
-    echo "Fix once: sudo usermod -aG docker \"\$USER\" && newgrp docker"
-    echo "Or start the daemon: sudo systemctl enable --now docker"
-    exit 1
-  fi
-}
-
 require_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
     return 0
@@ -43,8 +24,13 @@ require_root() {
   sudo -v
 }
 
-require_docker
 require_root
+# shellcheck disable=SC1091
+source "$ROOT/scripts/ensure_docker.sh"
+ensure_docker || {
+  echo "Docker setup failed — run ./deploy.sh once, or install Docker Engine + Compose v2."
+  exit 1
+}
 
 set -a
 # shellcheck disable=SC1091

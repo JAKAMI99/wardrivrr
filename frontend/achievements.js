@@ -3,6 +3,7 @@ function unitLabel(tier) {
   const unit = tier.unit || "";
   if (unit.includes("km")) return "km";
   if (unit.includes("network") && unit.includes("starlink")) return "Starlink hotspots";
+  if (unit.includes("network") && unit.includes("flipper")) return "Flipper Zeros";
   if (unit.includes("network")) return "networks";
   if (unit.includes("sample")) return "samples";
   if (unit.includes("segment")) return "tiles";

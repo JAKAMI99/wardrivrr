@@ -180,6 +180,8 @@ const state = {
   autoExploreAttempts: 0,
   autoExploreRetryAt: 0,
   achievementSounds: true,
+  /** auto | bright | dark | system — Drive basemap lighting */
+  mapDarkMode: "auto",
   gpsSource: null,
   lastXpAt: 0,
   xpInFlight: false,
@@ -686,9 +688,20 @@ function applyFogThemeColors() {
   }
 }
 
-function applyDayNight(force = false) {
+function resolveWantNight() {
+  const mode = String(state.mapDarkMode || "auto").toLowerCase();
+  if (mode === "bright" || mode === "day" || mode === "light") return false;
+  if (mode === "dark" || mode === "night") return true;
+  if (mode === "system" || mode === "os") {
+    return !!window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+  }
+  // auto — sun at current GPS (fallback lat/lon still works)
   const elev = solarElevation(state.lat, state.lon);
-  const night = elev < -3;
+  return elev < -3;
+}
+
+function applyDayNight(force = false) {
+  const night = resolveWantNight();
   if (!state.map) {
     state.night = night;
     document.body.dataset.navNight = night ? "1" : "0";
@@ -700,7 +713,6 @@ function applyDayNight(force = false) {
     return;
   }
   const url = mapStyleUrl(night);
-  const curStyle = state.map.getStyle()?.sprite || "";
   const sameNight = state.night === night && !force;
   // Skip reload if night flag unchanged and we're not forcing a theme swap
   if (sameNight && !force) {
@@ -713,8 +725,6 @@ function applyDayNight(force = false) {
   const zoom = state.map.getZoom();
   const bearing = state.map.getBearing();
   const pitch = state.map.getPitch();
-  // Avoid pointless setStyle when URL matches current tileset family
-  void curStyle;
   state.map.setStyle(url);
   state.map.once("style.load", () => {
     state.map.jumpTo({ center, zoom, bearing, pitch });
@@ -1315,12 +1325,22 @@ function playAchievementSound(mastered) {
   const run = () => {
     if (ctx.state !== "running") return;
     const now = ctx.currentTime;
-    const notes = mastered
-      ? [523.25, 659.25, 783.99, 1046.5]
-      : [523.25, 659.25, 783.99];
-    notes.forEach((freq, i) => {
-      playTone(ctx, freq, now + i * 0.09, mastered ? 0.3 : 0.22, mastered ? 0.08 : 0.07);
-    });
+    // Happy "da dit da dit" — longer low, short high, repeat
+    const da = mastered ? 587.33 : 523.25; // D5 / C5
+    const dit = mastered ? 880.0 : 783.99; // A5 / G5
+    const peak = mastered ? 0.09 : 0.075;
+    const pattern = [
+      { f: da, t: 0.0, dur: 0.14 },
+      { f: dit, t: 0.17, dur: 0.07 },
+      { f: da, t: 0.28, dur: 0.14 },
+      { f: dit, t: 0.45, dur: 0.07 },
+    ];
+    if (mastered) {
+      pattern.push({ f: 1046.5, t: 0.58, dur: 0.22 }); // bright cap
+    }
+    for (const n of pattern) {
+      playTone(ctx, n.f, now + n.t, n.dur, peak, "triangle");
+    }
   };
   if (ctx.state === "running") run();
   else ctx.resume().then(run).catch(() => {});
@@ -3130,6 +3150,12 @@ async function resolveLevel() {
   state.achievementSounds =
     settings.achievement_sounds !== false &&
     settings.achievement_sounds !== "false";
+  {
+    const mode = String(settings.map_dark_mode || "auto").toLowerCase();
+    state.mapDarkMode = ["auto", "bright", "dark", "system"].includes(mode)
+      ? mode
+      : "auto";
+  }
   syncMuteIcon();
   const anomalyToggle = document.getElementById("toggleAnomaly");
   if (anomalyToggle) anomalyToggle.checked = state.anomalyAlerts;
@@ -3157,6 +3183,7 @@ async function resolveLevel() {
     state.lon = (lv.bbox[0] + lv.bbox[2]) / 2;
     state.lat = (lv.bbox[1] + lv.bbox[3]) / 2;
   }
+  applyDayNight(true);
   await refreshXpHud(true);
   await refreshFog(true);
 }
@@ -3164,7 +3191,7 @@ async function resolveLevel() {
 function initMap() {
   state.webglOk = supportsWebGL();
   loadNavPrefs();
-  const night = solarElevation(state.lat, state.lon) < -3;
+  const night = resolveWantNight();
   state.night = night;
   document.body.dataset.navNight = night ? "1" : "0";
 
@@ -3410,6 +3437,18 @@ function bindControls() {
     setView3d(!!e.target.checked);
   });
   window.addEventListener("wardrivrr:theme", () => onSiteThemeChange());
+  try {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const onScheme = () => {
+      if (String(state.mapDarkMode || "").toLowerCase() === "system") {
+        applyDayNight(true);
+      }
+    };
+    mq?.addEventListener?.("change", onScheme);
+    mq?.addListener?.(onScheme);
+  } catch {
+    /* older browsers */
+  }
   document.getElementById("levelPromptNo")?.addEventListener("click", () => {
     closeLevelPrompt(true);
     setNavHint("Level load dismissed.");

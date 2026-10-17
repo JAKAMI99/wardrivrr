@@ -348,6 +348,17 @@ html[data-theme="crt"] .nav-maneuver-dist {
   line-height: 1.1;
 }
 
+.nav-hud-stats .nav-stat-radio .nav-stat-new::before {
+  content: "new ";
+  font-size: 0.55em;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.9;
+  vertical-align: middle;
+  margin-right: 0.12em;
+}
+
 .nav-hud-stats .nav-stat-radio .nav-stat-seen {
   display: block;
   font-size: 0.78rem;

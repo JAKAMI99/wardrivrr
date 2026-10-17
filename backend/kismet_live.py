@@ -199,9 +199,10 @@ def _device_to_row(device: dict, user_id: int) -> tuple | None:
     if not mac or mac == "00:00:00:00:00:00":
         return None
 
-    name = device.get("kismet.device.base.commonname") or device.get(
-        "kismet.device.base.name"
-    )
+    # Prefer advertised SSID; Kismet commonname/base.name often equals the MAC.
+    from wigle import sanitize_network_name
+
+    name = None
     channel = None
     encryption = device.get("kismet.device.base.crypt")
     if isinstance(encryption, str):
@@ -213,12 +214,17 @@ def _device_to_row(device: dict, user_id: int) -> tuple | None:
     if isinstance(dot11, dict):
         last_ssid = dot11.get("dot11.device.last_beaconed_ssid_record") or {}
         if isinstance(last_ssid, dict):
-            name = last_ssid.get("dot11.advertisedssid.ssid") or name
+            name = last_ssid.get("dot11.advertisedssid.ssid") or None
             channel = last_ssid.get("dot11.advertisedssid.channel") or channel
             if not encryption:
                 encryption = last_ssid.get("dot11.advertisedssid.crypt_string") or last_ssid.get(
                     "dot11.advertisedssid.crypt_set"
                 )
+    if not name:
+        name = device.get("kismet.device.base.commonname") or device.get(
+            "kismet.device.base.name"
+        )
+    name = sanitize_network_name(name, mac)
 
     phy = device.get("kismet.device.base.phyname")
     type_name = device.get("kismet.device.base.type")
@@ -267,7 +273,7 @@ def _device_to_row(device: dict, user_id: int) -> tuple | None:
 
     record = {
         "network_id": mac,
-        "name": str(name) if name else None,
+        "name": name,
         "encryption": encryption,
         "network_type": ntype,
         "channel": channel,
