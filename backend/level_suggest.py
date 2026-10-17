@@ -1,5 +1,8 @@
 """
 Suggest which level to load for a GPS fix: whole city (small) or City (District) (large).
+
+Prefers OSM admin polygons (admin_areas.sqlite). Falls back to nearest GeoNames
+city from cities.sqlite when admin areas are not indexed yet (fresh install).
 """
 
 from __future__ import annotations
@@ -8,11 +11,14 @@ from typing import Any
 
 from admin_areas import find_city, find_covering_district
 from city_boundaries import city_may_have_parts, resolve_relation_boundary
+from cities_db import nearest_city
 from geofabrik import resolve_place_extract
-from levels import find_duplicate_level, get_level, list_levels, point_in_boundary
+from levels import find_duplicate_level, list_levels
 
 
 def level_contains_point(user_id: int, level_id: int, lat: float, lon: float) -> dict[str, Any]:
+    from levels import get_level, point_in_boundary
+
     level = get_level(user_id, level_id)
     if not level:
         return {"ok": False, "inside": False, "reason": "not_found"}
@@ -46,19 +52,44 @@ def _map_pack(lat: float, lon: float, bbox: list[float] | None, name: str | None
     }
 
 
-def suggest_level_at(user_id: int, lat: float, lon: float) -> dict[str, Any]:
-    """
-    Resolve city at point. Large cities → district containing the point.
-    Returns a create payload + display label, or an existing matching level.
-    """
-    city = find_city(lat, lon, None)
-    if not city:
+def _already_have(user_id: int, *, label: str, place_kind: str, osm_relation_id, geoname_id) -> dict | None:
+    existing = find_duplicate_level(
+        user_id,
+        place_kind=place_kind,
+        osm_relation_id=osm_relation_id,
+        geoname_id=geoname_id,
+    )
+    if existing:
         return {
-            "ok": False,
-            "reason": "no_city",
-            "detail": "No indexed city at this location",
+            "ok": True,
+            "already_have": True,
+            "label": existing.get("name") or label,
+            "level": {
+                "id": existing["id"],
+                "name": existing.get("name"),
+                "status": existing.get("status"),
+            },
+            "suggestion": None,
         }
+    for lv in list_levels(user_id):
+        if lv.get("status") == "error":
+            continue
+        if (lv.get("name") or "").strip().lower() == label.strip().lower():
+            return {
+                "ok": True,
+                "already_have": True,
+                "label": lv.get("name") or label,
+                "level": {
+                    "id": lv["id"],
+                    "name": lv.get("name"),
+                    "status": lv.get("status"),
+                },
+                "suggestion": None,
+            }
+    return None
 
+
+def _suggest_from_admin(user_id: int, lat: float, lon: float, city: dict) -> dict[str, Any]:
     city_name = city.get("name") or "City"
     city_bbox = city.get("bbox")
     may_parts = city_may_have_parts(population=None, bbox=city_bbox)
@@ -88,39 +119,15 @@ def suggest_level_at(user_id: int, lat: float, lon: float) -> dict[str, Any]:
             bbox = hit.get("bbox") or city_bbox
             osm_admin_level = hit.get("admin_level")
 
-    existing = find_duplicate_level(
+    dup = _already_have(
         user_id,
+        label=label,
         place_kind=place_kind,
         osm_relation_id=osm_relation_id,
+        geoname_id=None,
     )
-    if existing:
-        return {
-            "ok": True,
-            "already_have": True,
-            "label": existing.get("name") or label,
-            "level": {
-                "id": existing["id"],
-                "name": existing.get("name"),
-                "status": existing.get("status"),
-            },
-            "suggestion": None,
-        }
-
-    for lv in list_levels(user_id):
-        if lv.get("status") == "error":
-            continue
-        if (lv.get("name") or "").strip().lower() == label.strip().lower():
-            return {
-                "ok": True,
-                "already_have": True,
-                "label": lv.get("name") or label,
-                "level": {
-                    "id": lv["id"],
-                    "name": lv.get("name"),
-                    "status": lv.get("status"),
-                },
-                "suggestion": None,
-            }
+    if dup:
+        return dup
 
     boundary = None
     try:
@@ -155,3 +162,65 @@ def suggest_level_at(user_id: int, lat: float, lon: float) -> dict[str, Any]:
             "download_now": True,
         },
     }
+
+
+def _suggest_from_geonames(user_id: int, lat: float, lon: float) -> dict[str, Any]:
+    hit = nearest_city(lat, lon)
+    if not hit:
+        return {
+            "ok": False,
+            "reason": "no_city",
+            "detail": "No indexed city near this location (admin areas + GeoNames)",
+        }
+    label = hit["name"]
+    bbox = hit.get("bbox")
+    pack = _map_pack(lat, lon, bbox, label)
+    if not pack:
+        return {"ok": False, "reason": "no_pack", "detail": "No map pack for this place"}
+
+    dup = _already_have(
+        user_id,
+        label=label,
+        place_kind="city",
+        osm_relation_id=None,
+        geoname_id=hit.get("geoname_id"),
+    )
+    if dup:
+        return dup
+
+    return {
+        "ok": True,
+        "already_have": False,
+        "label": label,
+        "suggestion": {
+            "name": label,
+            "place_query": hit.get("place_query") or label,
+            "place_kind": "city",
+            "profile": "small_car",
+            "geofabrik_id": pack["id"],
+            "geoname_id": hit.get("geoname_id"),
+            "parent_geoname_id": None,
+            "parent_label": label,
+            "part_label": None,
+            "osm_relation_id": None,
+            "osm_admin_level": None,
+            "place_bbox": bbox,
+            "place_boundary": hit.get("boundary"),
+            "lat": hit.get("lat") or lat,
+            "lon": hit.get("lon") or lon,
+            "map_pack": pack,
+            "download_now": True,
+            "source": "geonames",
+        },
+    }
+
+
+def suggest_level_at(user_id: int, lat: float, lon: float) -> dict[str, Any]:
+    """
+    Resolve city at point. Large cities → district containing the point.
+    Returns a create payload + display label, or an existing matching level.
+    """
+    city = find_city(lat, lon, None)
+    if city:
+        return _suggest_from_admin(user_id, lat, lon, city)
+    return _suggest_from_geonames(user_id, lat, lon)
