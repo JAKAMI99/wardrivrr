@@ -2,7 +2,7 @@
 
 **Drive real roads. Clear the fog. Route into the dark.**
 
-Local-first wardriving on OpenStreetMap: GPS unlocks road segments as you drive, the map shows what’s still unexplored, and offline routing points you toward streets you haven’t covered yet. Optional Kismet fills in Wi‑Fi / Bluetooth sightings. Everything runs on your machine — PostGIS, UI, and routing — no cloud account.
+Local-first wardriving on OpenStreetMap: GPS unlocks road segments as you drive, the map shows what’s still unexplored, and offline routing points you toward streets you haven’t covered yet. Kismet fills in Wi‑Fi / Bluetooth sightings. Everything runs on your machine — PostGIS, UI, and routing — no cloud account.
 
 Default login after a fresh database: `admin` / `admin` — change it.
 
@@ -15,7 +15,6 @@ Default login after a fresh database: `admin` / `admin` — change it.
 - **Levels** — pick a place, download a map pack, play that area
 - **XP & achievements** — progress from exploration (tiles), not busywork
 - **Status** — GPS, Kismet, routing, and disk at a glance
-- **Optional RF** — host Kismet ingest when you bring a radio
 
 ---
 
