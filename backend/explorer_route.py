@@ -22,7 +22,7 @@ from levels import get_level
 from valhalla_client import ValhallaError, route, summarize_route
 
 # Fallback when profile has no min (legacy callers)
-DEAD_END_MIN_M = 70.0
+DEAD_END_MIN_M = 100.0
 
 # First metres of a new route must continue along current heading.
 # Replans take a second or two; by then the car has already moved — a straight
@@ -341,7 +341,8 @@ def plan_explore_route(
     target_km: float = 5.0,
     language: str = "en-US",
     heading_deg: float | None = None,
-    exclude_dead_ends: bool = False,
+    profile: str | None = None,
+    exclude_dead_ends: bool | None = None,
 ) -> dict[str, Any]:
     level = get_level(user_id, level_id)
     if not level:
@@ -349,7 +350,7 @@ def plan_explore_route(
     if level.get("status") != "ready":
         raise ValueError("Level is not ready")
 
-    profile = normalize_profile(level.get("profile"))
+    profile = normalize_profile(profile or level.get("profile"))
     policy = routing_policy(profile, exclude_dead_ends=exclude_dead_ends)
     costing = str(policy["costing"])
     costing_opts = dict(policy.get("costing_options") or {})

@@ -52,16 +52,19 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
       WARDRIVRR_MODE: ${WARDRIVRR_MODE:-full}
       DATA_ROOT: /app/data
-      # HOST_DATA_ROOT = host path to ./data (docker run -v from API).
-      # WARDRIVRR_COMPOSE_ROOT = in-container mount of the checkout.
-      HOST_DATA_ROOT: ${HOST_DATA_ROOT:-}
-      WARDRIVRR_COMPOSE_ROOT: /host/project
+      # Absolute host paths so the API can `docker compose` against the same
+      # paths the daemon uses (docker-from-docker). Set by ./run.sh / ./deploy.sh.
+      HOST_DATA_ROOT: ${HOST_DATA_ROOT:?set HOST_DATA_ROOT in .env}
+      HOST_PROJECT: ${HOST_PROJECT:?set HOST_PROJECT in .env}
+      WARDRIVRR_COMPOSE_ROOT: ${HOST_PROJECT}
     volumes:
       - ./data:/app/data
       - ./data/kismet_logs:/data/kismet_logs:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      # Compose files + .env for Valhalla recreate from API after first PBF / level clip
-      - ${HOST_PROJECT:-.}:/host/project:ro
+      # Same absolute path inside the container as on the host (required for
+      # compose volume resolution when starting Valhalla from the API).
+      - ${HOST_PROJECT}:${HOST_PROJECT}:ro
+      - ${HOST_PROJECT}:/host/project:ro
     depends_on:
       postgis:
         condition: service_healthy

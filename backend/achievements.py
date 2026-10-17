@@ -19,12 +19,14 @@ _MAX_STEP_M = 250.0
 # Ignore gaps longer than this between fixes
 _MAX_GAP_S = 120.0
 
-# Activity XP (on top of achievement unlock XP) — networks pay most, distance a little
+# Activity XP (on top of achievement unlock XP) — networks pay most; roads pay too
 XP_PER_WIFI_NET = 5
 XP_PER_BT_NET = 4
 XP_PER_BLE_NET = 3
-# 1 XP per 250 m driven (~4 XP / km)
-XP_PER_DRIVEN_M = 1.0 / 250.0
+# Any driven metre (including revisits) — ~5 XP / km
+XP_PER_DRIVEN_M = 1.0 / 200.0
+# Extra for newly unlocked fog — ~20 XP / km on top of driven
+XP_PER_NEW_ROAD_M = 1.0 / 50.0
 
 def _fmt_threshold(n: float | int) -> str:
     """Human-readable threshold for goal copy (e.g. 1,000,000 or 133.7)."""
@@ -360,12 +362,15 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
             networks_ble = int(net_row.get("ble") or 0)
             cur.execute(
                 """
-                SELECT COALESCE(SUM(km_total), 0)::float AS km_driven_total
+                SELECT COALESCE(SUM(km_total), 0)::float AS km_driven_total,
+                       COALESCE(SUM(km_explored), 0)::float AS km_explored_total
                 FROM drive_day_km WHERE user_id = %s
                 """,
                 (user_id,),
             )
-            km_driven_total = float((cur.fetchone() or {}).get("km_driven_total") or 0)
+            km_row = cur.fetchone() or {}
+            km_driven_total = float(km_row.get("km_driven_total") or 0)
+            km_explored_total = float(km_row.get("km_explored_total") or 0)
             cur.execute(
                 """
                 SELECT COUNT(*)::int AS n
@@ -427,6 +432,7 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
         "km_today": float(today_row.get("km_total") or 0),
         "km_night_today": float(today_row.get("km_night") or 0),
         "km_driven_total": km_driven_total,
+        "km_explored_total": km_explored_total,
         "networks_total": networks_total,
         "networks_wifi": networks_wifi,
         "networks_bt": networks_bt,
@@ -441,27 +447,38 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
 
 
 def activity_xp_breakdown(snap: dict[str, Any]) -> dict[str, Any]:
-    """XP from discovered networks + driven distance (deterministic from inventory)."""
+    """XP from discovered networks + driven / newly unlocked roads."""
     wifi = int(snap.get("networks_wifi") or 0)
     bt = int(snap.get("networks_bt") or 0)
     ble = int(snap.get("networks_ble") or 0)
     meters = float(snap.get("km_driven_total") or 0) * 1000.0
+    new_m = float(snap.get("km_explored_total") or 0) * 1000.0
+    new_m = max(0.0, min(new_m, meters))
     from_wifi = wifi * XP_PER_WIFI_NET
     from_bt = bt * XP_PER_BT_NET
     from_ble = ble * XP_PER_BLE_NET
     from_drive = int(meters * XP_PER_DRIVEN_M)
+    from_new = int(new_m * XP_PER_NEW_ROAD_M)
     return {
         "wifi": from_wifi,
         "bt": from_bt,
         "ble": from_ble,
         "driven": from_drive,
-        "total": from_wifi + from_bt + from_ble + from_drive,
-        "counts": {"wifi": wifi, "bt": bt, "ble": ble, "km": round(meters / 1000.0, 3)},
+        "new_road": from_new,
+        "total": from_wifi + from_bt + from_ble + from_drive + from_new,
+        "counts": {
+            "wifi": wifi,
+            "bt": bt,
+            "ble": ble,
+            "km": round(meters / 1000.0, 3),
+            "km_new": round(new_m / 1000.0, 3),
+        },
         "rates": {
             "wifi": XP_PER_WIFI_NET,
             "bt": XP_PER_BT_NET,
             "ble": XP_PER_BLE_NET,
             "driven_m_per_xp": round(1.0 / XP_PER_DRIVEN_M),
+            "new_road_m_per_xp": round(1.0 / XP_PER_NEW_ROAD_M),
         },
     }
 

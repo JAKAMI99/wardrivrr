@@ -225,36 +225,35 @@ def valhalla_service_status() -> dict:
             out["ok"] = False
             out["status"] = "waiting for seed"
             out["detail"] = (
-                "Regional pack in data/pbf/ — run ./run.sh to seed "
-                "data/valhalla/active.osm.pbf and start Valhalla"
+                "Regional pack downloaded — open Drive and generate a city; "
+                "Valhalla starts automatically"
             )
         elif not out["pbf_ready"]:
             out["ok"] = False
             out["status"] = "waiting for map"
             out["detail"] = (
-                "No map pack yet — create a level (Levels or Drive prompt) to download "
-                "a Geofabrik region into data/pbf/, then Valhalla starts"
+                "No map yet — spawn in Drive and generate a city; "
+                "Valhalla starts when the level is ready"
             )
         elif out.get("found") and out.get("running"):
             out["ok"] = False
             out["status"] = "building tiles"
             out["detail"] = (
-                f"Valhalla is up but not ready at {url} — first tile build can take "
-                f"many minutes. Watch: docker logs -f {VALHALLA_CONTAINER}"
+                f"Valhalla is building routing tiles (first city can take several "
+                f"minutes). Drive waits automatically."
             )
         elif out.get("found"):
             out["ok"] = False
             out["status"] = "stopped"
             out["detail"] = (
-                f"Container {VALHALLA_CONTAINER} exists but is not running — "
-                f"./run.sh or docker start {VALHALLA_CONTAINER}"
+                f"{VALHALLA_CONTAINER} stopped — Drive / level create will restart it"
             )
         else:
             out["ok"] = False
             out["status"] = "not started"
             out["detail"] = (
-                f"active.osm.pbf is present but {VALHALLA_CONTAINER} is not running — "
-                f"./run.sh to start it (API may not see Docker; check on the host)"
+                f"Map extract ready — starting {VALHALLA_CONTAINER} "
+                f"(Drive spawn → generate city also starts it)"
             )
     except Exception as exc:
         out["http_ok"] = False

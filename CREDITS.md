@@ -30,6 +30,13 @@ Exact city (and city-part) outlines for the levels map come from OpenStreetMap v
 - https://overpass-api.de/
 - https://wiki.openstreetmap.org/wiki/Overpass_API
 
+## Mapbox GL Directions (maneuver icons)
+
+Turn / roundabout / arrive glyphs in the Drive HUD are vendored from
+`@mapbox/mapbox-gl-directions` (`src/icons/`), ISC license.
+
+- https://github.com/mapbox/mapbox-gl-directions
+
 ---
 
 When new upstream data providers are added, credit them here and link a donate or support page if one exists.

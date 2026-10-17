@@ -48,11 +48,11 @@
 /* Left TBT — 20% from top; janky driver-scale arrow + distance */
 .nav-hud-side {
   position: absolute;
-  top: 20%;
-  left: 0.85rem;
+  top: 16%;
+  left: 0.65rem;
   right: auto;
   transform: none;
-  width: min(460px, 52vw);
+  width: min(300px, 72vw);
   display: grid;
   gap: 0;
   z-index: 4;
@@ -66,15 +66,15 @@
 .nav-maneuver {
   display: flex;
   align-items: center;
-  gap: 1.1rem;
+  gap: 0.7rem;
   background: var(--nav-panel);
-  border: 4px solid var(--nav-cyan);
-  border-radius: 22px;
-  padding: 1.15rem 1.35rem;
+  border: 3px solid var(--nav-cyan);
+  border-radius: 16px;
+  padding: 0.7rem 0.85rem;
   box-shadow:
-    0 0 0 3px rgba(0, 0, 0, 0.55),
-    0 18px 48px rgba(0, 0, 0, 0.65),
-    0 0 40px color-mix(in srgb, var(--nav-cyan) 35%, transparent);
+    0 0 0 2px rgba(0, 0, 0, 0.45),
+    0 12px 32px rgba(0, 0, 0, 0.55),
+    0 0 28px color-mix(in srgb, var(--nav-cyan) 28%, transparent);
 }
 
 html[data-theme="kidcore"] .nav-maneuver,
@@ -95,22 +95,40 @@ html[data-theme="crt"] .nav-maneuver {
 
 .nav-turn-arrow {
   flex: 0 0 auto;
-  width: 5.5rem;
-  height: 5.5rem;
+  width: 3.6rem;
+  height: 3.6rem;
+  aspect-ratio: 1;
   display: grid;
   place-items: center;
-  color: var(--nav-cyan);
-  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--nav-cyan) 55%, transparent));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--nav-cyan) 45%, transparent));
 }
 
-.nav-turn-arrow svg,
-.nav-turn-svg {
-  width: 100%;
-  height: 100%;
+/* Mapbox Directions SVGs — keep square, never stretch */
+.nav-turn-arrow .nav-turn-img {
+  width: 88%;
+  height: 88%;
+  max-width: 3.15rem;
+  max-height: 3.15rem;
+  object-fit: contain;
+  object-position: center;
   display: block;
-  overflow: visible;
-  color: inherit;
-  fill: currentColor;
+  user-select: none;
+  pointer-events: none;
+}
+
+.nav-turn-arrow .nav-turn-img.is-flip {
+  transform: scaleX(-1);
+}
+
+/* Icons are white fills — invert on light HUD themes */
+html[data-theme="kidcore"] .nav-turn-arrow .nav-turn-img,
+html[data-theme="kawaii"] .nav-turn-arrow .nav-turn-img {
+  filter: invert(1) brightness(0.2);
+}
+html[data-theme="kidcore"] .nav-turn-arrow .nav-turn-img.is-flip,
+html[data-theme="kawaii"] .nav-turn-arrow .nav-turn-img.is-flip {
+  filter: invert(1) brightness(0.2);
+  transform: scaleX(-1);
 }
 
 .nav-rerouting {
@@ -136,6 +154,52 @@ html[data-theme="crt"] .nav-maneuver {
   display: none !important;
 }
 
+/* Persistent notice while Valhalla tiles are still building */
+.nav-routing-wait {
+  position: absolute;
+  top: 4.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  max-width: min(92vw, 26rem);
+  padding: 0.65rem 1.15rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, #f0b429 55%, transparent);
+  background: color-mix(in srgb, var(--nav-panel) 94%, #1a1200);
+  color: #f6d889;
+  font-size: 0.92rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  text-align: center;
+}
+
+.nav-routing-wait strong {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #ffd56a;
+}
+
+.nav-routing-wait span {
+  font-size: 0.82rem;
+  font-weight: 550;
+  opacity: 0.92;
+  white-space: normal;
+}
+
+.nav-routing-wait[hidden] {
+  display: none !important;
+}
+
+.nav-main.is-routing-wait .nav-rerouting {
+  top: 8.1rem;
+}
+
 .nav-turn-meta {
   display: flex;
   flex-direction: column;
@@ -146,7 +210,7 @@ html[data-theme="crt"] .nav-maneuver {
 }
 
 .nav-maneuver-dist {
-  font-size: clamp(3.2rem, 7vw, 5.2rem);
+  font-size: clamp(1.85rem, 4.2vw, 2.65rem);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.04em;
@@ -160,7 +224,7 @@ html[data-theme="crt"] .nav-maneuver-dist {
 }
 
 .nav-maneuver-unit {
-  font-size: clamp(1.1rem, 2.4vw, 1.55rem);
+  font-size: clamp(0.78rem, 1.7vw, 1.05rem);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -212,20 +276,18 @@ html[data-theme="crt"] .nav-maneuver-dist {
 }
 
 .nav-hud-stats .nav-stat > span#statSpeed,
-.nav-hud-stats .nav-stat > span#statUnlock,
-.nav-hud-stats .nav-stat > span#statRoute,
 .nav-hud-stats .nav-stat > span#statLevel {
   display: block;
-  font-size: clamp(0.95rem, 2.4vw, 1.2rem);
+  font-size: clamp(1.35rem, 3.6vw, 1.85rem);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--nav-cyan);
-  line-height: 1.15;
+  line-height: 1.1;
 }
 
 .nav-hud-stats .nav-stat-xp {
-  flex: 1.35 1 0;
-  min-width: 4.5rem;
+  flex: 1.55 1 0;
+  min-width: 5.5rem;
   pointer-events: auto;
 }
 
@@ -233,48 +295,88 @@ html[data-theme="crt"] .nav-maneuver-dist {
   display: flex;
   align-items: baseline;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   line-height: 1.1;
 }
 
 .nav-xp-top #statXpLevel {
-  font-size: clamp(0.95rem, 2.4vw, 1.2rem);
+  font-size: clamp(1.35rem, 3.6vw, 1.85rem);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--nav-cyan);
 }
 
 .nav-xp-meta {
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--nav-muted);
   white-space: nowrap;
 }
 
 .nav-xp-track {
-  height: 0.35rem;
-  margin: 0.28rem 0.15rem 0.15rem;
+  position: relative;
+  height: 0.55rem;
+  margin: 0.35rem 0.2rem 0.2rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--nav-muted) 28%, transparent);
+  background: color-mix(in srgb, var(--nav-muted) 32%, #0a0c10);
   overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
 .nav-xp-fill {
+  position: relative;
   height: 100%;
   width: 0%;
   border-radius: inherit;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--nav-cyan) 70%, #7cfc00),
-    var(--nav-cyan)
+    #1a9b6c 0%,
+    #3dffa8 42%,
+    var(--nav-cyan) 78%,
+    #7ef0ff 100%
   );
-  transition: width 0.45s ease;
+  background-size: 200% 100%;
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: nav-xp-flow 2.8s linear infinite;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--nav-cyan) 55%, transparent);
+}
+
+.nav-xp-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 60%
+  );
+  background-size: 220% 100%;
+  animation: nav-xp-shine 2.2s ease-in-out infinite;
+}
+
+@keyframes nav-xp-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes nav-xp-shine {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -40% 0;
+  }
 }
 
 .nav-hud-stats .nav-stat-radio .nav-stat-new {
   display: block;
-  font-size: clamp(1.15rem, 3vw, 1.45rem);
+  font-size: clamp(1.35rem, 3.6vw, 1.85rem);
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   color: var(--nav-ok);
@@ -283,9 +385,9 @@ html[data-theme="crt"] .nav-maneuver-dist {
 
 .nav-hud-stats .nav-stat-radio .nav-stat-seen {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--nav-muted);
   line-height: 1.2;
   margin-top: 0.05rem;
@@ -298,8 +400,8 @@ html[data-theme="crt"] .nav-maneuver-dist {
 }
 
 .nav-hud-stats .nav-stat-level {
-  flex: 1.2 1 0;
-  min-width: 4.4rem;
+  flex: 1.45 1 0;
+  min-width: 5.2rem;
 }
 
 .nav-hud-stats .nav-stat-level > span#statLevel {
@@ -321,19 +423,22 @@ html[data-theme="crt"] .nav-maneuver-dist {
   margin-top: 0.08rem;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+  font-size: clamp(0.58rem, 1.6vw, 0.72rem);
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--nav-cyan);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Vertical control stack — right edge, fat-finger / Android Auto scale */
+/* Compact control stack — play + vehicle + settings */
 .nav-toolbar {
-  --nav-tap: 4.75rem; /* ~76dp @ 16px root — Android Auto minimum */
-  --nav-tap-gap: 1.45rem; /* ≥ 23dp between targets (Design for Driving) */
+  --nav-tap: 3.6rem;
+  --nav-tap-gap: 0.75rem;
   position: absolute;
   top: 50%;
-  right: max(0.75rem, env(safe-area-inset-right));
+  right: max(0.55rem, env(safe-area-inset-right));
   bottom: auto;
   left: auto;
   transform: translateY(-50%);
@@ -348,6 +453,69 @@ html[data-theme="crt"] .nav-maneuver-dist {
   width: auto;
   background: none;
   pointer-events: none;
+}
+
+.nav-vehicle-glyph {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+}
+
+.nav-vehicle-glyph svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.nav-nav-toggle .nav-stop-icon[hidden],
+.nav-nav-toggle .nav-play-icon[hidden] {
+  display: none !important;
+}
+
+.nav-settings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+
+.nav-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--nav-cyan) 28%, transparent);
+  background: color-mix(in srgb, var(--nav-panel) 88%, #000);
+  color: var(--nav-text);
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.nav-settings-row:hover,
+.nav-settings-row:focus-visible {
+  border-color: var(--nav-cyan);
+}
+
+.nav-settings-label {
+  font-size: 1rem;
+}
+
+.nav-settings-value {
+  font-size: 0.9rem;
+  font-weight: 750;
+  color: var(--nav-cyan);
+}
+
+.nav-settings-link {
+  justify-content: center;
+  color: var(--nav-cyan);
 }
 
 .nav-toolbar > * {
@@ -444,24 +612,29 @@ html[data-theme="crt"] .nav-maneuver-dist {
 }
 
 .nav-icon-btn svg {
-  width: 2rem;
-  height: 2rem;
+  width: 1.65rem;
+  height: 1.65rem;
   display: block;
   pointer-events: none;
 }
 
-/* Primary Start/Stop — one size up for glanceability */
+.nav-icon-btn .nav-vehicle-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Primary play/stop — slightly larger */
 .nav-icon-btn-lg {
-  width: calc(var(--nav-tap) + 0.55rem);
-  height: calc(var(--nav-tap) + 0.55rem);
-  min-width: calc(var(--nav-tap) + 0.55rem);
-  min-height: calc(var(--nav-tap) + 0.55rem);
-  border-radius: 1.35rem;
+  width: calc(var(--nav-tap) + 0.35rem);
+  height: calc(var(--nav-tap) + 0.35rem);
+  min-width: calc(var(--nav-tap) + 0.35rem);
+  min-height: calc(var(--nav-tap) + 0.35rem);
+  border-radius: 1.2rem;
 }
 
 .nav-icon-btn-lg svg {
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 1.85rem;
+  height: 1.85rem;
 }
 
 .nav-icon-btn:hover {
@@ -509,13 +682,28 @@ html[data-theme="crt"] .nav-maneuver-dist {
   border-color: var(--nav-cyan);
 }
 
-.nav-icon-btn:disabled {
-  opacity: 0.4;
+.nav-icon-btn:disabled,
+.nav-icon-btn.is-routing-disabled {
+  opacity: 0.38;
   cursor: not-allowed;
+  color: rgba(140, 148, 160, 0.75);
+  background: color-mix(in srgb, var(--nav-panel) 70%, #000);
+  border-color: color-mix(in srgb, #6a7280 35%, transparent);
+  box-shadow: none;
+  filter: grayscale(0.85);
+}
+
+.nav-icon-btn:disabled:hover,
+.nav-icon-btn.is-routing-disabled:hover {
+  border-color: color-mix(in srgb, #6a7280 35%, transparent);
+}
+
+.nav-icon-btn:disabled:active,
+.nav-icon-btn.is-routing-disabled:active {
+  transform: none;
 }
 
 .nav-sr-only {
-  /* Mirror for prefs / level-prompt sync — real control is #btnDeadEnds */
   display: none !important;
 }
 
@@ -992,32 +1180,39 @@ html[data-theme="crt"] .nav-ach-toast.is-mastered .nav-ach-status {
   display: none !important;
 }
 
-/* Tablet / desktop landscape: mid-right, full AA targets */
+/* Tablet / desktop landscape: mid-right */
 @media (min-width: 641px) and (min-height: 520px) {
   .nav-toolbar {
+    --nav-tap: 3.85rem;
+    --nav-tap-gap: 0.85rem;
     top: 50%;
     bottom: auto;
     transform: translateY(-50%);
-    right: max(1rem, env(safe-area-inset-right));
+    right: max(0.75rem, env(safe-area-inset-right));
   }
 }
 
-/* Phone / short viewports: thumb zone bottom-right, keep AA-scale taps */
+/* Phone / short viewports: compact thumb stack above stats */
 @media (max-width: 640px), (max-height: 519px) {
   .nav-hud-side {
-    width: min(92vw, 380px);
-    top: 12%;
-    left: 0.45rem;
+    width: min(300px, 78vw);
+    top: 10%;
+    left: 0.4rem;
     right: auto;
   }
   .nav-maneuver {
-    gap: 0.75rem;
-    padding: 0.85rem 1rem;
-    border-width: 3px;
+    gap: 0.55rem;
+    padding: 0.55rem 0.7rem;
+    border-width: 2px;
+    border-radius: 14px;
   }
   .nav-turn-arrow {
-    width: 6.5rem;
-    height: 6.5rem;
+    width: 3rem;
+    height: 3rem;
+  }
+  .nav-turn-arrow .nav-turn-img {
+    max-width: 2.6rem;
+    max-height: 2.6rem;
   }
   .nav-map-marker {
     width: 36px;
@@ -1032,16 +1227,19 @@ html[data-theme="crt"] .nav-ach-toast.is-mastered .nav-ach-status {
     height: 42px;
   }
   .nav-maneuver-dist {
-    font-size: clamp(2.6rem, 12vw, 4rem);
+    font-size: clamp(1.55rem, 7vw, 2.1rem);
   }
   .nav-toolbar {
-    --nav-tap: 4.75rem;
-    --nav-tap-gap: 1.25rem;
+    --nav-tap: 3.15rem;
+    --nav-tap-gap: 0.55rem;
     top: auto;
     transform: none;
-    right: max(0.65rem, env(safe-area-inset-right));
-    bottom: calc(5.75rem + env(safe-area-inset-bottom));
-    max-height: calc(100dvh - 8rem);
+    right: max(0.45rem, env(safe-area-inset-right));
+    bottom: calc(5.25rem + env(safe-area-inset-bottom));
+    max-height: none;
+  }
+  .nav-hud-stats {
+    padding: 0.35rem 0.3rem calc(0.35rem + env(safe-area-inset-bottom));
   }
   .nav-hud-stats .nav-stat-radio .nav-stat-seen::before {
     content: "";
@@ -1051,36 +1249,9 @@ html[data-theme="crt"] .nav-ach-toast.is-mastered .nav-ach-status {
   }
 }
 
-/* Very narrow phones: 2×2 grid so four AA buttons still fit */
-@media (max-width: 420px) {
-  .nav-toolbar-icons {
-    display: grid;
-    grid-template-columns: repeat(2, var(--nav-tap));
-    grid-auto-rows: var(--nav-tap);
-    gap: var(--nav-tap-gap);
-    align-items: center;
-    justify-items: center;
-  }
-  .nav-icon-btn-lg {
-    width: var(--nav-tap);
-    height: var(--nav-tap);
-    min-width: var(--nav-tap);
-    min-height: var(--nav-tap);
-    border-radius: 1.15rem;
-  }
-  .nav-icon-btn-lg svg {
-    width: 2rem;
-    height: 2rem;
-  }
-  .nav-toolbar .nav-hint {
-    grid-column: 1 / -1;
-  }
-}
-
-/* Coarse pointer (touch / dash mount): lock AA minimum */
 @media (pointer: coarse) {
   .nav-toolbar {
-    --nav-tap: 4.75rem;
-    --nav-tap-gap: 1.45rem;
+    --nav-tap: 3.4rem;
+    --nav-tap-gap: 0.65rem;
   }
 }

@@ -6,7 +6,7 @@ used while routing (Valhalla costing + dead-end policy).
 
 Presets:
   big_car   — arterials & collectors only; few turns; skip cul-de-sacs
-  small_car — full street grid; cul-de-sacs only if ≥ 70 m
+  small_car — full street grid; cul-de-sacs only if ≥ 100 m
   bicycle   — bike-friendly net; every dead end
   foot      — paths, tracks, gravel/mud-friendly; every dead end
 
@@ -116,9 +116,9 @@ PROFILE_META: dict[str, dict[str, Any]] = {
     },
     "small_car": {
         "label": "Small car",
-        "blurb": "Full street grid for completionists. Dead ends only if ≥ 70 m.",
+        "blurb": "Full street grid for completionists. Dead ends only if ≥ 100 m.",
         "costing": "auto",
-        "dead_end_min_m": 70.0,
+        "dead_end_min_m": 100.0,
         "exclude_all_dead_ends": False,
         "costing_options": {
             "maneuver_penalty": 5.0,
@@ -204,7 +204,7 @@ def routing_policy(
     """
     Dead-end + costing policy for explore routes.
     If exclude_dead_ends is not None, it overrides the profile default for
-    exclude_all (client checkbox).
+    exclude_all (optional legacy client override).
     """
     meta = profile_meta(profile)
     exclude_all = bool(meta["exclude_all_dead_ends"])

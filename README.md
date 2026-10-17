@@ -197,7 +197,8 @@ docker run -d --name wardrivrr_api --restart unless-stopped \
   -e KISMET_URL=http://127.0.0.1:2501 \
   -e DATA_ROOT=/app/data \
   -e HOST_DATA_ROOT="$(pwd)/data" \
-  -e WARDRIVRR_COMPOSE_ROOT=/host/project \
+  -e HOST_PROJECT="$(pwd)" \
+  -e WARDRIVRR_COMPOSE_ROOT="$(pwd)" \
   -v "$(pwd)/data:/app/data" \
   -v "$(pwd)/data/kismet_logs:/data/kismet_logs:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock \

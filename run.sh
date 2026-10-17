@@ -65,7 +65,8 @@ fix_env_kv KISMET_URL "http://127.0.0.1:2501"
 fix_env_kv FORCE_LOCAL_BUILD "${FORCE_LOCAL_BUILD:-1}"
 fix_env_kv HOST_PROJECT "$ROOT"
 fix_env_kv HOST_DATA_ROOT "$ROOT/data"
-fix_env_kv WARDRIVRR_COMPOSE_ROOT "/host/project"
+# Same path as HOST_PROJECT so API→docker compose resolves host bind mounts
+fix_env_kv WARDRIVRR_COMPOSE_ROOT "$ROOT"
 fix_env_kv VALHALLA_URL "http://127.0.0.1:8002"
 
 if ! grep -qE '^VALHALLA_SERVER_THREADS=' .env 2>/dev/null; then
