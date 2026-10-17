@@ -173,6 +173,34 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
         raw_lon=fix["lon"],
         snap=snap,
     )
+    unlock_stats = None
+    unlock_interval = max(1.0, float(os.getenv("GPSD_UNLOCK_INTERVAL", "2.5")))
+    now_mono = time.monotonic()
+    if now_mono - _last_unlock_at.get(user_id, 0.0) >= unlock_interval:
+        try:
+            from levels import unlock_near_point
+
+            if level_id is not None:
+                unlock_stats = unlock_near_point(
+                    int(level_id),
+                    use_lon,
+                    use_lat,
+                    accuracy_m=fix.get("accuracy_m") or 12.0,
+                    heading_deg=fix.get("heading_deg"),
+                    segment_id=snap.get("segment_id"),
+                )
+                _last_unlock_at[user_id] = now_mono
+        except Exception:
+            unlock_stats = None
+
+    # Fog XP must be credited here — Drive uses gpsd, not POST /api/gps/fix.
+    explored_km = 0.0
+    if unlock_stats:
+        if unlock_stats.get("newly_explored_m") is not None:
+            explored_km = max(0.0, float(unlock_stats["newly_explored_m"]) / 1000.0)
+        elif unlock_stats.get("newly_explored"):
+            # ~20 m segments (SEGMENT_TARGET_M) when length sum unavailable
+            explored_km = float(unlock_stats["newly_explored"]) * 0.02
     try:
         from achievements import record_drive_step
 
@@ -184,27 +212,10 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
             prev_lon=prev.get("lon") if prev else None,
             prev_ts=prev.get("updated_at") if prev else None,
             now_ts=time.time(),
+            explored_km_delta=explored_km,
         )
     except Exception:
         pass
-    unlock_interval = max(1.0, float(os.getenv("GPSD_UNLOCK_INTERVAL", "2.5")))
-    now_mono = time.monotonic()
-    if now_mono - _last_unlock_at.get(user_id, 0.0) >= unlock_interval:
-        try:
-            from levels import unlock_near_point
-
-            if level_id is not None:
-                unlock_near_point(
-                    int(level_id),
-                    use_lon,
-                    use_lat,
-                    accuracy_m=fix.get("accuracy_m") or 12.0,
-                    heading_deg=fix.get("heading_deg"),
-                    segment_id=snap.get("segment_id"),
-                )
-                _last_unlock_at[user_id] = now_mono
-        except Exception:
-            pass
 
 
 def _read_loop(host: str, port: int, interval: float) -> None:

@@ -284,8 +284,7 @@ INSERT INTO networks (
     %(address)s, %(city)s, %(postcode)s, %(country)s, %(country_code)s,
     %(location_accuracy_m)s, %(avg_gps_accuracy_m)s, NOW()
 )
-ON CONFLICT ((COALESCE(user_id, 0)), network_id) DO UPDATE SET
-    user_id = EXCLUDED.user_id,
+ON CONFLICT (user_id, network_id) DO UPDATE SET
     name = EXCLUDED.name,
     encryption = EXCLUDED.encryption,
     network_type = EXCLUDED.network_type,
