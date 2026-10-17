@@ -2429,46 +2429,6 @@ a.btn.is-disabled {
   font-weight: 700;
 }
 
-.drive-spotlight {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 0 0 clamp(20px, 4vw, 28px);
-  padding: clamp(1.1rem, 3vw, 1.6rem);
-  border-radius: calc(var(--radius) + 4px);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
-  background:
-    radial-gradient(ellipse 70% 120% at 100% 0%, var(--accent-dim), transparent 55%),
-    var(--panel);
-  box-shadow: var(--shadow);
-  transition: border-color 0.15s ease, transform 0.15s ease;
-}
-
-.drive-spotlight:hover {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.drive-spotlight h2 {
-  margin: 0.2rem 0 0.35rem;
-  font-family: var(--font-display);
-  font-size: clamp(1.4rem, 3vw, 1.85rem);
-}
-
-.drive-spotlight p {
-  margin: 0;
-  color: var(--muted);
-  max-width: 36rem;
-}
-
-.drive-spotlight-cta {
-  flex: 0 0 auto;
-  font-weight: 700;
-  color: var(--accent);
-  white-space: nowrap;
-}
-
 .module-featured {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
   box-shadow: 0 0 0 1px var(--accent-dim);
