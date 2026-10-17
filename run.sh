@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
+# Everyday car / mini-PC boot — compose up, gpsd check, Valhalla seed.
+# First time on this machine: ./deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")"
-
-if [[ -x "venv/bin/python" ]]; then
-  PY="venv/bin/python"
-elif [[ -x ".venv/bin/python" ]]; then
-  PY=".venv/bin/python"
-elif [[ -x "venv/Scripts/python.exe" ]]; then
-  PY="venv/Scripts/python.exe"
-else
-  PY="python3"
+if [[ ! -f .env ]]; then
+  echo "Missing .env — run ./deploy.sh first."
+  exit 1
 fi
-
-echo "[wardrivrr] starting via $PY run_dev.py $*"
-exec "$PY" run_dev.py "$@"
+exec ./scripts/car_up.sh "$@"
