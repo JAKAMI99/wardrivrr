@@ -65,7 +65,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-EMPTY_SQL = "(name IS NULL OR btrim(name) = '' OR lower(btrim(name)) IN ('(no ssid)', '<no ssid>', '[no ssid]', 'null', 'none'))"
+# No real SSID: empty placeholders, or name that is just the BSSID (Kismet fallback).
+EMPTY_SQL = """(
+  name IS NULL
+  OR btrim(name) = ''
+  OR lower(btrim(name)) IN ('(no ssid)', '<no ssid>', '[no ssid]', 'null', 'none')
+  OR (
+    network_id IS NOT NULL
+    AND length(regexp_replace(lower(network_id), '[^0-9a-f]', '', 'g')) >= 12
+    AND regexp_replace(lower(btrim(name)), '[^0-9a-f]', '', 'g')
+      = regexp_replace(lower(network_id), '[^0-9a-f]', '', 'g')
+  )
+)"""
 
 
 class LoginBody(BaseModel):
@@ -110,6 +121,9 @@ class SettingsBody(BaseModel):
     anomaly_alerts: bool | None = None
     achievement_sounds: bool | None = None
     units: str | None = Field(default=None, pattern="^(metric|imperial)$")
+    map_dark_mode: str | None = Field(
+        default=None, pattern="^(auto|bright|dark|system)$"
+    )
     theme: str | None = Field(
         default=None, pattern="^(classic|kidcore|kawaii|crt)$"
     )  # kawaii = legacy alias for kidcore
@@ -745,6 +759,19 @@ def _normalize_theme(theme: str) -> str:
     return t
 
 
+def _normalize_map_dark_mode(mode: str) -> str:
+    m = (mode or "auto").strip().lower()
+    if m in {"sun", "solar", "auto_sun"}:
+        return "auto"
+    if m in {"light", "day", "bright"}:
+        return "bright"
+    if m in {"night", "dark"}:
+        return "dark"
+    if m in {"system", "os", "prefers"}:
+        return "system"
+    return "auto"
+
+
 @app.get("/api/settings")
 def read_settings(user: dict = Depends(get_current_user)):
     return {
@@ -777,6 +804,9 @@ def read_settings(user: dict = Depends(get_current_user)):
             get_user_setting(user["id"], "achievement_sounds", "true") or "true"
         ).lower()
         == "true",
+        "map_dark_mode": _normalize_map_dark_mode(
+            get_user_setting(user["id"], "map_dark_mode", "auto") or "auto"
+        ),
     }
 
 
@@ -812,6 +842,10 @@ def patch_settings(body: SettingsBody, user: dict = Depends(get_current_user)):
         )
     if body.units is not None:
         set_user_setting(user["id"], "units", body.units)
+    if body.map_dark_mode is not None:
+        set_user_setting(
+            user["id"], "map_dark_mode", _normalize_map_dark_mode(body.map_dark_mode)
+        )
     if body.theme is not None:
         set_user_setting(user["id"], "theme", _normalize_theme(body.theme))
     return read_settings(user)

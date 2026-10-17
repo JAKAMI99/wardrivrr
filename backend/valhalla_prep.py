@@ -243,6 +243,20 @@ def _host_data_root() -> Path:
     return DATA
 
 
+def _compose_available() -> bool:
+    """True when `docker compose` works (plugin present — not just the docker binary)."""
+    try:
+        proc = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def _compose_cmd() -> list[str]:
     root = _compose_root()
     # --project-directory forces host-relative volume paths for docker-from-docker
@@ -261,6 +275,108 @@ def _compose_cmd() -> list[str]:
     if env_file.is_file():
         compose.extend(["--env-file", str(env_file)])
     return compose
+
+
+def _valhalla_image() -> str:
+    return (
+        os.getenv("VALHALLA_IMAGE")
+        or "ghcr.io/gis-ops/docker-valhalla/valhalla:latest"
+    )
+
+
+def _start_valhalla_docker_run(*, wipe: bool = False) -> dict[str, Any]:
+    """
+    Start Valhalla with plain `docker run` (no Compose plugin required).
+
+    The API image ships a static docker CLI; older builds lacked the Compose
+    plugin, so this path is the reliable docker-from-docker fallback.
+    """
+    if not active_pbf_ready():
+        raise ValhallaPrepError("active.osm.pbf missing — seed or clip first")
+    if not _docker_cli_ok():
+        raise ValhallaPrepError(
+            "Docker CLI unavailable inside API — mount /var/run/docker.sock"
+        )
+
+    host_valhalla = (_host_data_root() / "valhalla").resolve()
+    if not host_valhalla.is_dir():
+        raise ValhallaPrepError(
+            f"Host Valhalla data dir missing: {host_valhalla} "
+            f"(set HOST_DATA_ROOT to the host ./data path)"
+        )
+
+    steps: list[dict[str, Any]] = []
+    for args in (
+        ["docker", "stop", "wardrivrr_valhalla"],
+        ["docker", "rm", "-f", "wardrivrr_valhalla"],
+    ):
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        steps.append({"cmd": args[1:], "code": proc.returncode})
+
+    do_wipe = wipe
+    if do_wipe:
+        wipe_valhalla_tiles()
+        steps.append({"cmd": ["wipe_tiles"], "code": 0})
+
+    image = _valhalla_image()
+    pull = subprocess.run(
+        ["docker", "pull", image],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    steps.append(
+        {"cmd": ["pull"], "code": pull.returncode, "err": (pull.stderr or "")[-300:]}
+    )
+
+    threads = str(valhalla_server_threads())
+    run_cmd = [
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        "wardrivrr_valhalla",
+        "--restart",
+        "unless-stopped",
+        "-p",
+        "8002:8002",
+        "-e",
+        "use_tiles_ignore_pbf=False",
+        "-e",
+        "build_elevation=False",
+        "-e",
+        "build_admins=False",
+        "-e",
+        "build_time_zones=False",
+        "-e",
+        "serve_tiles=True",
+        "-e",
+        f"server_threads={threads}",
+        "-v",
+        f"{host_valhalla}:/custom_files",
+        image,
+    ]
+    proc = subprocess.run(run_cmd, capture_output=True, text=True, timeout=120)
+    steps.append(
+        {
+            "cmd": ["run", "-d"],
+            "code": proc.returncode,
+            "err": (proc.stderr or proc.stdout or "")[-400:],
+            "server_threads": threads,
+            "host_mount": str(host_valhalla),
+        }
+    )
+    if proc.returncode != 0:
+        raise ValhallaPrepError(
+            f"docker run valhalla failed: {(proc.stderr or proc.stdout or '')[-500:]}"
+        )
+    return {
+        "restarted": True,
+        "method": "docker_run",
+        "wiped_tiles": do_wipe,
+        "server_threads": int(threads),
+        "steps": steps,
+    }
 
 
 def _compose_env() -> dict[str, str]:
@@ -332,13 +448,17 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
             "and set HOST_PROJECT to the host checkout path"
         )
 
+    do_wipe = os.getenv("VALHALLA_WIPE_ON_LEVEL", "1") != "0" if wipe is None else wipe
+
+    # Prefer compose when the plugin exists; otherwise plain docker run
+    # (API static docker CLI historically shipped without Compose).
+    if not _compose_available():
+        return _start_valhalla_docker_run(wipe=do_wipe)
+
     compose = _compose_cmd()
     root = _compose_root()
     if not (root / "docker-compose.yml").is_file():
-        raise ValhallaPrepError(
-            f"docker-compose.yml not found at {root} — set HOST_PROJECT "
-            f"to the absolute host path of the wardrivrr checkout"
-        )
+        return _start_valhalla_docker_run(wipe=do_wipe)
 
     cenv = _compose_env()
     threads = cenv["VALHALLA_SERVER_THREADS"]
@@ -357,7 +477,6 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
         )
         steps.append({"cmd": args, "code": proc.returncode})
 
-    do_wipe = os.getenv("VALHALLA_WIPE_ON_LEVEL", "1") != "0" if wipe is None else wipe
     if do_wipe:
         wipe_valhalla_tiles()
         steps.append({"cmd": ["wipe_tiles"], "code": 0})
@@ -397,16 +516,22 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
         }
     )
     if proc.returncode != 0:
-        # Last resort: start a leftover container if compose recreate failed
+        # Fall back: leftover container start, then plain docker run
         try:
             fallback = _start_valhalla_container_only()
             fallback["steps"] = steps
             fallback["compose_error"] = (proc.stderr or proc.stdout or "")[-400:]
             return fallback
         except ValhallaPrepError:
-            raise ValhallaPrepError(
-                f"Could not start Valhalla: {proc.stderr or proc.stdout}"
-            ) from None
+            try:
+                run_fb = _start_valhalla_docker_run(wipe=False)
+                run_fb["compose_error"] = (proc.stderr or proc.stdout or "")[-400:]
+                run_fb["steps"] = steps + list(run_fb.get("steps") or [])
+                return run_fb
+            except ValhallaPrepError as exc:
+                raise ValhallaPrepError(
+                    f"Could not start Valhalla: {proc.stderr or proc.stdout}"
+                ) from exc
     return {
         "restarted": True,
         "method": "compose_up",
@@ -446,17 +571,21 @@ def ensure_valhalla_up(*, wipe: bool = False) -> dict[str, Any]:
         started = _restart_valhalla(wipe=wipe)
         return {"ok": True, "http_ok": False, **started}
     except ValhallaPrepError as exc:
-        # Try plain docker start before giving up
+        # Try plain docker start, then docker run (no Compose) before giving up
         try:
             started = _start_valhalla_container_only()
             return {"ok": True, "http_ok": False, **started}
         except ValhallaPrepError:
-            return {
-                "ok": False,
-                "running": False,
-                "restarted": False,
-                "detail": str(exc),
-            }
+            try:
+                started = _start_valhalla_docker_run(wipe=False)
+                return {"ok": True, "http_ok": False, **started}
+            except ValhallaPrepError:
+                return {
+                    "ok": False,
+                    "running": False,
+                    "restarted": False,
+                    "detail": str(exc),
+                }
 
 
 def ensure_valhalla_after_regional_pbf(

@@ -204,12 +204,22 @@ def _aggregate(rows: list, mode: str, precision: str, user_id: int | None) -> di
                 last_seen = seen
             if latest_ts is None or seen >= latest_ts:
                 latest_ts = seen
-                name = row[1]
+                try:
+                    from wigle import sanitize_network_name
+
+                    name = sanitize_network_name(row[1], row[0])
+                except Exception:
+                    name = row[1]
                 encryption = row[2]
                 network_type = row[3] or "WIFI"
                 channel = row[4]
         elif name is None:
-            name = row[1]
+            try:
+                from wigle import sanitize_network_name
+
+                name = sanitize_network_name(row[1], row[0])
+            except Exception:
+                name = row[1]
             encryption = row[2]
             network_type = row[3] or "WIFI"
             channel = row[4]
@@ -285,7 +295,7 @@ INSERT INTO networks (
     %(location_accuracy_m)s, %(avg_gps_accuracy_m)s, NOW()
 )
 ON CONFLICT (user_id, network_id) DO UPDATE SET
-    name = EXCLUDED.name,
+    name = COALESCE(EXCLUDED.name, networks.name),
     encryption = EXCLUDED.encryption,
     network_type = EXCLUDED.network_type,
     channel = EXCLUDED.channel,

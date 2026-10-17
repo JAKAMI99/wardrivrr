@@ -26,6 +26,13 @@ async function loadSettings() {
       data.achievement_sounds !== false && data.achievement_sounds !== "false";
   }
   document.getElementById("units").value = data.units === "imperial" ? "imperial" : "metric";
+  const mapDark = document.getElementById("mapDarkMode");
+  if (mapDark) {
+    const mode = String(data.map_dark_mode || "auto").toLowerCase();
+    mapDark.value = ["auto", "bright", "dark", "system"].includes(mode)
+      ? mode
+      : "auto";
+  }
   if (data.theme && window.WardTheme) {
     WardTheme.apply(data.theme, { persist: true, broadcast: true });
   }
@@ -149,6 +156,7 @@ document.getElementById("settingsForm").addEventListener("submit", async (event)
       anomaly_alerts: document.getElementById("anomalyAlerts").checked,
       achievement_sounds: document.getElementById("achievementSounds")?.checked ?? true,
       units: document.getElementById("units").value,
+      map_dark_mode: document.getElementById("mapDarkMode")?.value || "auto",
       theme,
     }),
   });

@@ -16,12 +16,21 @@ _EMPTY = {
 
 def _bucket(nt: str | None) -> str | None:
     t = (nt or "").strip().upper()
-    if t in {"WIFI", "W", "WLAN", "802.11"}:
-        return "wifi"
-    if t in {"BLE", "BTLE"}:
+    if not t:
+        return None
+    if t in {"BLE", "BTLE"} or "BLE" in t or "BTLE" in t:
         return "ble"
-    if t in {"BT", "BLUETOOTH", "BR/EDR"}:
+    if t in {"BT", "BLUETOOTH", "BR/EDR"} or (
+        "BT" in t and "BLE" not in t and "BTLE" not in t
+    ):
         return "bt"
+    if (
+        t in {"WIFI", "W", "WLAN", "802.11", "IEEE802.11", "WI-FI"}
+        or "WIFI" in t
+        or "802.11" in t
+        or "WLAN" in t
+    ):
+        return "wifi"
     return None
 
 

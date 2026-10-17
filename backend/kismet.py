@@ -183,7 +183,8 @@ def _device_meta_from_json(device: dict | None, row: sqlite3.Row) -> dict:
             or _dig(device, "kismet.device.macaddr")
         )
         name = (
-            _dig(device, "kismet.device.base.commonname")
+            _dig(device, "dot11.device", "dot11.device.last_beaconed_ssid_record", "dot11.advertisedssid.ssid")
+            or _dig(device, "kismet.device.base.commonname")
             or _dig(device, "kismet.device.base.name")
             or _dig(device, "kismet.device.commonname")
             or _dig(device, "kismet.device.name")
@@ -215,9 +216,14 @@ def _device_meta_from_json(device: dict | None, row: sqlite3.Row) -> dict:
         phy = row["phyname"]
     type_name = row["type"] if "type" in keys else None
 
+    try:
+        from wigle import sanitize_network_name
+    except ImportError:
+        from backend.wigle import sanitize_network_name
+
     return {
         "network_id": mac,
-        "name": name,
+        "name": sanitize_network_name(name, mac),
         "encryption": encryption,
         "network_type": _phy_to_type(phy if isinstance(phy, str) else None, type_name),
         "channel": channel,
