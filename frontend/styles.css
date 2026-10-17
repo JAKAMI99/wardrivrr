@@ -97,10 +97,10 @@ select {
   top: 0;
   /* Above Leaflet map panes (~200–700) so account dropdown stays clickable */
   z-index: 1100;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  column-gap: 12px;
   min-height: var(--nav-h);
   padding: 0 clamp(14px, 3vw, 28px);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
@@ -109,9 +109,12 @@ select {
 }
 
 .site-brand {
+  grid-column: 1;
+  justify-self: start;
   display: flex;
   align-items: baseline;
   gap: 10px;
+  min-width: 0;
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 1.25rem;
@@ -125,9 +128,23 @@ select {
   color: var(--muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  /* Don't shove the center tab cluster when the subtitle length changes */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(28vw, 11rem);
 }
 
 .site-links {
+  grid-column: 2;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.site-links-more {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -139,7 +156,8 @@ select {
   color: var(--muted);
   font-size: 0.92rem;
   font-weight: 500;
-  transition: color 0.2s var(--ease), background 0.2s var(--ease);
+  transition: color 0.2s var(--ease), background 0.2s var(--ease),
+    box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 
 .site-links a:hover {
@@ -150,6 +168,24 @@ select {
 .site-links a.active {
   color: var(--accent);
   background: var(--accent-dim);
+}
+
+.nav-burger {
+  display: none;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0;
+}
+
+.nav-burger:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* —— Home —— */
@@ -1137,6 +1173,54 @@ a.module:hover {
   }
 }
 
+@media (max-width: 860px) {
+  .nav-burger {
+    display: grid;
+  }
+
+  /* Overflow pages live in the burger drawer; Drive stays in the bar */
+  .site-links-more {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 1101;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.2rem;
+    padding: 0.65rem 0.85rem 0.85rem;
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow);
+  }
+
+  .site-nav.is-burger-open .site-links-more {
+    display: flex;
+  }
+
+  .site-links-more a {
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+  }
+
+  .site-links {
+    /* Only Drive remains visible in the center slot on small screens */
+    gap: 0;
+  }
+
+  .account-name,
+  .account-caret {
+    display: none;
+  }
+
+  .account-trigger {
+    padding: 0.2rem;
+    gap: 0;
+  }
+}
+
 @media (max-width: 720px) {
   .site-brand span {
     display: none;
@@ -1145,6 +1229,10 @@ a.module:hover {
   .site-links a {
     padding: 8px 10px;
     font-size: 0.85rem;
+  }
+
+  .site-links a.nav-drive {
+    padding: 8px 14px;
   }
 
   #toggleFilters {
@@ -1944,16 +2032,14 @@ a.btn.is-disabled {
 }
 
 /* —— Slim nav + account menu —— */
-.site-nav {
-  gap: 0.75rem;
-}
-
 .site-nav-tail {
-  margin-left: auto;
+  grid-column: 3;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 0.45rem;
   flex: 0 0 auto;
+  min-width: 0;
 }
 
 /* Global appearance (theme) — next to profile */
@@ -2073,13 +2159,33 @@ a.btn.is-disabled {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
+/* Drive is always a distinct CTA — not the same “active pill” as other tabs */
 .site-links a.nav-drive {
   color: var(--accent);
-  font-weight: 650;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: transparent;
+}
+
+.site-links a.nav-drive:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-dim) 70%, transparent);
+  border-color: var(--accent);
+}
+
+.site-links a.nav-drive.is-current {
+  color: #0c0e11;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--bg) 70%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .site-links a.nav-drive.active {
-  background: var(--accent-dim);
+  /* Drive never uses the generic active pill */
+  background: transparent;
 }
 
 .account-menu {
@@ -2191,6 +2297,29 @@ a.btn.is-disabled {
 .account-dropdown-links a:hover {
   background: var(--accent-dim);
   color: var(--accent);
+}
+
+/* Per-user appearance picker inside the account menu */
+.account-theme {
+  padding: 0.35rem 0.45rem 0.55rem;
+  border-top: 1px solid var(--line);
+}
+
+.account-theme-title {
+  margin: 0.25rem 0.35rem 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.account-theme .nav-theme-option {
+  padding: 0.45rem 0.5rem;
+}
+
+.account-theme .nav-theme-option-text .muted {
+  display: none;
 }
 
 .account-dropdown-foot {

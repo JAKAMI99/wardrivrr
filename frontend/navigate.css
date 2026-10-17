@@ -30,7 +30,8 @@
 .nav-site-nav {
   flex: 0 0 auto;
   backdrop-filter: blur(10px);
-  z-index: 5;
+  /* Keep above the map so burger / theme / account menus stay usable */
+  z-index: 1100;
 }
 
 .nav-main {
@@ -56,6 +57,10 @@
   gap: 0;
   z-index: 4;
   pointer-events: none;
+}
+
+.nav-hud-side[hidden] {
+  display: none !important;
 }
 
 .nav-maneuver {
@@ -332,6 +337,22 @@ html[data-theme="crt"] .nav-maneuver-dist {
   border-color: var(--nav-cyan);
 }
 
+/* Colorful = active feature; grayed = inactive / “sounds playing” for mute */
+.nav-icon-btn.is-muted-look {
+  color: rgba(160, 168, 180, 0.72);
+  opacity: 0.85;
+}
+
+.nav-icon-btn.is-on:not(.is-muted-look) {
+  color: var(--nav-cyan, #00e5ff);
+}
+
+.nav-icon-btn.nav-nav-toggle.is-on:not(.is-muted-look) {
+  color: #0c0e11;
+  background: var(--nav-cyan, #00e5ff);
+  border-color: transparent;
+}
+
 .nav-icon-btn.is-on {
   background: color-mix(in srgb, var(--nav-cyan) 28%, var(--nav-panel));
   border-color: var(--nav-cyan);
@@ -392,14 +413,40 @@ html[data-theme="crt"] .nav-maneuver-dist {
 }
 
 .nav-level-sub {
-  margin: 0 0 1rem;
+  margin: 0 0 0.75rem;
   font-size: 0.85rem;
+}
+
+.nav-level-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--nav-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.nav-level-opt input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--nav-cyan, #00e5ff);
 }
 
 .nav-level-actions {
   display: flex;
   gap: 0.6rem;
   justify-content: flex-end;
+}
+
+/* Blur map while level prompt / build overlay is open */
+.nav-main.is-prompting .nav-map,
+.nav-main.is-building .nav-map {
+  filter: blur(8px) saturate(0.5) brightness(0.35);
+  transform: scale(1.02);
+  transition: filter 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
 }
 
 .nav-yes-fill {
@@ -424,13 +471,6 @@ html[data-theme="crt"] .nav-maneuver-dist {
   z-index: 1;
 }
 
-/* Generation overlay — blur map + levels-dashboard-style progress */
-.nav-main.is-building .nav-map {
-  filter: blur(6px) saturate(0.55) brightness(0.4);
-  transform: scale(1.02);
-  transition: filter 0.35s ease, transform 0.35s ease;
-}
-
 .nav-build-overlay {
   position: absolute;
   inset: 0;
@@ -439,8 +479,8 @@ html[data-theme="crt"] .nav-maneuver-dist {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(6, 8, 12, 0.68);
-  backdrop-filter: blur(2px);
+  background: rgba(6, 8, 12, 0.55);
+  backdrop-filter: blur(4px);
 }
 
 .nav-build-overlay[hidden] {
@@ -525,256 +565,37 @@ html[data-theme="crt"] .nav-maneuver-dist {
   opacity: 0.9;
 }
 
-/* Map-anchored 3D location marker (MapLibre Marker) — oversized for drive HUD */
+/* Turn-by-turn chevron — same shape every theme, fill from theme color */
 .nav-map-marker {
-  width: 92px;
-  height: 110px;
+  width: 40px;
+  height: 46px;
   pointer-events: none;
-  perspective: 640px;
 }
 
-/* Kidcore pacifier tip points “forward” (up) */
-.nav-marker-kidcore,
-.nav-marker-kawaii {
-  width: 92px;
-  height: 110px;
-  position: relative;
-  display: grid;
-  place-items: center;
-  animation: nav-paci-bob 1.4s ease-in-out infinite;
+.nav-marker-chevron {
+  width: 40px;
+  height: 46px;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
 }
 
-.nav-paci-ring {
-  position: absolute;
-  top: 18px;
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  border: 7px solid #ff5cab;
-  background: radial-gradient(circle at 40% 35%, #7ee8ff, #fff 55%);
-  box-shadow: 0 6px 0 #5b2b6b;
+.nav-marker-chevron svg {
+  display: block;
+  overflow: visible;
 }
 
-.nav-paci-nipple {
-  position: absolute;
-  top: 4px;
-  width: 18px;
-  height: 22px;
-  border-radius: 10px 10px 6px 6px;
-  background: linear-gradient(180deg, #ffe566, #ff9f1c);
-  border: 3px solid #5b2b6b;
-  z-index: 2;
+.nav-chevron-shadow {
+  fill: rgba(0, 0, 0, 0.28);
+  transform: translate(1px, 2px);
 }
 
-.nav-paci-shield {
-  position: absolute;
-  top: 52px;
-  width: 48px;
-  height: 22px;
-  border-radius: 0 0 24px 24px;
-  background: #ffe566;
-  border: 3px solid #5b2b6b;
-  border-top: none;
-  box-shadow: 0 4px 0 #ff2d95;
+.nav-chevron-fill {
+  fill: var(--nav-marker-fill, var(--nav-cyan, #00e5ff));
 }
 
-.nav-paci-handle {
-  position: absolute;
-  top: 70px;
-  width: 22px;
-  height: 16px;
-  border-radius: 0 0 12px 12px;
-  background: #ff9f1c;
-  border: 3px solid #5b2b6b;
-  border-top: none;
-}
-
-@keyframes nav-paci-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-/* legacy heart (unused) kept for class name safety */
-.nav-heart {
-  width: 52px;
-  height: 48px;
-  position: relative;
-  transform: rotate(-45deg) translateY(-4px);
-  background: linear-gradient(135deg, #ff85a1, #ff9770);
-  border-radius: 4px 4px 2px 2px;
-  box-shadow: 0 8px 18px rgba(255, 133, 161, 0.55);
-}
-
-.nav-heart::before,
-.nav-heart::after {
-  content: "";
-  position: absolute;
-  width: 52px;
-  height: 48px;
-  background: inherit;
-  border-radius: 50%;
-}
-
-.nav-heart::before {
-  top: -26px;
-  left: 0;
-}
-
-.nav-heart::after {
-  top: 0;
-  left: 26px;
-}
-
-.nav-heart-glow {
-  position: absolute;
-  bottom: 8%;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 214, 165, 0.9), transparent 70%);
-  animation: nav-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes nav-heart-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-/* CRT crosshair */
-.nav-marker-crt {
-  width: 92px;
-  height: 110px;
-  position: relative;
-  display: grid;
-  place-items: center;
-}
-
-.nav-crosshair {
-  width: 54px;
-  height: 54px;
-  border: 2px solid #00ff66;
-  box-shadow: 0 0 12px rgba(0, 255, 102, 0.7);
-  position: relative;
-}
-
-.nav-crosshair::before,
-.nav-crosshair::after {
-  content: "";
-  position: absolute;
-  background: #00ff66;
-  box-shadow: 0 0 8px #00ff66;
-}
-
-.nav-crosshair::before {
-  left: 50%;
-  top: -10px;
-  bottom: -10px;
-  width: 2px;
-  transform: translateX(-50%);
-}
-
-.nav-crosshair::after {
-  top: 50%;
-  left: -10px;
-  right: -10px;
-  height: 2px;
-  transform: translateY(-50%);
-}
-
-.nav-crosshair-ring {
-  position: absolute;
-  width: 72px;
-  height: 72px;
-  border: 1px dashed rgba(255, 176, 0, 0.7);
-  border-radius: 50%;
-  animation: nav-spin 8s linear infinite;
-}
-
-@keyframes nav-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.nav-arrow-3d {
-  width: 92px;
-  height: 110px;
-  position: relative;
-  transform-style: preserve-3d;
-  transform: rotateX(52deg);
-  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.6));
-}
-
-.nav-arrow-body {
-  position: absolute;
-  inset: 16% 28% 6%;
-  background: linear-gradient(180deg, #7ef0ff 0%, var(--nav-cyan) 45%, #0088a8 100%);
-  clip-path: polygon(50% 0%, 100% 100%, 50% 78%, 0% 100%);
-  border-radius: 2px;
-}
-
-.nav-arrow-wing {
-  position: absolute;
-  top: 40%;
-  width: 40%;
-  height: 30%;
-  background: linear-gradient(180deg, #5ad8ef, #0090b0);
-  opacity: 0.95;
-}
-
-.nav-arrow-wing-l {
-  left: 2%;
-  clip-path: polygon(100% 0%, 100% 100%, 0% 70%);
-  transform: rotateY(25deg);
-}
-
-.nav-arrow-wing-r {
-  right: 2%;
-  clip-path: polygon(0% 0%, 0% 100%, 100% 70%);
-  transform: rotateY(-25deg);
-}
-
-.nav-arrow-glow {
-  position: absolute;
-  left: 50%;
-  bottom: 2%;
-  width: 48px;
-  height: 48px;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(232, 33, 39, 0.9), transparent 70%);
-  animation: nav-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes nav-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: translateX(-50%) scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: translateX(-50%) scale(1.15);
-  }
-}
-
-/* Parked / tab hidden: stop infinite marker anims so the WebGL canvas can idle */
-body.nav-idle .nav-marker-kidcore,
-body.nav-idle .nav-marker-kawaii,
-body.nav-idle .nav-crosshair-ring,
-body.nav-idle .nav-arrow-glow,
-body.nav-idle .nav-heart-glow {
-  animation-play-state: paused;
+.nav-chevron-edge {
+  stroke: #fff;
+  stroke-width: 2.25;
+  stroke-linejoin: round;
 }
 
 .nav-ach-toasts {
@@ -860,10 +681,17 @@ body.nav-idle .nav-heart-glow {
     width: 6.5rem;
     height: 6.5rem;
   }
-  .nav-map-marker,
-  .nav-arrow-3d {
-    width: 76px;
-    height: 92px;
+  .nav-map-marker {
+    width: 36px;
+    height: 42px;
+  }
+  .nav-marker-chevron {
+    width: 36px;
+    height: 42px;
+  }
+  .nav-marker-chevron svg {
+    width: 36px;
+    height: 42px;
   }
   .nav-maneuver-dist {
     font-size: clamp(2.6rem, 12vw, 4rem);

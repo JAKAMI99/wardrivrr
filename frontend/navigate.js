@@ -2,10 +2,41 @@
 
 const STYLE_NIGHT = "https://tiles.openfreemap.org/styles/dark";
 const STYLE_DAY = "https://tiles.openfreemap.org/styles/liberty";
-const PITCH = 50;
+const PITCH_3D = 50;
+const PITCH_2D = 0;
+const VIEW_3D_KEY = "wardrivrr_nav_3d";
+/** @deprecated kept for one-time migration from buildings-only pref */
 const BUILDINGS_KEY = "wardrivrr_nav_buildings";
+const DEAD_ENDS_KEY = "wardrivrr_nav_exclude_dead_ends";
 
-const CAM_MS = 100;
+const CAM_MS = 32;
+/** Smooth follow time-constant (higher = snappier) */
+const CAM_SMOOTH = 7.5;
+const BEARING_SMOOTH = 5.5;
+const ZOOM_SMOOTH = 4.0;
+/** After pan/rotate, wait this long before GPS pulls the camera back */
+const USER_CAM_COOLDOWN_MS = 3000;
+/**
+ * Re-follow after a user pan/rotate: accelerate to mid-gap, then decelerate.
+ * Phase 1 = XY only; phase 2 (marker within CATCH_ALIGN_M) = zoom + bearing too.
+ */
+const CATCH_K_START = 3.5; // leave the panned/rotated view
+const CATCH_K_PEAK = 11; // fastest at half gap
+const CATCH_K_END = 6.5; // final approach — brisk, not a crawl
+/** Start zoom + bearing once camera center is this close to the marker */
+const CATCH_ALIGN_M = 110;
+const CATCH_LOCK_M = 0.15;
+const CATCH_LOCK_DEG = 0.8;
+/** Drift threshold to start a catch-up without a gesture */
+const CATCH_RESUME_M = 12;
+
+/** Closest street-level default; speed / next-turn pull out within these caps */
+const ZOOM_DEFAULT = 17.8;
+const ZOOM_MAX = 18.6; // crawl / at turn
+const ZOOM_MIN = 15.2; // fast drive ceiling (never farther than this)
+const ZOOM_SPEED_REF_KMH = 90; // at/above → ZOOM_MIN from speed alone
+const ZOOM_TURN_NEAR_M = 60;
+const ZOOM_TURN_FAR_M = 350;
 /** GPS push while driving */
 const FIX_MS = 2500;
 /** Stationary: keep session alive without hammering API / waking the map */
@@ -59,6 +90,33 @@ const state = {
   sessionUnlockM: 0,
   sessionStartedAt: null,
   buildingsOn: false,
+  /** True = pitched 3D + extruded buildings; false = flat 2D */
+  view3d: true,
+  /** Turn-by-turn / explore active — area prompts only while true */
+  navigationActive: false,
+  excludeDeadEnds: false,
+  camLat: null,
+  camLon: null,
+  camBearing: 0,
+  camPitch: PITCH_3D,
+  camZoom: ZOOM_DEFAULT,
+  /** Smoothed pose for the chevron (lerped every rAF toward GPS/sim) */
+  dispLat: null,
+  dispLon: null,
+  dispHeading: 0,
+  lastDispAt: 0,
+  /** performance.now() until which user map gestures own the camera */
+  userCamUntil: 0,
+  userCamActive: false,
+  /** Press paused follow; true until drag/rotate finalizes cooldown length */
+  userCamGesturePending: false,
+  /** True while easing camera back to the chevron after a user pan */
+  camCatchingUp: false,
+  /** Distance (m) when the current catch-up began — drives accel/decel split */
+  catchOriginDistM: 0,
+  catchOriginBrgErr: 0,
+  /** Ignore map gesture events while we jumpTo/ease programmatically */
+  camProgrammatic: false,
   webglOk: false,
   night: null,
   moving: false,
@@ -105,7 +163,8 @@ const state = {
   gpsSource: null,
 };
 
-const FOLLOW_MS = 500;
+/** Poll gpsd-backed fix often enough to feed the rAF lerp (backend ~5 Hz) */
+const FOLLOW_MS = 200;
 
 const ANOMALY_COOLDOWN_MS = 12000;
 
@@ -176,6 +235,44 @@ function nextTurnManeuver(mans, shapeIdx) {
     return mans[i];
   }
   return mans[mans.length - 1] || null;
+}
+
+/** Metres along the route to the next real turn, or null if no active route. */
+function nextTurnDistanceM() {
+  const route = state.route;
+  const coords = route?.geometry?.coordinates;
+  if (!route || !coords?.length || state.diverted) return null;
+  const idx = nearestShapeIndex(coords, state.lon, state.lat);
+  const mans = route.maneuvers || [];
+  const next = nextTurnManeuver(mans, idx) || route.next || mans[0];
+  if (!next) return null;
+  const begin = next.begin_shape_index ?? idx;
+  const end = next.end_shape_index ?? begin;
+  const target = idx < begin ? begin : Math.max(idx, end);
+  return pathMeters(coords, idx, target);
+}
+
+/**
+ * Target map zoom from speed (+ next-turn when navigating).
+ * Higher zoom = closer. Capped to [ZOOM_MIN, ZOOM_MAX].
+ */
+function targetZoom() {
+  const speed = Math.max(0, Number(state.speedKmh) || 0);
+  const speedT = Math.min(1, speed / ZOOM_SPEED_REF_KMH);
+  // Slow → close (ZOOM_MAX); fast → pulled out toward ZOOM_MIN
+  let z = ZOOM_MAX - speedT * (ZOOM_MAX - ZOOM_MIN);
+
+  if (state.navigationActive) {
+    const dist = nextTurnDistanceM();
+    if (dist != null && dist < ZOOM_TURN_FAR_M) {
+      const span = Math.max(1, ZOOM_TURN_FAR_M - ZOOM_TURN_NEAR_M);
+      const nearT = 1 - Math.min(1, Math.max(0, dist - ZOOM_TURN_NEAR_M) / span);
+      // Pull toward ZOOM_MAX as the turn approaches
+      z += (ZOOM_MAX - z) * nearT;
+    }
+  }
+
+  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
 }
 
 /**
@@ -422,7 +519,12 @@ function showManeuverHudShell() {
 function updateManeuverHud() {
   const route = state.route;
   const coords = route?.geometry?.coordinates;
-  if (!route || !coords?.length || state.diverted) {
+  if (
+    !state.navigationActive ||
+    !route ||
+    !coords?.length ||
+    state.diverted
+  ) {
     clearManeuverHud();
     return;
   }
@@ -431,11 +533,7 @@ function updateManeuverHud() {
   const idx = nearestShapeIndex(coords, state.lon, state.lat);
   const mans = route.maneuvers || [];
   const next = nextTurnManeuver(mans, idx) || route.next || mans[0];
-  const begin = next?.begin_shape_index ?? idx;
-  const end = next?.end_shape_index ?? begin;
-  // Count down to the turn start; once there, remaining through the maneuver
-  const target = idx < begin ? begin : Math.max(idx, end);
-  const distNext = pathMeters(coords, idx, target);
+  const distNext = nextTurnDistanceM() ?? 0;
 
   const parts = fmtMetersParts(distNext);
   document.getElementById("maneuverNextDist").textContent = parts.value;
@@ -556,7 +654,8 @@ function applyDayNight(force = false) {
     state.map.jumpTo({ center, zoom, bearing, pitch });
     restoreRouteLayer();
     applyRouteThemeColors();
-    if (state.buildingsOn) enableBuildings(true);
+    // Liberty/dark ship their own building-3d — always sync visibility after style swap
+    enableBuildings(!!state.buildingsOn);
     ensureMarker();
   });
 }
@@ -569,17 +668,64 @@ function findBuildingSource(style) {
   return null;
 }
 
+/** Toggle every fill-extrusion (style building-3d + our layer) for 2D perf. */
+function setFillExtrusionVisibility(on) {
+  if (!state.map) return;
+  const style = state.map.getStyle();
+  if (!style) return;
+  let any = false;
+  for (const layer of style.layers || []) {
+    if (layer.type !== "fill-extrusion") continue;
+    any = true;
+    try {
+      state.map.setLayoutProperty(
+        layer.id,
+        "visibility",
+        on ? "visible" : "none"
+      );
+    } catch (_) {
+      /* layer may be mid-reload */
+    }
+  }
+  return any;
+}
+
 function enableBuildings(on) {
   if (!state.map || !state.webglOk) return;
   const style = state.map.getStyle();
   if (!style) return;
-  if (state.map.getLayer("wardrivrr-3d-buildings")) {
-    state.map.removeLayer("wardrivrr-3d-buildings");
+  const want = !!on;
+
+  // Prefer toggling style-native extrusions (Liberty `building-3d`, etc.)
+  const hadStyleExtrusions = setFillExtrusionVisibility(want);
+
+  // Drop our fallback if the basemap already extrudes — avoid double draw
+  if (hadStyleExtrusions && state.map.getLayer("wardrivrr-3d-buildings")) {
+    try {
+      state.map.removeLayer("wardrivrr-3d-buildings");
+    } catch (_) {
+      /* ignore */
+    }
   }
-  if (!on) return;
+
+  if (state.map.getLayer("wardrivrr-3d-buildings")) {
+    if (!want) {
+      try {
+        state.map.removeLayer("wardrivrr-3d-buildings");
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return;
+  }
+  if (!want) return;
+  // Style already has 3D buildings — nothing more to add
+  if (hadStyleExtrusions) return;
+
   const sourceId = findBuildingSource(style);
   if (!sourceId) {
-    document.getElementById("toggleBuildings").checked = false;
+    const toggle = document.getElementById("toggleBuildings");
+    if (toggle) toggle.checked = false;
     state.buildingsOn = false;
     return;
   }
@@ -591,7 +737,7 @@ function enableBuildings(on) {
       break;
     }
   }
-  // Higher minzoom + simpler height keeps pitch-drive feel with less fragment work
+  // Fallback extrusion when the basemap has none
   const layer = {
     id: "wardrivrr-3d-buildings",
     source: sourceId,
@@ -789,6 +935,7 @@ function routeAheadBearing(coords, lon, lat) {
 }
 
 function triggerReplan(now, reason) {
+  if (!state.navigationActive) return;
   clearManeuverHud();
   document.getElementById("navHint").textContent = reason;
   if (state.exploreInFlight) return;
@@ -830,6 +977,7 @@ function routeIssue(coords) {
  * Full replan only after >80 m from the last correct point.
  */
 function checkOffRoute(now) {
+  if (!state.navigationActive) return;
   const coords = state.route?.geometry?.coordinates;
   if (!coords?.length) return;
 
@@ -1029,35 +1177,36 @@ async function setAnomalyAlerts(enabled) {
 function makeMarkerEl() {
   const el = document.createElement("div");
   const theme = currentThemeId();
+  const pack = themePack();
   el.className = `nav-map-marker theme-${theme}`;
-  if (theme === "kidcore" || theme === "kawaii") {
-    el.innerHTML = `
-      <div class="nav-marker-kidcore" aria-hidden="true">
-        <div class="nav-paci-ring"></div>
-        <div class="nav-paci-nipple"></div>
-        <div class="nav-paci-shield"></div>
-        <div class="nav-paci-handle"></div>
-      </div>`;
-  } else if (theme === "crt") {
-    el.innerHTML = `
-      <div class="nav-marker-crt" aria-hidden="true">
-        <div class="nav-crosshair"></div>
-        <div class="nav-crosshair-ring"></div>
-      </div>`;
-  } else {
-    el.innerHTML = `
-      <div class="nav-arrow-3d">
-        <div class="nav-arrow-body"></div>
-        <div class="nav-arrow-wing nav-arrow-wing-l"></div>
-        <div class="nav-arrow-wing nav-arrow-wing-r"></div>
-        <div class="nav-arrow-glow"></div>
-      </div>`;
-  }
+  el.style.setProperty("--nav-marker-fill", pack.ahead || "#00e5ff");
+  // Classic turn-by-turn chevron (points “up” = map north; Marker rotates by heading)
+  el.innerHTML = `
+    <div class="nav-marker-chevron" aria-hidden="true">
+      <svg viewBox="0 0 48 56" width="40" height="46">
+        <path
+          class="nav-chevron-shadow"
+          d="M24 4 L44 42 L24 34 L4 42 Z"
+        />
+        <path
+          class="nav-chevron-fill"
+          d="M24 6 L42 40 L24 32 L6 40 Z"
+        />
+        <path
+          class="nav-chevron-edge"
+          d="M24 6 L42 40 L24 32 L6 40 Z"
+          fill="none"
+        />
+      </svg>
+    </div>`;
   return el;
 }
 
 function ensureMarker() {
   if (!state.map || !state.spawned) return;
+  const lat = state.dispLat != null ? state.dispLat : state.lat;
+  const lon = state.dispLon != null ? state.dispLon : state.lon;
+  const heading = state.dispHeading != null ? state.dispHeading : state.heading;
   if (!state.marker) {
     state.marker = new maplibregl.Marker({
       element: makeMarkerEl(),
@@ -1065,26 +1214,323 @@ function ensureMarker() {
       pitchAlignment: "map",
       anchor: "center",
     })
-      .setLngLat([state.lon, state.lat])
-      .setRotation(state.heading)
+      .setLngLat([lon, lat])
+      .setRotation(heading)
       .addTo(state.map);
   } else {
-    state.marker.setLngLat([state.lon, state.lat]);
-    state.marker.setRotation(state.heading);
+    state.marker.setLngLat([lon, lat]);
+    state.marker.setRotation(heading);
   }
 }
 
+/** Lerp chevron pose every frame so motion stays smooth between GPS polls. */
+function updateDisplayPose(now) {
+  if (!state.spawned) return;
+  if (state.dispLat == null || state.dispLon == null) {
+    state.dispLat = state.lat;
+    state.dispLon = state.lon;
+    state.dispHeading = state.heading;
+    state.lastDispAt = now;
+    return;
+  }
+  const prev = state.lastDispAt || now;
+  const dt = Math.min(0.05, Math.max(0.001, (now - prev) / 1000));
+  state.lastDispAt = now;
+  const aPos = 1 - Math.exp(-CAM_SMOOTH * dt);
+  const aBrg = 1 - Math.exp(-BEARING_SMOOTH * dt);
+  state.dispLat += (state.lat - state.dispLat) * aPos;
+  state.dispLon += (state.lon - state.dispLon) * aPos;
+  state.dispHeading = lerpAngleDeg(state.dispHeading, state.heading, aBrg);
+}
+
+/** Pause GPS camera follow after a user pan/rotate (same cooldown for both). */
+function noteUserCameraGesture() {
+  if (state.camProgrammatic) return;
+  state.userCamUntil = performance.now() + USER_CAM_COOLDOWN_MS;
+  state.userCamActive = true;
+  state.userCamGesturePending = false;
+}
+
+function withProgrammaticCam(fn) {
+  state.camProgrammatic = true;
+  try {
+    fn();
+  } finally {
+    // Clear after MapLibre has dispatched any synthetic pitch/move events
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        state.camProgrammatic = false;
+      });
+    });
+  }
+}
+
+function bindMapCameraGestures() {
+  if (!state.map || state.map._wardCamGestures) return;
+  state.map._wardCamGestures = true;
+  // ONLY real pointer/touch/wheel. jumpTo fires synthetic rotate/drag without
+  // originalEvent — treating those as user input caused 3s freeze steps.
+  const bumpUser = (e) => {
+    if (state.camProgrammatic) return;
+    if (e?.originalEvent) noteUserCameraGesture();
+  };
+  // Pause follow immediately on press — otherwise jumpTo fights the pan before dragstart
+  const bumpPress = (e) => {
+    if (state.camProgrammatic || state.spawnMode) return;
+    if (e?.originalEvent) noteUserCameraGesture();
+  };
+  state.map.on("mousedown", bumpPress);
+  state.map.on("touchstart", bumpPress);
+  state.map.on("dragstart", bumpUser);
+  state.map.on("rotatestart", bumpUser);
+  state.map.on("pitchstart", bumpUser);
+  state.map.on("zoomstart", bumpUser);
+}
+
+function currentPitch() {
+  return state.view3d ? PITCH_3D : PITCH_2D;
+}
+
+function loadNavPrefs() {
+  const dead = localStorage.getItem(DEAD_ENDS_KEY);
+  state.excludeDeadEnds = dead === "1";
+  const v3 = localStorage.getItem(VIEW_3D_KEY);
+  if (v3 === "0" || v3 === "1") {
+    state.view3d = v3 === "1";
+  } else {
+    // Migrate old buildings-only pref
+    const b = localStorage.getItem(BUILDINGS_KEY);
+    state.view3d = b !== "0";
+  }
+  state.buildingsOn = state.view3d && state.webglOk;
+  state.camPitch = currentPitch();
+  const deadToggle = document.getElementById("toggleDeadEnds");
+  if (deadToggle) deadToggle.checked = state.excludeDeadEnds;
+  const promptDead = document.getElementById("levelPromptDeadEnds");
+  if (promptDead) promptDead.checked = state.excludeDeadEnds;
+}
+
+function setExcludeDeadEnds(on, { persist = true } = {}) {
+  state.excludeDeadEnds = !!on;
+  if (persist) {
+    localStorage.setItem(DEAD_ENDS_KEY, state.excludeDeadEnds ? "1" : "0");
+  }
+  const deadToggle = document.getElementById("toggleDeadEnds");
+  if (deadToggle) deadToggle.checked = state.excludeDeadEnds;
+  const promptDead = document.getElementById("levelPromptDeadEnds");
+  if (promptDead) promptDead.checked = state.excludeDeadEnds;
+}
+
+function lerpAngleDeg(a, b, t) {
+  const d = ((Number(b) - Number(a) + 540) % 360) - 180;
+  return (Number(a) + d * t + 360) % 360;
+}
+
+function angleDiffAbsDeg(a, b) {
+  return Math.abs(((Number(a) - Number(b) + 540) % 360) - 180);
+}
+
+/**
+ * Accel until half the original gap is closed, then decelerate.
+ * `along` = 0 at start → 1 at target (based on remaining / origin distance).
+ */
+function catchUpGain(along, kStart, kPeak, kEnd) {
+  const a = Math.min(1, Math.max(0, along));
+  if (a < 0.5) {
+    // Ease-in toward peak (t: 0 → 1 over first half)
+    const t = a / 0.5;
+    const ease = t * t;
+    return kStart + (kPeak - kStart) * ease;
+  }
+  // Ease-out from peak toward end (t: 0 → 1 over second half)
+  const t = (a - 0.5) / 0.5;
+  const ease = t * (2 - t); // smooth decelerate blend
+  return kPeak + (kEnd - kPeak) * ease;
+}
+
+function beginCamCatchUp(distM, brgErr) {
+  state.camCatchingUp = true;
+  state.catchOriginDistM = Math.max(distM, 1);
+  state.catchOriginBrgErr = Math.max(brgErr, 1);
+}
+
+function syncNavToggleUi() {
+  const btn = document.getElementById("btnNavToggle");
+  if (!btn) return;
+  const on = !!state.navigationActive;
+  // Colorful when routing on; grayed when off
+  btn.classList.toggle("is-on", on);
+  btn.classList.toggle("is-muted-look", !on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on ? "Stop navigation" : "Start navigation";
+  btn.setAttribute("aria-label", on ? "Stop navigation" : "Start navigation");
+}
+
+function clearRouteLayers() {
+  if (!state.map) return;
+  try {
+    const ahead = state.map.getSource("explore-route-ahead");
+    const done = state.map.getSource("explore-route-done");
+    if (ahead) ahead.setData(emptyLine());
+    if (done) done.setData(emptyLine());
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function stopNavigation({ silent = false } = {}) {
+  state.navigationActive = false;
+  state.route = null;
+  state.routeGeo = null;
+  state.diverted = false;
+  state.autoExploreStarted = false;
+  state.autoExploreAttempts = 0;
+  state.autoExploreRetryAt = 0;
+  state.lastGoodLat = null;
+  state.lastGoodLon = null;
+  clearManeuverHud();
+  clearRouteLayers();
+  syncNavToggleUi();
+  const replanBtn = document.getElementById("btnReplan");
+  if (replanBtn) replanBtn.disabled = true;
+  if (!silent) setNavHint("Navigation stopped — map follow still on.");
+}
+
+async function startNavigation() {
+  if (!state.spawned) {
+    setNavHint("Waiting for GPS spawn…");
+    return false;
+  }
+  state.navigationActive = true;
+  syncNavToggleUi();
+  if (!state.levelId) {
+    setNavHint("No level here — looking up a place…");
+    await promptIfUnknownOnSpawn();
+    return true;
+  }
+  const ok = await startExplore({ auto: false, reason: "Navigation started" });
+  if (ok) state.autoExploreStarted = true;
+  return ok;
+}
+
+function toggleNavigation() {
+  if (state.navigationActive) stopNavigation();
+  else startNavigation();
+}
+
+/** Smooth chase camera — lerp position + shortest-arc bearing toward GPS/sim pose. */
 function followCamera(now) {
   if (!state.map || !state.spawned) return;
-  if (now - state.lastCam < CAM_MS) return;
-  state.lastCam = now;
+  updateDisplayPose(now);
   ensureMarker();
-  // Camera slightly behind the marker for a chase feel
-  state.map.jumpTo({
-    center: [state.lon, state.lat],
-    bearing: state.heading,
-    pitch: PITCH,
-  });
+
+  // User is exploring the map — keep GPS marker moving, leave camera alone
+  if (state.userCamUntil && now < state.userCamUntil) {
+    state.lastCam = now;
+    return;
+  }
+  if (state.userCamActive) {
+    // Cooldown just ended — start from the panned view, then ease back
+    const c = state.map.getCenter();
+    state.camLat = c.lat;
+    state.camLon = c.lng;
+    state.camBearing = state.map.getBearing();
+    state.camPitch = state.map.getPitch();
+    state.camZoom = state.map.getZoom();
+    state.userCamActive = false;
+    const d0 = haversineM(state.camLat, state.camLon, state.dispLat, state.dispLon);
+    const b0 = angleDiffAbsDeg(state.camBearing, state.dispHeading);
+    beginCamCatchUp(d0, b0);
+  }
+
+  if (state.camLat == null || state.camLon == null) {
+    state.camLat = state.dispLat;
+    state.camLon = state.dispLon;
+    state.camBearing = state.dispHeading;
+    state.camPitch = currentPitch();
+    state.camZoom = targetZoom();
+    state.camCatchingUp = false;
+  }
+  const prev = state.lastCam || now;
+  const dt = Math.min(0.05, Math.max(0.001, (now - prev) / 1000));
+  state.lastCam = now;
+
+  const targetLat = state.dispLat;
+  const targetLon = state.dispLon;
+  const targetBrg = state.dispHeading;
+  const distM = haversineM(state.camLat, state.camLon, targetLat, targetLon);
+  const brgErr = angleDiffAbsDeg(state.camBearing, targetBrg);
+
+  if (!state.camCatchingUp && distM > CATCH_RESUME_M) {
+    beginCamCatchUp(distM, brgErr);
+  }
+  // Target drifted farther than when we started — reset the accel profile
+  if (state.camCatchingUp && distM > state.catchOriginDistM * 1.05) {
+    state.catchOriginDistM = distM;
+    state.catchOriginBrgErr = Math.max(brgErr, state.catchOriginBrgErr);
+  }
+
+  // Pitch is binary 2D/3D — snap, never ease over seconds
+  state.camPitch = currentPitch();
+  const wantZoom = targetZoom();
+  if (state.camZoom == null || !Number.isFinite(state.camZoom)) {
+    state.camZoom = wantZoom;
+  }
+
+  if (state.camCatchingUp) {
+    const alongPos =
+      1 - Math.min(1, distM / Math.max(state.catchOriginDistM, 1e-3));
+    const posK = catchUpGain(
+      alongPos,
+      CATCH_K_START,
+      CATCH_K_PEAK,
+      CATCH_K_END
+    );
+    const aPos = 1 - Math.exp(-posK * dt);
+    // Phase 1: only slide XY back toward the marker
+    state.camLat += (targetLat - state.camLat) * aPos;
+    state.camLon += (targetLon - state.camLon) * aPos;
+
+    // Phase 2: once close, ease bearing + zoom (pan keeps refining)
+    if (distM <= CATCH_ALIGN_M) {
+      const alongBrg =
+        1 - Math.min(1, brgErr / Math.max(state.catchOriginBrgErr, 1e-3));
+      const brgK = catchUpGain(
+        alongBrg,
+        CATCH_K_START,
+        CATCH_K_PEAK,
+        CATCH_K_END
+      );
+      const aBrg = 1 - Math.exp(-brgK * dt);
+      const aZoom = 1 - Math.exp(-ZOOM_SMOOTH * dt);
+      state.camBearing = lerpAngleDeg(state.camBearing, targetBrg, aBrg);
+      state.camZoom += (wantZoom - state.camZoom) * aZoom;
+    }
+    // else: hold user bearing/zoom until marker is close
+
+    if (distM <= CATCH_LOCK_M && brgErr <= CATCH_LOCK_DEG) {
+      state.camCatchingUp = false;
+    }
+  } else {
+    state.camLat = targetLat;
+    state.camLon = targetLon;
+    state.camBearing = targetBrg;
+    const aZoom = 1 - Math.exp(-ZOOM_SMOOTH * dt);
+    state.camZoom += (wantZoom - state.camZoom) * aZoom;
+  }
+
+  // Guard so synthetic rotate/move from jumpTo never re-arms the 3s cooldown
+  state.camProgrammatic = true;
+  try {
+    state.map.jumpTo({
+      center: [state.camLon, state.camLat],
+      bearing: state.camBearing,
+      pitch: state.camPitch,
+      zoom: state.camZoom,
+    });
+  } finally {
+    state.camProgrammatic = false;
+  }
 }
 
 function fmtUnlockKm(meters) {
@@ -1191,6 +1637,7 @@ function setFollowLiveGps(on) {
 }
 
 async function maybeAutoExplore() {
+  if (!state.navigationActive) return;
   if (state.autoExploreStarted || !state.spawned || !state.levelId) return;
   if (!state.followLiveGps) return;
   if (state.exploreInFlight || state.route) return;
@@ -1246,14 +1693,7 @@ async function pollFollowGps(now) {
     state.moving = (state.speedKmh || 0) > 0.3 || moved;
     if (state.moving) setDriveHot(true);
     ensureMarker();
-    if (state.map && (moved || now - state.lastCam >= CAM_MS)) {
-      state.lastCam = now;
-      state.map.jumpTo({
-        center: [state.lon, state.lat],
-        bearing: state.heading,
-        pitch: PITCH,
-      });
-    }
+    // Camera smoothed in simFrame; only update pose targets here
     if (data.radio) updateRadioHud(data.radio);
     if (data.anomalies?.length) showAnomalyToasts(data.anomalies);
     if (data.newly_unlocked?.length) showAchievementToasts(data.newly_unlocked);
@@ -1276,7 +1716,6 @@ async function pollFollowGps(now) {
       );
     }
     maybeAutoExplore();
-    checkOffRoute(now);
   } finally {
     state.followInFlight = false;
   }
@@ -1304,6 +1743,7 @@ function closeLevelPrompt(dismiss = false) {
   const el = document.getElementById("levelPrompt");
   el.hidden = true;
   state.promptOpen = false;
+  document.querySelector(".nav-main")?.classList.remove("is-prompting");
   if (state.promptTimer) {
     cancelAnimationFrame(state.promptTimer);
     state.promptTimer = null;
@@ -1394,7 +1834,7 @@ function setLevelPromptCopy(kind) {
   if (kind === "create") {
     title.textContent = "Generate level?";
     sub.innerHTML =
-      "No Reddit level covers this spot yet. Auto-confirm in " +
+      "No level covers this spot yet. Auto-confirm in " +
       '<span id="levelPromptSec">20</span>s';
   } else {
     title.textContent = "Load level?";
@@ -1406,6 +1846,7 @@ function setLevelPromptCopy(kind) {
 
 /** @returns {boolean} true if the Yes-timer prompt was shown */
 function openLevelPrompt(payload, kind = "switch") {
+  if (!state.navigationActive) return false;
   if (state.promptOpen || state.building) return false;
   const label = payload.label || payload.suggestion?.name;
   if (!label || label === state.dismissedLabel) return false;
@@ -1428,14 +1869,29 @@ function openLevelPrompt(payload, kind = "switch") {
     return false;
   }
   state.promptOpen = true;
+  // Prefill dead-end option from last choice; user can change before auto-confirm
+  const promptDead = document.getElementById("levelPromptDeadEnds");
+  if (promptDead) promptDead.checked = !!state.excludeDeadEnds;
   document.getElementById("levelPromptName").textContent = label;
   document.getElementById("levelPrompt").hidden = false;
+  document.querySelector(".nav-main")?.classList.add("is-prompting");
   state.promptFillStart = performance.now();
   state.promptTimer = requestAnimationFrame(tickYesFill);
   return true;
 }
 
+async function resumeExploreAfterLevel() {
+  if (!state.navigationActive || !state.levelId || !state.spawned) return;
+  state.autoExploreStarted = false;
+  state.autoExploreAttempts = 0;
+  state.autoExploreRetryAt = 0;
+  const ok = await startExplore({ auto: true, reason: "Level ready — exploring…" });
+  if (ok) state.autoExploreStarted = true;
+}
+
 async function acceptLevelPrompt() {
+  const promptDead = document.getElementById("levelPromptDeadEnds");
+  if (promptDead) setExcludeDeadEnds(!!promptDead.checked);
   const sug = state.promptSuggestion;
   closeLevelPrompt(false);
   if (!sug) return;
@@ -1450,6 +1906,7 @@ async function acceptLevelPrompt() {
   state.lastGoodLat = null;
   state.lastGoodLon = null;
   clearManeuverHud();
+  clearRouteLayers();
 
   if (sug.existingId) {
     document.getElementById("navHint").textContent = `Switching to ${sug.label}…`;
@@ -1464,6 +1921,7 @@ async function acceptLevelPrompt() {
     state.outsideM = 0;
     if (sug.existingStatus === "ready") {
       await prepareValhallaForLevel();
+      await resumeExploreAfterLevel();
     } else {
       showBuildOverlay(`Building ${sug.label}…`);
       await pollLevelUntilReady(sug.existingId);
@@ -1535,6 +1993,7 @@ async function pollLevelJob(jobId) {
       hideBuildOverlay();
       document.getElementById("navHint").textContent = `${state.levelName} ready.`;
       await prepareValhallaForLevel();
+      await resumeExploreAfterLevel();
       return;
     }
     if (st === "error" || st === "failed") {
@@ -1571,6 +2030,7 @@ async function pollLevelUntilReady(levelId) {
       hideBuildOverlay();
       document.getElementById("navHint").textContent = `${state.levelName} ready.`;
       await prepareValhallaForLevel();
+      await resumeExploreAfterLevel();
       return;
     }
     if (st === "error") {
@@ -1604,6 +2064,7 @@ async function trySuggestLevel(kind = "switch") {
  * prompt immediately — do not wait for the 300 m leave corridor.
  */
 async function promptIfUnknownOnSpawn() {
+  if (!state.navigationActive) return;
   if (!state.spawned || state.promptOpen || state.building) return;
 
   if (!state.levelId) {
@@ -1630,6 +2091,7 @@ async function promptIfUnknownOnSpawn() {
 }
 
 async function checkOutsideLevel(now) {
+  if (!state.navigationActive) return;
   if (!state.spawned || state.promptOpen || state.building) return;
   if (state.containsInFlight) return;
   if (now - state.lastContains < CONTAINS_MS) return;
@@ -1750,6 +2212,8 @@ function isDriveInput() {
 
 function wantsFastLoop() {
   return (
+    // Live GPS follow needs full rAF so camera/marker lerp actually runs
+    (state.followLiveGps && state.spawned) ||
     isDriveInput() ||
     state.speedKmh !== 0 ||
     state.moving ||
@@ -1845,6 +2309,19 @@ function simFrame(now) {
 
   if (state.followLiveGps) {
     pollFollowGps(now);
+    // Keep lerping camera between GPS polls (5 Hz backend → smooth HUD)
+    if (state.spawned) {
+      followCamera(now);
+      checkOffRoute(now);
+      if (state.diverted) clearManeuverHud();
+      else {
+        updateManeuverHud();
+        updateRouteProgress();
+      }
+      if (now - state.lastContains >= CONTAINS_MS_IDLE || state.moving) {
+        checkOutsideLevel(now);
+      }
+    }
     setDriveHot(true);
   } else {
     moveStep(dt, now);
@@ -1912,6 +2389,7 @@ async function checkValhallaHint() {
 
 async function startExplore(opts = {}) {
   if (!state.spawned || !state.levelId) return false;
+  if (!state.navigationActive && !opts.force) return false;
   if (state.exploreInFlight) return false;
   state.exploreInFlight = true;
   const auto = !!opts.auto;
@@ -1929,7 +2407,7 @@ async function startExplore(opts = {}) {
       : "Routing via Valhalla…";
     if (state.diverted) clearManeuverHud();
     await pushFix(true);
-    const targetKm = Number(document.getElementById("targetKm").value) || 5;
+    const targetKm = Number(document.getElementById("targetKm")?.value) || 5;
     const res = await WardAuth.apiFetch("/api/navigate/explore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1939,6 +2417,7 @@ async function startExplore(opts = {}) {
         lon: state.lon,
         heading_deg: state.heading,
         target_km: targetKm,
+        exclude_dead_ends: !!state.excludeDeadEnds,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -2007,6 +2486,7 @@ async function resolveLevel() {
 
 function initMap() {
   state.webglOk = supportsWebGL();
+  loadNavPrefs();
   const night = solarElevation(state.lat, state.lon) < -3;
   state.night = night;
   document.body.dataset.navNight = night ? "1" : "0";
@@ -2015,9 +2495,11 @@ function initMap() {
     container: "navMap",
     style: mapStyleUrl(night),
     center: [state.lon, state.lat],
-    zoom: 15.5,
-    pitch: PITCH,
+    zoom: ZOOM_DEFAULT,
+    pitch: currentPitch(),
     bearing: 0,
+    minZoom: ZOOM_MIN - 0.8,
+    maxZoom: ZOOM_MAX + 0.4,
     antialias: false,
     fadeDuration: 0,
     maxTileCacheSize: 48,
@@ -2035,17 +2517,17 @@ function initMap() {
   );
 
   const buildingsToggle = document.getElementById("toggleBuildings");
-  const pref = localStorage.getItem(BUILDINGS_KEY);
-  state.buildingsOn = pref === "1" && state.webglOk;
   if (buildingsToggle) {
-    buildingsToggle.checked = state.buildingsOn;
+    buildingsToggle.checked = state.view3d;
     if (!state.webglOk) buildingsToggle.disabled = true;
   }
-  syncBuildingsIcon();
+  syncViewModeUi();
+  syncNavToggleUi();
 
   state.map.on("load", () => {
     applyRouteThemeColors();
-    if (state.buildingsOn) enableBuildings(true);
+    enableBuildings(state.view3d && state.webglOk);
+    bindMapCameraGestures();
   });
 
   state.map.on("click", (e) => {
@@ -2078,37 +2560,41 @@ function initMap() {
     );
     document.getElementById("navMap").style.cursor = "";
     ensureMarker();
-    state.map.jumpTo({
-      center: [state.lon, state.lat],
-      bearing: state.heading,
-      pitch: PITCH,
-    });
+    state.camLat = state.lat;
+    state.camLon = state.lon;
+    state.camBearing = state.heading;
+    state.camPitch = currentPitch();
+    followCamera(performance.now());
     pushFix(true);
     checkValhallaHint();
-    promptIfUnknownOnSpawn();
     wakeSimLoop();
   });
 }
 
-function syncBuildingsIcon() {
-  const btn = document.getElementById("btnBuildings");
-  if (!btn) return;
-  btn.classList.toggle("is-on", !!state.buildingsOn);
-  btn.setAttribute("aria-pressed", state.buildingsOn ? "true" : "false");
-  if (!state.webglOk) btn.disabled = true;
+function syncViewModeUi() {
+  const btn = document.getElementById("btnViewMode");
+  const on = !!state.view3d;
+  if (btn) {
+    // Colorful 3D icon when 3D; grayed 3D icon when 2D
+    btn.classList.toggle("is-on", on);
+    btn.classList.toggle("is-muted-look", !on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on ? "3D view (tap for 2D)" : "2D view (tap for 3D)";
+    if (!state.webglOk) btn.disabled = true;
+  }
+  const toggle = document.getElementById("toggleBuildings");
+  if (toggle) toggle.checked = on;
 }
 
 function syncMuteIcon() {
   const btn = document.getElementById("btnMuteSounds");
   if (!btn) return;
-  const on = !!state.achievementSounds;
-  btn.classList.toggle("is-on", on);
-  btn.setAttribute("aria-pressed", on ? "true" : "false");
-  btn.title = on ? "Sounds on (tap to mute)" : "Sounds muted (tap to enable)";
-  const onIcon = btn.querySelector(".nav-icon-sound-on");
-  const offIcon = btn.querySelector(".nav-icon-sound-off");
-  if (onIcon) onIcon.hidden = !on;
-  if (offIcon) offIcon.hidden = on;
+  const soundOn = !!state.achievementSounds;
+  // Always mute glyph — grayed when sound is on, colorful when muted
+  btn.classList.toggle("is-on", !soundOn);
+  btn.classList.toggle("is-muted-look", soundOn);
+  btn.setAttribute("aria-pressed", soundOn ? "false" : "true");
+  btn.title = soundOn ? "Sounds on (tap to mute)" : "Muted (tap to enable)";
 }
 
 async function setAchievementSounds(on) {
@@ -2125,13 +2611,37 @@ async function setAchievementSounds(on) {
   }
 }
 
-function setBuildingsOn(on) {
-  state.buildingsOn = !!on && state.webglOk;
+function setView3d(on) {
+  state.view3d = !!on;
+  state.buildingsOn = state.view3d && state.webglOk;
+  localStorage.setItem(VIEW_3D_KEY, state.view3d ? "1" : "0");
   localStorage.setItem(BUILDINGS_KEY, state.buildingsOn ? "1" : "0");
-  const toggle = document.getElementById("toggleBuildings");
-  if (toggle) toggle.checked = state.buildingsOn;
-  syncBuildingsIcon();
+  syncViewModeUi();
+  state.camPitch = currentPitch();
+  // Clear any gesture cooldown so a leftover pitchstart can't hold the view
+  state.userCamUntil = 0;
+  state.userCamActive = false;
+  state.userCamGesturePending = false;
   enableBuildings(state.buildingsOn);
+  if (state.map) {
+    withProgrammaticCam(() => {
+      const center =
+        state.dispLon != null
+          ? [state.dispLon, state.dispLat]
+          : state.map.getCenter().toArray();
+      state.map.jumpTo({
+        center,
+        bearing:
+          state.dispHeading != null ? state.dispHeading : state.map.getBearing(),
+        pitch: state.camPitch,
+      });
+    });
+  }
+}
+
+/** @deprecated alias for debug checkbox */
+function setBuildingsOn(on) {
+  setView3d(on);
 }
 
 function bindControls() {
@@ -2146,11 +2656,14 @@ function bindControls() {
     hint.hidden = true;
   }
 
+  document.getElementById("btnNavToggle")?.addEventListener("click", () => {
+    toggleNavigation();
+  });
   document.getElementById("btnMuteSounds")?.addEventListener("click", () => {
     setAchievementSounds(!state.achievementSounds);
   });
-  document.getElementById("btnBuildings")?.addEventListener("click", () => {
-    setBuildingsOn(!state.buildingsOn);
+  document.getElementById("btnViewMode")?.addEventListener("click", () => {
+    setView3d(!state.view3d);
   });
 
   document.getElementById("btnSpawn")?.addEventListener("click", () => {
@@ -2163,13 +2676,28 @@ function bindControls() {
   document.getElementById("btnFollowGps")?.addEventListener("click", () => {
     setFollowLiveGps(!state.followLiveGps);
   });
-  document.getElementById("btnStart")?.addEventListener("click", () => startExplore());
-  document.getElementById("btnReplan")?.addEventListener("click", () => startExplore());
+  document.getElementById("btnStart")?.addEventListener("click", () => {
+    if (!state.navigationActive) state.navigationActive = true;
+    syncNavToggleUi();
+    startExplore({ force: true });
+  });
+  document.getElementById("btnReplan")?.addEventListener("click", () => {
+    if (!state.navigationActive) state.navigationActive = true;
+    syncNavToggleUi();
+    startExplore({ force: true, auto: true, reason: "Manual replan" });
+  });
   document.getElementById("toggleAnomaly")?.addEventListener("change", (e) => {
     setAnomalyAlerts(!!e.target.checked);
   });
+  document.getElementById("toggleDeadEnds")?.addEventListener("change", (e) => {
+    setExcludeDeadEnds(!!e.target.checked);
+  });
   document.getElementById("toggleBuildings")?.addEventListener("change", (e) => {
-    setBuildingsOn(!!e.target.checked);
+    setView3d(!!e.target.checked);
+  });
+  document.getElementById("levelPromptDeadEnds")?.addEventListener("change", (e) => {
+    // Live edit during countdown — persisted on Yes / auto-confirm
+    state.excludeDeadEnds = !!e.target.checked;
   });
   window.addEventListener("wardrivrr:theme", () => onSiteThemeChange());
   document.getElementById("levelPromptNo")?.addEventListener("click", () => {

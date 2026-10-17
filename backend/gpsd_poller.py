@@ -259,7 +259,8 @@ def start_gpsd_poller() -> None:
         _poller_started = True
     host = os.getenv("GPSD_HOST", "127.0.0.1")
     port = int(os.getenv("GPSD_PORT", "2947"))
-    interval = float(os.getenv("GPSD_POLL_INTERVAL", "1.0"))
+    # 5 Hz default — cleaner course for Navigate smooth follow
+    interval = float(os.getenv("GPSD_POLL_INTERVAL", "0.2"))
     t = threading.Thread(
         target=_read_loop,
         args=(host, port, interval),
@@ -267,4 +268,4 @@ def start_gpsd_poller() -> None:
         daemon=True,
     )
     t.start()
-    print(f"[gpsd] poller started → {host}:{port}")
+    print(f"[gpsd] poller started → {host}:{port} @ {1.0 / max(interval, 0.05):.0f} Hz")

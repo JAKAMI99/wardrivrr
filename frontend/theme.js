@@ -193,9 +193,37 @@
     return IDS.includes(id) ? id : "classic";
   }
 
+  function hasAuthToken() {
+    try {
+      return !!(
+        localStorage.getItem("wardrivrr_token") ||
+        sessionStorage.getItem("wardrivrr_token")
+      );
+    } catch {
+      return false;
+    }
+  }
+
   function read() {
+    // Guests always classic — never inherit another user's localStorage theme
+    if (!hasAuthToken()) return "classic";
     const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY) || "classic";
     return normalize(raw);
+  }
+
+  function clearLocalTheme() {
+    try {
+      localStorage.removeItem(KEY);
+      localStorage.removeItem(LEGACY_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Logged-out / after sign-out: classic only, no sticky cache. */
+  function applyGuestClassic({ broadcast = true } = {}) {
+    clearLocalTheme();
+    return apply("classic", { persist: false, broadcast });
   }
 
   function setMetaThemeColor(id) {
@@ -501,7 +529,8 @@
       );
     }
     setMetaThemeColor(theme);
-    if (persist) {
+    // Cache only for the signed-in user (per-user setting lives in user_settings)
+    if (persist && hasAuthToken()) {
       localStorage.setItem(KEY, theme);
       localStorage.removeItem(LEGACY_KEY);
     }
@@ -521,20 +550,27 @@
   }
 
   async function syncFromServer() {
-    if (!window.WardAuth?.apiFetch) return read();
+    if (!hasAuthToken() || !window.WardAuth?.apiFetch) {
+      return applyGuestClassic({ broadcast: true });
+    }
     try {
       const res = await WardAuth.apiFetch("/api/settings");
-      if (!res.ok) return read();
+      if (!res.ok) return apply(read(), { persist: false, broadcast: true });
       const data = await res.json();
-      if (data.theme) return apply(data.theme, { persist: true, broadcast: true });
+      // Per-user setting from user_settings — never a global/server-wide theme
+      const theme = normalize(data.theme || "classic");
+      return apply(theme, { persist: true, broadcast: true });
     } catch {
       /* ignore */
     }
-    return read();
+    return apply(read(), { persist: false, broadcast: true });
   }
 
   async function saveToServer(id) {
-    const theme = apply(id);
+    if (!hasAuthToken()) {
+      return applyGuestClassic({ broadcast: true });
+    }
+    const theme = apply(id, { persist: true, broadcast: true });
     if (!window.WardAuth?.apiFetch) return theme;
     try {
       await WardAuth.apiFetch("/api/settings", {
@@ -543,7 +579,7 @@
         body: JSON.stringify({ theme }),
       });
     } catch {
-      /* local still applied */
+      /* local still applied for this session */
     }
     return theme;
   }
@@ -598,6 +634,7 @@
     apply(read(), { persist: false, broadcast: false });
   }
 
+  // Boot: guests → classic; signed-in → cached preference until /api/settings sync
   apply(read(), { persist: false, broadcast: false });
 
   window.WardTheme = {
@@ -606,6 +643,8 @@
     META,
     read,
     apply,
+    applyGuestClassic,
+    clearLocalTheme,
     mapPack,
     syncFromServer,
     saveToServer,

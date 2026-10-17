@@ -1,7 +1,7 @@
-/* Shared site nav — slim primary links + theme + account dropdown */
+/* Shared site nav — Drive + links, burger on mobile, account (+ theme) */
 (function () {
   const PRIMARY = [
-    { href: "/navigate", label: "Drive", match: ["/navigate"] },
+    { href: "/navigate", label: "Drive", match: ["/navigate"], drive: true },
     { href: "/levels", label: "Levels", match: ["/levels"] },
     { href: "/discover", label: "Discover", match: ["/discover"] },
     { href: "/database", label: "Database", match: ["/database"] },
@@ -15,8 +15,8 @@
     { href: "/settings", label: "Settings" },
   ];
 
-  const THEME_ICON = `<svg class="nav-theme-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-    <path fill="currentColor" d="M12 3a9 9 0 1 0 0 18c.7 0 1.2-.6 1.2-1.3 0-.3-.1-.6-.3-.9-.2-.3-.3-.6-.3-1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 0-10H12zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm2.5 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/>
+  const BURGER_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+    <path fill="currentColor" d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/>
   </svg>`;
 
   function pathActive(path, match) {
@@ -38,56 +38,10 @@
       const drop = el.querySelector(".account-dropdown");
       if (drop) drop.hidden = true;
     });
-    document.querySelectorAll(".nav-theme-menu.is-open").forEach((el) => {
-      el.classList.remove("is-open");
-      el.querySelector(".nav-theme-trigger")?.setAttribute("aria-expanded", "false");
-      const drop = el.querySelector(".nav-theme-dropdown");
-      if (drop) drop.hidden = true;
+    document.querySelectorAll(".site-nav.is-burger-open").forEach((navEl) => {
+      navEl.classList.remove("is-burger-open");
+      navEl.querySelector(".nav-burger")?.setAttribute("aria-expanded", "false");
     });
-  }
-
-  function buildThemeMenu() {
-    const wrap = document.createElement("div");
-    wrap.className = "nav-theme-menu";
-    wrap.setAttribute("data-kidcore-skip", "");
-    wrap.innerHTML = `
-      <button type="button" class="nav-theme-trigger" aria-expanded="false" aria-haspopup="true" title="Appearance" aria-label="Appearance">
-        ${THEME_ICON}
-      </button>
-      <div class="nav-theme-dropdown" hidden>
-        <p class="nav-theme-title" data-kidcore-skip>Appearance</p>
-        <div class="nav-theme-list" data-kidcore-skip></div>
-      </div>`;
-
-    const trigger = wrap.querySelector(".nav-theme-trigger");
-    const drop = wrap.querySelector(".nav-theme-dropdown");
-    const list = wrap.querySelector(".nav-theme-list");
-
-    if (window.WardTheme?.mountNavThemeMenu) {
-      WardTheme.mountNavThemeMenu(list, {
-        onPick: (id) => {
-          WardTheme.saveToServer(id);
-          closeMenus();
-        },
-      });
-    } else {
-      list.innerHTML = `<p class="muted">Theme unavailable</p>`;
-    }
-
-    trigger.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const open = !wrap.classList.contains("is-open");
-      closeMenus();
-      if (open) {
-        wrap.classList.add("is-open");
-        drop.hidden = false;
-        trigger.setAttribute("aria-expanded", "true");
-      } else {
-        drop.hidden = true;
-      }
-    });
-    drop.addEventListener("click", (e) => e.stopPropagation());
-    return wrap;
   }
 
   function buildAccountMenu(user) {
@@ -113,10 +67,23 @@
         <div class="account-dropdown-links">
           ${ACCOUNT.map((l) => `<a href="${l.href}">${l.label}</a>`).join("")}
         </div>
+        <div class="account-theme" data-kidcore-skip>
+          <p class="account-theme-title" data-kidcore-skip>Appearance</p>
+          <div class="account-theme-list nav-theme-list" data-kidcore-skip></div>
+        </div>
         <div class="account-dropdown-foot">
           <button type="button" class="account-logout" data-logout>Sign out</button>
         </div>
       </div>`;
+
+    const themeHost = wrap.querySelector(".account-theme-list");
+    if (window.WardTheme?.mountNavThemeMenu) {
+      WardTheme.mountNavThemeMenu(themeHost, {
+        onPick: (id) => {
+          WardTheme.saveToServer(id);
+        },
+      });
+    }
 
     const trigger = wrap.querySelector(".account-trigger");
     const drop = wrap.querySelector(".account-dropdown");
@@ -132,8 +99,11 @@
         drop.hidden = true;
       }
     });
-    wrap.querySelector("[data-logout]")?.addEventListener("click", () => {
-      if (window.WardAuth?.logout) WardAuth.logout();
+    wrap.querySelector("[data-logout]")?.addEventListener("click", async () => {
+      if (window.WardTheme?.applyGuestClassic) {
+        WardTheme.applyGuestClassic({ broadcast: true });
+      }
+      if (window.WardAuth?.logout) await WardAuth.logout();
       else location.href = "/login";
     });
     return wrap;
@@ -144,6 +114,24 @@
     a.className = "btn btn-primary nav-signin";
     a.href = `/login?next=${encodeURIComponent(location.pathname)}`;
     a.textContent = "Sign in";
+    return a;
+  }
+
+  function buildLink(item, path) {
+    const a = document.createElement("a");
+    a.href = item.href;
+    a.textContent = item.label;
+    const on = pathActive(path, item.match);
+    if (item.drive) {
+      a.className = "nav-drive";
+      if (on) {
+        a.classList.add("is-current");
+        a.setAttribute("aria-current", "page");
+      }
+    } else if (on) {
+      a.classList.add("active");
+      a.setAttribute("aria-current", "page");
+    }
     return a;
   }
 
@@ -176,31 +164,66 @@
     const isLogin = path === "/login";
 
     links.innerHTML = "";
+    links.className = "site-links";
+
+    const more = document.createElement("div");
+    more.className = "site-links-more";
+
     if (!isLogin) {
       const home = document.createElement("a");
       home.href = "/";
       home.textContent = "Home";
-      if (path === "/") home.classList.add("active");
-      links.appendChild(home);
+      if (path === "/") {
+        home.classList.add("active");
+        home.setAttribute("aria-current", "page");
+      }
+      more.appendChild(home);
 
       for (const item of PRIMARY) {
-        const a = document.createElement("a");
-        a.href = item.href;
-        a.textContent = item.label;
-        if (pathActive(path, item.match)) a.classList.add("active");
-        if (item.href === "/navigate") a.classList.add("nav-drive");
-        links.appendChild(a);
+        const a = buildLink(item, path);
+        if (item.drive) links.appendChild(a);
+        else more.appendChild(a);
       }
+      links.appendChild(more);
     }
 
     const tail = document.createElement("div");
     tail.className = "site-nav-tail";
+
+    if (!isLogin) {
+      const burger = document.createElement("button");
+      burger.type = "button";
+      burger.className = "nav-burger";
+      burger.setAttribute("aria-expanded", "false");
+      burger.setAttribute("aria-controls", "siteLinksMore");
+      burger.setAttribute("aria-label", "Menu");
+      burger.innerHTML = BURGER_ICON;
+      more.id = "siteLinksMore";
+
+      burger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = !nav.classList.contains("is-burger-open");
+        closeMenus();
+        if (open) {
+          nav.classList.add("is-burger-open");
+          burger.setAttribute("aria-expanded", "true");
+        }
+      });
+
+      tail.appendChild(burger);
+    }
+
     const user = isLogin ? null : await resolveUser();
     if (user) {
-      tail.appendChild(buildThemeMenu());
       tail.appendChild(buildAccountMenu(user));
-    } else if (!isLogin) {
-      tail.appendChild(buildGuestLink());
+      if (window.WardTheme?.syncFromServer) {
+        WardTheme.syncFromServer();
+      }
+    } else {
+      if (window.WardTheme?.applyGuestClassic) {
+        WardTheme.applyGuestClassic({ broadcast: true });
+      }
+      if (!isLogin) tail.appendChild(buildGuestLink());
     }
     nav.appendChild(tail);
 
@@ -210,10 +233,6 @@
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") closeMenus();
       });
-    }
-
-    if (user && window.WardTheme?.syncFromServer) {
-      WardTheme.syncFromServer();
     }
   }
 

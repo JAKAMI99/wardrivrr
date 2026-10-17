@@ -150,6 +150,8 @@ class ExploreRouteBody(BaseModel):
     heading_deg: float | None = None
     target_km: float = Field(default=5.0, ge=0.5, le=40.0)
     language: str = "en-US"
+    # When true, skip all cul-de-sac tip waypoints; short tips (<40 m) are always skipped.
+    exclude_dead_ends: bool = False
 
 
 class LevelCreateBody(BaseModel):
@@ -1099,6 +1101,7 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
             target_km=body.target_km,
             language=body.language,
             heading_deg=float(heading) if heading is not None else None,
+            exclude_dead_ends=bool(body.exclude_dead_ends),
         )
     except ValhallaError as exc:
         raise HTTPException(503, str(exc)) from exc
