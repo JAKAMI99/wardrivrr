@@ -95,19 +95,45 @@ html[data-theme="crt"] .nav-maneuver {
 
 .nav-turn-arrow {
   flex: 0 0 auto;
-  width: 8.5rem;
-  height: 8.5rem;
+  width: 5.5rem;
+  height: 5.5rem;
   display: grid;
   place-items: center;
   color: var(--nav-cyan);
   filter: drop-shadow(0 0 14px color-mix(in srgb, var(--nav-cyan) 55%, transparent));
 }
 
-.nav-turn-arrow svg {
+.nav-turn-arrow svg,
+.nav-turn-svg {
   width: 100%;
   height: 100%;
   display: block;
-  overflow: hidden;
+  overflow: visible;
+  color: inherit;
+  fill: currentColor;
+}
+
+.nav-rerouting {
+  position: absolute;
+  top: 4.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 0.55rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--nav-cyan) 45%, transparent);
+  background: color-mix(in srgb, var(--nav-panel) 92%, #000);
+  color: var(--nav-cyan);
+  font-size: 0.95rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.nav-rerouting[hidden] {
+  display: none !important;
 }
 
 .nav-turn-meta {
@@ -197,6 +223,55 @@ html[data-theme="crt"] .nav-maneuver-dist {
   line-height: 1.15;
 }
 
+.nav-hud-stats .nav-stat-xp {
+  flex: 1.35 1 0;
+  min-width: 4.5rem;
+  pointer-events: auto;
+}
+
+.nav-xp-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem;
+  line-height: 1.1;
+}
+
+.nav-xp-top #statXpLevel {
+  font-size: clamp(0.95rem, 2.4vw, 1.2rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--nav-cyan);
+}
+
+.nav-xp-meta {
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--nav-muted);
+  white-space: nowrap;
+}
+
+.nav-xp-track {
+  height: 0.35rem;
+  margin: 0.28rem 0.15rem 0.15rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--nav-muted) 28%, transparent);
+  overflow: hidden;
+}
+
+.nav-xp-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--nav-cyan) 70%, #7cfc00),
+    var(--nav-cyan)
+  );
+  transition: width 0.45s ease;
+}
+
 .nav-hud-stats .nav-stat-radio .nav-stat-new {
   display: block;
   font-size: clamp(1.15rem, 3vw, 1.45rem);
@@ -229,11 +304,13 @@ html[data-theme="crt"] .nav-maneuver-dist {
   letter-spacing: 0.04em;
 }
 
-/* Vertical control stack — right edge, Maps-style */
+/* Vertical control stack — right edge, fat-finger / Android Auto scale */
 .nav-toolbar {
+  --nav-tap: 4.75rem; /* ~76dp @ 16px root — Android Auto minimum */
+  --nav-tap-gap: 1.45rem; /* ≥ 23dp between targets (Design for Driving) */
   position: absolute;
   top: 50%;
-  right: 0.75rem;
+  right: max(0.75rem, env(safe-area-inset-right));
   bottom: auto;
   left: auto;
   transform: translateY(-50%);
@@ -241,12 +318,17 @@ html[data-theme="crt"] .nav-maneuver-dist {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
-  align-items: stretch;
+  align-items: center;
   justify-content: flex-start;
-  gap: 0.45rem;
+  gap: var(--nav-tap-gap);
   padding: 0;
-  width: min(9.5rem, 42vw);
+  width: auto;
   background: none;
+  pointer-events: none;
+}
+
+.nav-toolbar > * {
+  pointer-events: auto;
 }
 
 /* display:flex above would otherwise ignore the HTML hidden attribute */
@@ -309,17 +391,19 @@ html[data-theme="crt"] .nav-maneuver-dist {
   border: 1px solid rgba(142, 149, 160, 0.25);
 }
 
-/* Production icon-only chrome */
+/* Production icon-only chrome — large hit areas, centered glyphs */
 .nav-toolbar-icons {
   width: auto;
-  gap: 0.4rem;
+  gap: var(--nav-tap-gap);
 }
 
 .nav-icon-btn {
-  width: 2.65rem;
-  height: 2.65rem;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--nav-cyan) 35%, transparent);
+  width: var(--nav-tap);
+  height: var(--nav-tap);
+  min-width: var(--nav-tap);
+  min-height: var(--nav-tap);
+  border-radius: 1.15rem;
+  border: 2px solid color-mix(in srgb, var(--nav-cyan) 40%, transparent);
   background: var(--nav-panel);
   color: var(--nav-text);
   font-size: 1.35rem;
@@ -329,18 +413,46 @@ html[data-theme="crt"] .nav-maneuver-dist {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  flex-shrink: 0;
+}
+
+.nav-icon-btn svg {
+  width: 2rem;
+  height: 2rem;
+  display: block;
+  pointer-events: none;
+}
+
+/* Primary Start/Stop — one size up for glanceability */
+.nav-icon-btn-lg {
+  width: calc(var(--nav-tap) + 0.55rem);
+  height: calc(var(--nav-tap) + 0.55rem);
+  min-width: calc(var(--nav-tap) + 0.55rem);
+  min-height: calc(var(--nav-tap) + 0.55rem);
+  border-radius: 1.35rem;
+}
+
+.nav-icon-btn-lg svg {
+  width: 2.35rem;
+  height: 2.35rem;
 }
 
 .nav-icon-btn:hover {
   border-color: var(--nav-cyan);
 }
 
+.nav-icon-btn:active {
+  transform: scale(0.96);
+}
+
 /* Colorful = active feature; grayed = inactive / “sounds playing” for mute */
 .nav-icon-btn.is-muted-look {
   color: rgba(160, 168, 180, 0.72);
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .nav-icon-btn.is-on:not(.is-muted-look) {
@@ -361,6 +473,11 @@ html[data-theme="crt"] .nav-maneuver-dist {
 .nav-icon-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.nav-sr-only {
+  /* Mirror for prefs / level-prompt sync — real control is #btnDeadEnds */
+  display: none !important;
 }
 
 .nav-debug-toolbar {
@@ -665,10 +782,26 @@ html[data-theme="crt"] .nav-maneuver-dist {
   font-size: 10px;
 }
 
-@media (max-width: 640px) {
+/* Pinch/scroll zoom only — no tiny +/- chrome */
+.maplibregl-ctrl-top-right .maplibregl-ctrl-group {
+  display: none !important;
+}
+
+/* Tablet / desktop landscape: mid-right, full AA targets */
+@media (min-width: 641px) and (min-height: 520px) {
+  .nav-toolbar {
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    right: max(1rem, env(safe-area-inset-right));
+  }
+}
+
+/* Phone / short viewports: thumb zone bottom-right, keep AA-scale taps */
+@media (max-width: 640px), (max-height: 519px) {
   .nav-hud-side {
     width: min(92vw, 380px);
-    top: 14%;
+    top: 12%;
     left: 0.45rem;
     right: auto;
   }
@@ -697,16 +830,52 @@ html[data-theme="crt"] .nav-maneuver-dist {
     font-size: clamp(2.6rem, 12vw, 4rem);
   }
   .nav-toolbar {
-    right: 0.55rem;
-    width: min(8.25rem, 40vw);
+    --nav-tap: 4.75rem;
+    --nav-tap-gap: 1.25rem;
     top: auto;
     transform: none;
-    bottom: calc(5.5rem + env(safe-area-inset-bottom));
+    right: max(0.65rem, env(safe-area-inset-right));
+    bottom: calc(5.75rem + env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 8rem);
   }
   .nav-hud-stats .nav-stat-radio .nav-stat-seen::before {
     content: "";
   }
   .nav-hint {
     display: none;
+  }
+}
+
+/* Very narrow phones: 2×2 grid so four AA buttons still fit */
+@media (max-width: 420px) {
+  .nav-toolbar-icons {
+    display: grid;
+    grid-template-columns: repeat(2, var(--nav-tap));
+    grid-auto-rows: var(--nav-tap);
+    gap: var(--nav-tap-gap);
+    align-items: center;
+    justify-items: center;
+  }
+  .nav-icon-btn-lg {
+    width: var(--nav-tap);
+    height: var(--nav-tap);
+    min-width: var(--nav-tap);
+    min-height: var(--nav-tap);
+    border-radius: 1.15rem;
+  }
+  .nav-icon-btn-lg svg {
+    width: 2rem;
+    height: 2rem;
+  }
+  .nav-toolbar .nav-hint {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Coarse pointer (touch / dash mount): lock AA minimum */
+@media (pointer: coarse) {
+  .nav-toolbar {
+    --nav-tap: 4.75rem;
+    --nav-tap-gap: 1.45rem;
   }
 }

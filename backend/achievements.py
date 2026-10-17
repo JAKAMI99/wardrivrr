@@ -19,6 +19,13 @@ _MAX_STEP_M = 250.0
 # Ignore gaps longer than this between fixes
 _MAX_GAP_S = 120.0
 
+# Activity XP (on top of achievement unlock XP) — networks pay most, distance a little
+XP_PER_WIFI_NET = 5
+XP_PER_BT_NET = 4
+XP_PER_BLE_NET = 3
+# 1 XP per 250 m driven (~4 XP / km)
+XP_PER_DRIVEN_M = 1.0 / 250.0
+
 def _fmt_threshold(n: float | int) -> str:
     """Human-readable threshold for goal copy (e.g. 1,000,000 or 133.7)."""
     f = float(n)
@@ -340,10 +347,35 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
             )
             today_row = cur.fetchone() or {}
             cur.execute(
-                "SELECT COUNT(*)::int AS n FROM networks WHERE user_id = %s",
+                """
+                SELECT
+                  COUNT(*)::int AS n,
+                  COUNT(*) FILTER (
+                    WHERE upper(coalesce(network_type, '')) IN ('WIFI', 'W', 'WLAN', '802.11')
+                  )::int AS wifi,
+                  COUNT(*) FILTER (
+                    WHERE upper(coalesce(network_type, '')) IN ('BT', 'BLUETOOTH', 'BR/EDR')
+                  )::int AS bt,
+                  COUNT(*) FILTER (
+                    WHERE upper(coalesce(network_type, '')) IN ('BLE', 'BTLE')
+                  )::int AS ble
+                FROM networks WHERE user_id = %s
+                """,
                 (user_id,),
             )
-            networks_total = int((cur.fetchone() or {}).get("n") or 0)
+            net_row = cur.fetchone() or {}
+            networks_total = int(net_row.get("n") or 0)
+            networks_wifi = int(net_row.get("wifi") or 0)
+            networks_bt = int(net_row.get("bt") or 0)
+            networks_ble = int(net_row.get("ble") or 0)
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(km_total), 0)::float AS km_driven_total
+                FROM drive_day_km WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            km_driven_total = float((cur.fetchone() or {}).get("km_driven_total") or 0)
             cur.execute(
                 """
                 SELECT COUNT(*)::int AS n
@@ -393,13 +425,54 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
         "km_day_best": float(agg.get("km_day_best") or 0),
         "km_today": float(today_row.get("km_total") or 0),
         "km_night_today": float(today_row.get("km_night") or 0),
+        "km_driven_total": km_driven_total,
         "networks_total": networks_total,
+        "networks_wifi": networks_wifi,
+        "networks_bt": networks_bt,
+        "networks_ble": networks_ble,
         "samples_below_sea": samples_below_sea,
         "samples_mountain": samples_mountain,
         "starlink_networks": starlink_networks,
         "unlocked": unlocked,
         "today": today.isoformat(),
     }
+
+
+def activity_xp_breakdown(snap: dict[str, Any]) -> dict[str, Any]:
+    """XP from discovered networks + driven distance (deterministic from inventory)."""
+    wifi = int(snap.get("networks_wifi") or 0)
+    bt = int(snap.get("networks_bt") or 0)
+    ble = int(snap.get("networks_ble") or 0)
+    meters = float(snap.get("km_driven_total") or 0) * 1000.0
+    from_wifi = wifi * XP_PER_WIFI_NET
+    from_bt = bt * XP_PER_BT_NET
+    from_ble = ble * XP_PER_BLE_NET
+    from_drive = int(meters * XP_PER_DRIVEN_M)
+    return {
+        "wifi": from_wifi,
+        "bt": from_bt,
+        "ble": from_ble,
+        "driven": from_drive,
+        "total": from_wifi + from_bt + from_ble + from_drive,
+        "counts": {"wifi": wifi, "bt": bt, "ble": ble, "km": round(meters / 1000.0, 3)},
+        "rates": {
+            "wifi": XP_PER_WIFI_NET,
+            "bt": XP_PER_BT_NET,
+            "ble": XP_PER_BLE_NET,
+            "driven_m_per_xp": round(1.0 / XP_PER_DRIVEN_M),
+        },
+    }
+
+
+def _achievement_xp_earned(snap: dict[str, Any]) -> int:
+    total = 0
+    unlocked = snap.get("unlocked") or {}
+    for ach in CATALOG:
+        for tier in ach["tiers"]:
+            key = (ach["id"], int(tier["tier"]))
+            if key in unlocked:
+                total += int(tier.get("xp") or 0)
+    return total
 
 
 def _metric_value(snap: dict[str, Any], unit: str) -> float:
@@ -516,17 +589,27 @@ def list_achievements(user_id: int) -> dict[str, Any]:
                 "tiers": tiers_out,
             }
         )
-    progress = explorer_progress_from_xp(xp_earned)
+    activity = activity_xp_breakdown(snap)
+    xp_total = xp_earned + int(activity["total"])
+    progress = explorer_progress_from_xp(xp_total)
+    progress["xp_achievements"] = xp_earned
+    progress["xp_activity"] = activity
     return {
         "timezone": ACHIEVEMENTS_TZ,
         "xp_earned": xp_earned,
+        "xp_activity": activity,
+        "xp_total": xp_total,
         "xp_available": xp_available,
         "explorer": progress,
         "snapshot": {
             "km_night_total": snap["km_night_total"],
             "km_day_best": snap["km_day_best"],
             "km_today": snap["km_today"],
+            "km_driven_total": snap.get("km_driven_total") or 0,
             "networks_total": snap["networks_total"],
+            "networks_wifi": snap.get("networks_wifi") or 0,
+            "networks_bt": snap.get("networks_bt") or 0,
+            "networks_ble": snap.get("networks_ble") or 0,
             "samples_below_sea": snap["samples_below_sea"],
             "samples_mountain": snap["samples_mountain"],
             "starlink_networks": snap.get("starlink_networks") or 0,
@@ -577,6 +660,15 @@ def explorer_progress_from_xp(xp: int) -> dict[str, Any]:
 
 
 def explorer_progress(user_id: int) -> dict[str, Any]:
-    """XP/level derived from unlocked achievement tier XP (single source of truth)."""
-    data = list_achievements(user_id)
-    return explorer_progress_from_xp(int(data.get("xp_earned") or 0))
+    """
+    Explorer level from achievement unlocks + activity XP
+    (Wi‑Fi / BT / BLE finds and a little from driven metres).
+    """
+    ensure_achievements_schema()
+    snap = _progress_snapshot(user_id)
+    ach_xp = _achievement_xp_earned(snap)
+    activity = activity_xp_breakdown(snap)
+    prog = explorer_progress_from_xp(ach_xp + int(activity["total"]))
+    prog["xp_achievements"] = ach_xp
+    prog["xp_activity"] = activity
+    return prog

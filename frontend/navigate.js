@@ -10,10 +10,10 @@ const BUILDINGS_KEY = "wardrivrr_nav_buildings";
 const DEAD_ENDS_KEY = "wardrivrr_nav_exclude_dead_ends";
 
 const CAM_MS = 32;
-/** Smooth follow time-constant (higher = snappier) */
-const CAM_SMOOTH = 7.5;
-const BEARING_SMOOTH = 5.5;
-const ZOOM_SMOOTH = 4.0;
+/** Smooth follow time-constant (higher = snappier). Keep low so the chevron glides. */
+const CAM_SMOOTH = 4.2;
+const BEARING_SMOOTH = 3.6;
+const ZOOM_SMOOTH = 2.8;
 /** After pan/rotate, wait this long before GPS pulls the camera back */
 const USER_CAM_COOLDOWN_MS = 3000;
 /**
@@ -30,13 +30,14 @@ const CATCH_LOCK_DEG = 0.8;
 /** Drift threshold to start a catch-up without a gesture */
 const CATCH_RESUME_M = 12;
 
-/** Closest street-level default; speed / next-turn pull out within these caps */
-const ZOOM_DEFAULT = 17.8;
-const ZOOM_MAX = 18.6; // crawl / at turn
-const ZOOM_MIN = 15.2; // fast drive ceiling (never farther than this)
-const ZOOM_SPEED_REF_KMH = 90; // at/above → ZOOM_MIN from speed alone
-const ZOOM_TURN_NEAR_M = 60;
-const ZOOM_TURN_FAR_M = 350;
+/**
+ * Four discrete auto-zoom steps (far → near). Camera eases between them.
+ * Slow driving stays close (street-level); only high speed pulls out.
+ */
+const ZOOM_LEVELS = [16.4, 17.3, 18.2, 18.9];
+const ZOOM_DEFAULT = ZOOM_LEVELS[3];
+const ZOOM_MIN = ZOOM_LEVELS[0];
+const ZOOM_MAX = ZOOM_LEVELS[3];
 /** GPS push while driving */
 const FIX_MS = 2500;
 /** Stationary: keep session alive without hammering API / waking the map */
@@ -55,14 +56,16 @@ const IDLE_TICK_MS = 1000;
  */
 const SNAP_TO_ROAD_M = 8;
 /** Soft leave corridor — hide TBT, keep route, try to rejoin */
-const OFF_ROUTE_M = 45;
-/** Only full replan after this far from the last on-route point */
-const REROUTE_FROM_LAST_GOOD_M = 80;
-const REPLAN_COOLDOWN_MS = 4000;
+const OFF_ROUTE_M = 40;
+/** Full replan after this far from the last correct point */
+const REROUTE_FROM_LAST_GOOD_M = 40;
+const REPLAN_COOLDOWN_MS = 1500;
+/** Auto-replan asks for a short horizon so Valhalla answers fast (km) */
+const REPLAN_TARGET_KM = 2;
 /** Facing against the line counts as “not correct” (same rejoin/reroute rules) */
 const WRONG_WAY_DEG = 110;
-/** Require this many consecutive bad fixes before divert / replan (gpsd lag) */
-const WRONG_WAY_STREAK_N = 10;
+/** Consecutive bad fixes before divert / replan (gpsd lag hysteresis) */
+const WRONG_WAY_STREAK_N = 5;
 /** Ignore heading disagreement when nearly stopped (track is junk) */
 const WRONG_WAY_MIN_SPEED_KMH = 3;
 const AUTO_EXPLORE_RETRY_BASE_MS = 2000;
@@ -122,6 +125,10 @@ const state = {
   moving: false,
   pushInFlight: false,
   exploreInFlight: false,
+  exploreGen: 0,
+  exploreAbort: null,
+  rerouting: false,
+  replanTimer: 0,
   diverted: false,
   lastGoodLat: null,
   lastGoodLon: null,
@@ -161,12 +168,22 @@ const state = {
   autoExploreRetryAt: 0,
   achievementSounds: true,
   gpsSource: null,
+  lastXpAt: 0,
+  xpInFlight: false,
+  lastFogAt: 0,
+  fogInFlight: false,
+  fogLockedGeo: null,
+  fogExploredGeo: null,
 };
 
 /** Poll gpsd-backed fix often enough to feed the rAF lerp (backend ~5 Hz) */
 const FOLLOW_MS = 200;
 
 const ANOMALY_COOLDOWN_MS = 12000;
+/** How long anomaly toasts stay visible */
+const ANOMALY_TOAST_MS = 10000;
+/** Throttle XP HUD refreshes while driving */
+const XP_REFRESH_MS = 8000;
 
 function supportsWebGL() {
   try {
@@ -196,10 +213,11 @@ const DIST_BUCKETS_M = [
 /** @returns {{ value: string, unit: string }} */
 function fmtMetersParts(m) {
   if (m == null || !Number.isFinite(m)) return { value: "—", unit: "" };
-  if (m < 20) return { value: "now", unit: "" };
-  if (m > 1000) {
+  // Only "now" when the real turn is immediately ahead
+  if (m < 25) return { value: "now", unit: "" };
+  if (m >= 1000) {
     return {
-      value: (Math.ceil(m / 100) / 10).toFixed(1),
+      value: (Math.round(m / 100) / 10).toFixed(1),
       unit: "km",
     };
   }
@@ -221,30 +239,39 @@ function fmtMeters(m) {
 
 function isContinueManeuver(m) {
   const t = Number(m?.type);
-  // start / continue / bearon — not the turn we count down to
-  return [1, 2, 3, 7, 8, 17, 18, 25, 29].includes(t);
+  // Valhalla: start / becomes / continue / ramp-straight / stay-straight / ferry
+  return [1, 2, 3, 7, 8, 17, 22, 28, 29].includes(t);
 }
 
-/** Next real turn ahead of shape index (skip continue/start). */
+function isDestinationManeuver(m) {
+  return [4, 5, 6].includes(Number(m?.type));
+}
+
+/** Next real turn ahead of shape index — never a bare "continue/start". */
 function nextTurnManeuver(mans, shapeIdx) {
   if (!mans?.length) return null;
+  let dest = null;
   for (let i = 0; i < mans.length; i++) {
     const end = mans[i].end_shape_index ?? mans[i].begin_shape_index ?? 0;
     if (end < shapeIdx) continue;
+    if (isDestinationManeuver(mans[i])) {
+      dest = mans[i];
+      continue;
+    }
     if (isContinueManeuver(mans[i])) continue;
     return mans[i];
   }
-  return mans[mans.length - 1] || null;
+  return dest;
 }
 
-/** Metres along the route to the next real turn, or null if no active route. */
+/** Metres along the route to the next real turn, or null if none. */
 function nextTurnDistanceM() {
   const route = state.route;
   const coords = route?.geometry?.coordinates;
   if (!route || !coords?.length || state.diverted) return null;
   const idx = nearestShapeIndex(coords, state.lon, state.lat);
   const mans = route.maneuvers || [];
-  const next = nextTurnManeuver(mans, idx) || route.next || mans[0];
+  const next = nextTurnManeuver(mans, idx);
   if (!next) return null;
   const begin = next.begin_shape_index ?? idx;
   const end = next.end_shape_index ?? begin;
@@ -252,118 +279,101 @@ function nextTurnDistanceM() {
   return pathMeters(coords, idx, target);
 }
 
-/**
- * Target map zoom from speed (+ next-turn when navigating).
- * Higher zoom = closer. Capped to [ZOOM_MIN, ZOOM_MAX].
- */
-function targetZoom() {
+/** Pick one of four zoom steps from speed + upcoming turn. */
+function pickZoomLevelIndex() {
   const speed = Math.max(0, Number(state.speedKmh) || 0);
-  const speedT = Math.min(1, speed / ZOOM_SPEED_REF_KMH);
-  // Slow → close (ZOOM_MAX); fast → pulled out toward ZOOM_MIN
-  let z = ZOOM_MAX - speedT * (ZOOM_MAX - ZOOM_MIN);
-
-  if (state.navigationActive) {
+  // Street-close by default; only open up when actually fast
+  let idx = 3;
+  if (speed >= 85) idx = 0;
+  else if (speed >= 55) idx = 1;
+  else if (speed >= 30) idx = 2;
+  else idx = 3;
+  if (state.navigationActive && !state.diverted && !state.rerouting) {
     const dist = nextTurnDistanceM();
-    if (dist != null && dist < ZOOM_TURN_FAR_M) {
-      const span = Math.max(1, ZOOM_TURN_FAR_M - ZOOM_TURN_NEAR_M);
-      const nearT = 1 - Math.min(1, Math.max(0, dist - ZOOM_TURN_NEAR_M) / span);
-      // Pull toward ZOOM_MAX as the turn approaches
-      z += (ZOOM_MAX - z) * nearT;
+    if (dist != null) {
+      if (dist < 120) idx = Math.max(idx, 3);
+      else if (dist < 280) idx = Math.max(idx, 2);
     }
   }
+  return Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx));
+}
 
-  return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+function targetZoom() {
+  return ZOOM_LEVELS[pickZoomLevelIndex()];
 }
 
 /**
- * Turn glyphs — driver at bottom, looking up. Padded 80×80 viewBox so thick
- * strokes don't clip or look like the opposite bend when scaled up.
+ * Material Icons paths (Apache-2.0) — fill currentColor, 24×24 viewBox.
+ * @see https://github.com/google/material-design-icons
  */
-function maneuverIconSvg(m) {
+const MATERIAL_TURN_PATHS = {
+  straight: "M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z",
+  right: "M9 5v2h6.59L4 18.59 5.41 20 17 8.41V15h2V5H9z",
+  left: "M15 5v2H8.41L20 18.59 18.59 20 7 8.41V15H5V5h10z",
+  "slight-right":
+    "M12.34 5.66l2.12-2.12 6.36 6.36-6.36 6.36-2.12-2.12 2.71-2.71L3 17V5h2v8.07l7.07-7.07 0.27-.34z",
+  "slight-left":
+    "M11.66 5.66L9.54 3.54 3.18 9.9l6.36 6.36 2.12-2.12-2.71-2.71L21 17V5h-2v8.07l-7.07-7.07-.27-.34z",
+  "sharp-right":
+    "M6 6v2h8.29L4.7 17.59 6.11 19 16 9.12V17h2V6H6z",
+  "sharp-left":
+    "M18 6v2H9.71L19.3 17.59 17.89 19 8 9.12V17H6V6h12z",
+  "uturn-left":
+    "M3 13c0 2.76 2.24 5 5 5h6v-2H8c-1.65 0-3-1.35-3-3s1.35-3 3-3h7.17l-1.59 1.59L15 13l4-4-4-4-1.41 1.41L15.17 8H8c-2.76 0-5 2.24-5 5z",
+  "uturn-right":
+    "M21 13c0 2.76-2.24 5-5 5H10v-2h6c1.65 0 3-1.35 3-3s-1.35-3-3-3h-7.17l1.59 1.59L9 13 5 9l4-4 1.41 1.41L8.83 8H16c2.76 0 5 2.24 5 5z",
+  merge:
+    "M6.5 17.5L9 15l1.5 1.5L6.5 20.5 2 16l1.5-1.5L6.5 17.5zM17 20.41L18.41 19 15 15.59 13.59 17 17 20.41zM7.5 8H11v5.59L5.59 19 7 20.41l6-6V8h3.5L12 3.5 7.5 8z",
+  "merge-left":
+    "M17.5 17.5L15 15l-1.5 1.5 4 4 4.5-4.5-1.5-1.5-2.5 2.5zM7 20.41L5.59 19 9 15.59 10.41 17 7 20.41zM16.5 8H13v5.59L18.41 19 17 20.41l-6-6V8H7.5L12 3.5 16.5 8z",
+  roundabout:
+    "M13 5.83l1.59 1.59L16 6l-4-4-4 4 1.41 1.41L11 5.83V10H8c-2.76 0-5 2.24-5 5 0 2.21 1.44 4.08 3.41 4.75L7 21h2v-1.93c-.61-.35-1.09-.88-1.33-1.52-.24-.63-.24-1.32 0-1.95.24-.63.72-1.16 1.33-1.51.61-.35 1.32-.44 2-.25.68.19 1.26.66 1.62 1.28.36.63.45 1.36.25 2.04-.2.68-.67 1.26-1.29 1.62-.31.18-.65.29-1.01.34V21h2c2.76 0 5-2.24 5-5 0-2.21-1.44-4.08-3.41-4.75L15 9.5V5.83H13zM12 15c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z",
+  "exit-right":
+    "M6 12l1.41 1.41L11 9.83V20h2V9.83l3.59 3.58L18 12l-6-6-6 6zm10.59 0L19 14.41 20.41 13 17 9.59 13.59 13 15 14.41 16.59 12z",
+  dest: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+};
+
+function maneuverKind(m) {
   const type = Number(m?.type);
-  let kind = "straight";
-  if ([4, 5, 6].includes(type)) kind = "dest";
-  else if ([9, 19, 21, 23].includes(type)) kind = "slight-right";
-  else if ([10].includes(type)) kind = "right";
-  else if ([11].includes(type)) kind = "sharp-right";
-  else if ([16, 20, 22, 24].includes(type)) kind = "slight-left";
-  else if ([15].includes(type)) kind = "left";
-  else if ([14].includes(type)) kind = "sharp-left";
-  else if ([12].includes(type)) kind = "uturn-right";
-  else if ([13].includes(type)) kind = "uturn-left";
-  else if ([26].includes(type)) kind = "merge-right";
-  else if ([27, 28].includes(type)) kind = "roundabout";
+  // Valhalla ManeuverType
+  if ([4, 5, 6].includes(type)) return "dest";
+  if ([9].includes(type)) return "slight-right";
+  if ([10, 18, 20].includes(type)) return "right";
+  if ([11].includes(type)) return "sharp-right";
+  if ([16].includes(type)) return "slight-left";
+  if ([15, 19, 21].includes(type)) return "left";
+  if ([14].includes(type)) return "sharp-left";
+  if ([12].includes(type)) return "uturn-right";
+  if ([13].includes(type)) return "uturn-left";
+  if ([23].includes(type)) return "slight-right"; // stay/fork right
+  if ([24].includes(type)) return "slight-left"; // stay/fork left
+  if ([25].includes(type)) return "merge";
+  if ([26, 27].includes(type)) return "roundabout";
+  return "straight";
+}
 
-  const stroke =
-    'class="nav-turn-stroke" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"';
-  const head = 'class="nav-turn-head" fill="currentColor"';
-
-  const icons = {
-    straight: `
-      <path ${stroke} d="M40 68 V22"/>
-      <path ${head} d="M40 10 L52 28 H28 Z"/>`,
-    right: `
-      <path ${stroke} d="M40 68 V40 H64"/>
-      <path ${head} d="M72 40 L54 28 V52 Z"/>`,
-    left: `
-      <path ${stroke} d="M40 68 V40 H16"/>
-      <path ${head} d="M8 40 L26 28 V52 Z"/>`,
-    "slight-right": `
-      <path ${stroke} d="M40 68 V44 L58 22"/>
-      <path ${head} d="M64 14 L66 32 L48 26 Z"/>`,
-    "slight-left": `
-      <path ${stroke} d="M40 68 V44 L22 22"/>
-      <path ${head} d="M16 14 L32 26 L14 32 Z"/>`,
-    "sharp-right": `
-      <path ${stroke} d="M40 68 V46 L62 58"/>
-      <path ${head} d="M70 62 L52 50 L58 72 Z"/>`,
-    "sharp-left": `
-      <path ${stroke} d="M40 68 V46 L18 58"/>
-      <path ${head} d="M10 62 L28 50 L22 72 Z"/>`,
-    "uturn-right": `
-      <path ${stroke} d="M28 68 V34 A12 12 0 0 1 52 34 V52"/>
-      <path ${head} d="M52 64 L40 52 H64 Z"/>`,
-    "uturn-left": `
-      <path ${stroke} d="M52 68 V34 A12 12 0 0 0 28 34 V52"/>
-      <path ${head} d="M28 64 L40 52 H16 Z"/>`,
-    "merge-right": `
-      <path ${stroke} d="M30 68 V40 L54 18"/>
-      <path ${head} d="M60 10 L62 28 L44 22 Z"/>`,
-    dest: `
-      <path ${stroke} d="M40 68 V30"/>
-      <circle class="nav-turn-dot" fill="currentColor" cx="40" cy="18" r="10"/>`,
-    roundabout: `
-      <path ${stroke} d="M40 68 V52"/>
-      <circle ${stroke} cx="40" cy="36" r="14"/>
-      <path ${stroke} d="M54 36 H66"/>
-      <path ${head} d="M74 36 L58 26 V46 Z"/>`,
-  };
-
-  const body = icons[kind] || icons.straight;
-  return `<svg viewBox="0 0 80 80" width="100%" height="100%" aria-hidden="true">${body}</svg>`;
+function maneuverIconSvg(m) {
+  const kind = maneuverKind(m);
+  const d = MATERIAL_TURN_PATHS[kind] || MATERIAL_TURN_PATHS.straight;
+  return `<svg class="nav-turn-svg" viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`;
 }
 
 function setManeuverIcon(el, m) {
   if (!el) return;
   if (!m) {
-    el.innerHTML = `<svg viewBox="0 0 80 80" width="100%" height="100%" aria-hidden="true"><circle class="nav-turn-dot" fill="currentColor" cx="40" cy="40" r="8"/></svg>`;
+    el.innerHTML = `<svg class="nav-turn-svg" viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true"><circle fill="currentColor" cx="12" cy="12" r="3"/></svg>`;
     return;
   }
   el.innerHTML = maneuverIconSvg(m);
 }
 
 function maneuverVerb(m) {
-  if (!m) return "Continue";
+  if (!m) return "";
   const type = Number(m.type);
   const map = {
-    1: "Start",
-    2: "Start",
-    3: "Start",
     4: "Destination",
     5: "Destination",
     6: "Destination",
-    7: "Continue",
-    8: "Continue",
     9: "Slight right",
     10: "Right",
     11: "Sharp right",
@@ -372,12 +382,17 @@ function maneuverVerb(m) {
     14: "Sharp left",
     15: "Left",
     16: "Slight left",
-    17: "Continue",
-    26: "Merge",
-    27: "Roundabout",
-    28: "Exit roundabout",
+    18: "Ramp right",
+    19: "Ramp left",
+    20: "Exit right",
+    21: "Exit left",
+    23: "Keep right",
+    24: "Keep left",
+    25: "Merge",
+    26: "Roundabout",
+    27: "Exit roundabout",
   };
-  return map[type] || "Continue";
+  return map[type] || "";
 }
 
 function nearestShapeIndex(coords, lon, lat) {
@@ -523,28 +538,36 @@ function updateManeuverHud() {
     !state.navigationActive ||
     !route ||
     !coords?.length ||
-    state.diverted
+    state.diverted ||
+    state.rerouting
   ) {
+    if (!state.rerouting) clearManeuverHud();
+    return;
+  }
+
+  const idx = nearestShapeIndex(coords, state.lon, state.lat);
+  const remain = pathMeters(coords, idx, coords.length - 1);
+  document.getElementById("statRoute").textContent =
+    remain >= 1000 ? (remain / 1000).toFixed(1) : (remain / 1000).toFixed(2);
+
+  const mans = route.maneuvers || [];
+  const next = nextTurnManeuver(mans, idx);
+  const distNext = nextTurnDistanceM();
+  // Never show "drive straight / now" for continue — wait for a real turn
+  if (!next || distNext == null) {
     clearManeuverHud();
     return;
   }
+
   showManeuverHudShell();
-
-  const idx = nearestShapeIndex(coords, state.lon, state.lat);
-  const mans = route.maneuvers || [];
-  const next = nextTurnManeuver(mans, idx) || route.next || mans[0];
-  const distNext = nextTurnDistanceM() ?? 0;
-
   const parts = fmtMetersParts(distNext);
   document.getElementById("maneuverNextDist").textContent = parts.value;
   document.getElementById("maneuverNextUnit").textContent = parts.unit;
   setManeuverIcon(document.getElementById("maneuverNextArrow"), next);
-  document.getElementById("maneuverNextText").textContent =
-    `${maneuverVerb(next)} · ${fmtMeters(distNext)}`;
-
-  const remain = pathMeters(coords, idx, coords.length - 1);
-  document.getElementById("statRoute").textContent =
-    remain >= 1000 ? (remain / 1000).toFixed(1) : (remain / 1000).toFixed(2);
+  const verb = maneuverVerb(next);
+  document.getElementById("maneuverNextText").textContent = verb
+    ? `${verb} · ${fmtMeters(distNext)}`
+    : fmtMeters(distNext);
 }
 
 function solarElevation(lat, lon, date = new Date()) {
@@ -573,6 +596,8 @@ function themePack() {
   const pack = window.WardTheme?.mapPack?.(currentThemeId()) || {
     ahead: "#00e5ff",
     done: "#2ad48a",
+    fogExplored: "#3dffa8",
+    fogLocked: "#12161e",
     mapDay: "liberty",
     mapNight: "dark",
   };
@@ -580,9 +605,18 @@ function themePack() {
   return {
     ahead: pack.ahead,
     done: pack.done,
+    fogExplored: pack.fogExplored || pack.done || "#3dffa8",
+    fogLocked: pack.fogLocked || "#12161e",
     mapDay: tile(pack.mapDay),
     mapNight: tile(pack.mapNight),
   };
+}
+
+function fogPack() {
+  const fromTheme = window.WardTheme?.fogPack?.(currentThemeId());
+  if (fromTheme?.explored && fromTheme?.locked) return fromTheme;
+  const t = themePack();
+  return { explored: t.fogExplored, locked: t.fogLocked };
 }
 
 function mapStyleUrl(night) {
@@ -592,6 +626,7 @@ function mapStyleUrl(night) {
 
 function onSiteThemeChange() {
   applyRouteThemeColors();
+  applyFogThemeColors();
   if (state.marker) {
     state.marker.remove();
     state.marker = null;
@@ -617,6 +652,24 @@ function applyRouteThemeColors() {
     }
   } catch {
     /* style not ready / layer missing */
+  }
+}
+
+function applyFogThemeColors() {
+  if (!state.map) return;
+  const f = fogPack();
+  try {
+    if (state.map.getLayer("fog-locked-line")) {
+      state.map.setPaintProperty("fog-locked-line", "line-color", f.locked);
+    }
+    if (state.map.getLayer("fog-explored-line")) {
+      state.map.setPaintProperty("fog-explored-line", "line-color", f.explored);
+    }
+    if (state.map.getLayer("fog-explored-glow")) {
+      state.map.setPaintProperty("fog-explored-glow", "line-color", f.explored);
+    }
+  } catch {
+    /* style not ready */
   }
 }
 
@@ -652,6 +705,9 @@ function applyDayNight(force = false) {
   state.map.setStyle(url);
   state.map.once("style.load", () => {
     state.map.jumpTo({ center, zoom, bearing, pitch });
+    ensureFogLayers();
+    applyFogData(state.fogLockedGeo, state.fogExploredGeo);
+    applyFogThemeColors();
     restoreRouteLayer();
     applyRouteThemeColors();
     // Liberty/dark ship their own building-3d — always sync visibility after style swap
@@ -769,6 +825,106 @@ function emptyLine() {
   return { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } };
 }
 
+function emptyMultiLine() {
+  return {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "MultiLineString", coordinates: [] },
+  };
+}
+
+function asFogFeature(geom) {
+  if (!geom || !geom.type) return emptyMultiLine();
+  return { type: "Feature", properties: {}, geometry: geom };
+}
+
+/** Fog of war under the TBT route — always shown when a level is loaded. */
+function ensureFogLayers() {
+  if (!state.map) return;
+  if (typeof state.map.isStyleLoaded === "function" && !state.map.isStyleLoaded()) {
+    return;
+  }
+  if (state.map.getSource("fog-locked")) return;
+  const f = fogPack();
+  try {
+    state.map.addSource("fog-locked", { type: "geojson", data: emptyMultiLine() });
+    state.map.addSource("fog-explored", {
+      type: "geojson",
+      data: emptyMultiLine(),
+    });
+    // Locked first (dark), then explored bright — route layers stack above later
+    state.map.addLayer({
+      id: "fog-locked-line",
+      type: "line",
+      source: "fog-locked",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": f.locked,
+        "line-width": routeWidthExpr(7),
+        "line-opacity": 0.92,
+      },
+    });
+    state.map.addLayer({
+      id: "fog-explored-glow",
+      type: "line",
+      source: "fog-explored",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": f.explored,
+        "line-width": routeWidthExpr(14),
+        "line-opacity": 0.22,
+      },
+    });
+    state.map.addLayer({
+      id: "fog-explored-line",
+      type: "line",
+      source: "fog-explored",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": f.explored,
+        "line-width": routeWidthExpr(8),
+        "line-opacity": 0.95,
+      },
+    });
+  } catch (err) {
+    console.warn("fog layers not ready", err);
+  }
+}
+
+function applyFogData(lockedGeom, exploredGeom) {
+  if (!state.map) return;
+  ensureFogLayers();
+  const lockedSrc = state.map.getSource("fog-locked");
+  const exploredSrc = state.map.getSource("fog-explored");
+  if (lockedSrc) lockedSrc.setData(asFogFeature(lockedGeom));
+  if (exploredSrc) exploredSrc.setData(asFogFeature(exploredGeom));
+}
+
+async function refreshFog(force = false) {
+  if (!state.levelId || !state.map) return;
+  const now = Date.now();
+  if (!force && now - (state.lastFogAt || 0) < 8000) return;
+  if (state.fogInFlight) return;
+  state.fogInFlight = true;
+  try {
+    const res = await WardAuth.apiFetch(`/api/levels/${state.levelId}/roads`);
+    if (!res.ok) return;
+    const data = await res.json();
+    state.lastFogAt = Date.now();
+    state.fogLockedGeo = data.locked;
+    state.fogExploredGeo = data.explored;
+    applyFogData(data.locked, data.explored);
+    applyFogThemeColors();
+    if (data.stats?.explored_km != null && !state.sessionUnlockM) {
+      /* keep session unlock from live drives; fog stats are cumulative */
+    }
+  } catch {
+    /* optional map overlay */
+  } finally {
+    state.fogInFlight = false;
+  }
+}
+
 function routeWidthExpr(base) {
   // base ≈ mid-zoom width; scales up with zoom for drive readability
   return [
@@ -791,6 +947,8 @@ function ensureRouteLayers() {
   if (typeof state.map.isStyleLoaded === "function" && !state.map.isStyleLoaded()) {
     return;
   }
+  // Fog under the TBT line — create first so route paints on top
+  ensureFogLayers();
   if (state.map.getSource("explore-route-ahead")) return;
   const t = themePack();
   try {
@@ -818,11 +976,16 @@ function ensureRouteLayers() {
         "line-opacity": 0.98,
       },
     });
+    // Done layers kept empty — fog overlay shows unlocked roads instead
     state.map.addLayer({
       id: "explore-route-done-glow",
       type: "line",
       source: "explore-route-done",
-      layout: { "line-cap": "round", "line-join": "round" },
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+        visibility: "none",
+      },
       paint: {
         "line-color": t.done,
         "line-width": routeWidthExpr(24),
@@ -833,7 +996,11 @@ function ensureRouteLayers() {
       id: "explore-route-done-line",
       type: "line",
       source: "explore-route-done",
-      layout: { "line-cap": "round", "line-join": "round" },
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+        visibility: "none",
+      },
       paint: {
         "line-color": t.done,
         "line-width": routeWidthExpr(15),
@@ -856,24 +1023,17 @@ function updateRouteProgress() {
   if (!coords?.length || !state.map) return;
   ensureRouteLayers();
   const idx = nearestShapeIndex(coords, state.lon, state.lat);
-  const doneCoords = coords.slice(0, Math.max(2, idx + 1));
   const aheadCoords = coords.slice(Math.max(0, idx));
+  // Traveled path stays empty — fog unlock already paints driven roads
+  const doneSrc = state.map.getSource("explore-route-done");
+  if (doneSrc) doneSrc.setData(emptyLine());
+  const aheadSrc = state.map.getSource("explore-route-ahead");
+  if (!aheadSrc) return;
   if (aheadCoords.length < 2) {
-    // Finished — paint all green
-    state.map.getSource("explore-route-done").setData({
-      type: "Feature",
-      properties: {},
-      geometry: { type: "LineString", coordinates: coords },
-    });
-    state.map.getSource("explore-route-ahead").setData(emptyLine());
+    aheadSrc.setData(emptyLine());
     return;
   }
-  state.map.getSource("explore-route-done").setData({
-    type: "Feature",
-    properties: {},
-    geometry: { type: "LineString", coordinates: doneCoords },
-  });
-  state.map.getSource("explore-route-ahead").setData({
+  aheadSrc.setData({
     type: "Feature",
     properties: {},
     geometry: { type: "LineString", coordinates: aheadCoords },
@@ -934,14 +1094,35 @@ function routeAheadBearing(coords, lon, lat) {
   return bearingDeg(coords[i][1], coords[i][0], coords[j][1], coords[j][0]);
 }
 
+function setRerouting(on, reason) {
+  state.rerouting = !!on;
+  const el = document.getElementById("navRerouting");
+  if (el) {
+    el.hidden = !on;
+    if (on) el.textContent = reason || "Rerouting…";
+  }
+  if (on) clearManeuverHud();
+}
+
 function triggerReplan(now, reason) {
   if (!state.navigationActive) return;
-  clearManeuverHud();
-  document.getElementById("navHint").textContent = reason;
-  if (state.exploreInFlight) return;
-  if (now - state.lastReplanAt < REPLAN_COOLDOWN_MS) return;
+  const msg = reason || "Rerouting…";
+  const wait = REPLAN_COOLDOWN_MS - (now - (state.lastReplanAt || 0));
+  if (wait > 0) {
+    setRerouting(true, msg);
+    if (!state.replanTimer) {
+      state.replanTimer = setTimeout(() => {
+        state.replanTimer = 0;
+        if (!state.navigationActive) return;
+        state.lastReplanAt = performance.now();
+        startExplore({ auto: true, reason: msg });
+      }, wait);
+    }
+    return;
+  }
   state.lastReplanAt = now;
-  startExplore({ auto: true, reason });
+  // startExplore aborts any older in-flight request
+  startExplore({ auto: true, reason: msg });
 }
 
 function markLastGood() {
@@ -1021,7 +1202,7 @@ function checkOffRoute(now) {
     return;
   }
 
-  triggerReplan(now, "Far from route — recalculating…");
+  triggerReplan(now, "Rerouting…");
 }
 
 function setNavHint(text) {
@@ -1153,7 +1334,7 @@ function showAnomalyToasts(list) {
     setTimeout(() => {
       el.classList.remove("is-on");
       setTimeout(() => el.remove(), 400);
-    }, 4800);
+    }, ANOMALY_TOAST_MS);
     playAnomalySound(a.sound || "blip");
     break; // one toast per cooldown window
   }
@@ -1236,8 +1417,13 @@ function updateDisplayPose(now) {
   const prev = state.lastDispAt || now;
   const dt = Math.min(0.05, Math.max(0.001, (now - prev) / 1000));
   state.lastDispAt = now;
-  const aPos = 1 - Math.exp(-CAM_SMOOTH * dt);
-  const aBrg = 1 - Math.exp(-BEARING_SMOOTH * dt);
+  // Soft dead-zone so tiny GPS noise doesn't twitch the icon
+  const jumpM = haversineM(state.dispLat, state.dispLon, state.lat, state.lon);
+  const posK = jumpM < 0.35 ? CAM_SMOOTH * 0.35 : CAM_SMOOTH;
+  const brgErr = angleDiffAbsDeg(state.dispHeading, state.heading);
+  const brgK = brgErr < 1.5 ? BEARING_SMOOTH * 0.4 : BEARING_SMOOTH;
+  const aPos = 1 - Math.exp(-posK * dt);
+  const aBrg = 1 - Math.exp(-brgK * dt);
   state.dispLat += (state.lat - state.dispLat) * aPos;
   state.dispLon += (state.lon - state.dispLon) * aPos;
   state.dispHeading = lerpAngleDeg(state.dispHeading, state.heading, aBrg);
@@ -1304,10 +1490,27 @@ function loadNavPrefs() {
   }
   state.buildingsOn = state.view3d && state.webglOk;
   state.camPitch = currentPitch();
+  syncDeadEndsUi();
+}
+
+function syncDeadEndsUi() {
+  const on = !!state.excludeDeadEnds;
   const deadToggle = document.getElementById("toggleDeadEnds");
-  if (deadToggle) deadToggle.checked = state.excludeDeadEnds;
+  if (deadToggle) deadToggle.checked = on;
   const promptDead = document.getElementById("levelPromptDeadEnds");
-  if (promptDead) promptDead.checked = state.excludeDeadEnds;
+  if (promptDead) promptDead.checked = on;
+  const btn = document.getElementById("btnDeadEnds");
+  if (!btn) return;
+  btn.classList.toggle("is-on", on);
+  btn.classList.toggle("is-muted-look", !on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on
+    ? "Skipping dead ends (tap to include)"
+    : "Including dead ends (tap to skip)";
+  btn.setAttribute(
+    "aria-label",
+    on ? "Skip dead ends on" : "Skip dead ends off"
+  );
 }
 
 function setExcludeDeadEnds(on, { persist = true } = {}) {
@@ -1315,10 +1518,7 @@ function setExcludeDeadEnds(on, { persist = true } = {}) {
   if (persist) {
     localStorage.setItem(DEAD_ENDS_KEY, state.excludeDeadEnds ? "1" : "0");
   }
-  const deadToggle = document.getElementById("toggleDeadEnds");
-  if (deadToggle) deadToggle.checked = state.excludeDeadEnds;
-  const promptDead = document.getElementById("levelPromptDeadEnds");
-  if (promptDead) promptDead.checked = state.excludeDeadEnds;
+  syncDeadEndsUi();
 }
 
 function lerpAngleDeg(a, b, t) {
@@ -1388,6 +1588,11 @@ function stopNavigation({ silent = false } = {}) {
   state.autoExploreRetryAt = 0;
   state.lastGoodLat = null;
   state.lastGoodLon = null;
+  if (state.replanTimer) {
+    clearTimeout(state.replanTimer);
+    state.replanTimer = 0;
+  }
+  setRerouting(false);
   clearManeuverHud();
   clearRouteLayers();
   syncNavToggleUi();
@@ -1562,6 +1767,47 @@ function updateRadioHud(radio) {
   setRadioCell("Ble", radio.ble);
 }
 
+function applyXpProgress(prog) {
+  if (!prog) return;
+  const lvl = document.getElementById("statXpLevel");
+  const fill = document.getElementById("statXpFill");
+  const meta = document.getElementById("statXpMeta");
+  if (lvl && prog.level != null) lvl.textContent = String(prog.level);
+  if (fill) {
+    fill.style.width = `${Math.min(100, Number(prog.progress_pct) || 0)}%`;
+  }
+  if (meta) {
+    const into = Number(prog.xp_into_level);
+    const need =
+      Number(prog.xp_level_ceiling) - Number(prog.xp_level_floor) ||
+      Number(prog.xp_into_level) + Number(prog.xp_to_next) ||
+      0;
+    if (Number.isFinite(into) && need > 0) {
+      meta.textContent = `${Math.round(into)}/${Math.round(need)}`;
+    } else if (prog.xp != null) {
+      meta.textContent = `${prog.xp} XP`;
+    }
+  }
+}
+
+async function refreshXpHud(force = false) {
+  const now = Date.now();
+  if (!force && now - (state.lastXpAt || 0) < XP_REFRESH_MS) return;
+  if (state.xpInFlight) return;
+  state.xpInFlight = true;
+  try {
+    const res = await WardAuth.apiFetch("/api/me/progress");
+    if (!res.ok) return;
+    const prog = await res.json();
+    state.lastXpAt = Date.now();
+    applyXpProgress(prog);
+  } catch {
+    /* optional HUD */
+  } finally {
+    state.xpInFlight = false;
+  }
+}
+
 async function pushFix(unlock = true) {
   if (state.pushInFlight || state.followLiveGps) return;
   state.pushInFlight = true;
@@ -1591,6 +1837,9 @@ async function pushFix(unlock = true) {
     if (data.unlock?.newly_explored) {
       state.sessionUnlockM += Number(data.unlock.newly_explored) * 20;
       updateUnlockHud();
+      refreshFog(true);
+    } else {
+      refreshFog(false);
     }
     if (data.radio) updateRadioHud(data.radio);
     if (data.anomalies?.length) {
@@ -1598,6 +1847,9 @@ async function pushFix(unlock = true) {
     }
     if (data.newly_unlocked?.length) {
       showAchievementToasts(data.newly_unlocked);
+      refreshXpHud(true);
+    } else {
+      refreshXpHud(false);
     }
   } finally {
     state.pushInFlight = false;
@@ -1696,7 +1948,14 @@ async function pollFollowGps(now) {
     // Camera smoothed in simFrame; only update pose targets here
     if (data.radio) updateRadioHud(data.radio);
     if (data.anomalies?.length) showAnomalyToasts(data.anomalies);
-    if (data.newly_unlocked?.length) showAchievementToasts(data.newly_unlocked);
+    if (data.newly_unlocked?.length) {
+      showAchievementToasts(data.newly_unlocked);
+      refreshXpHud(true);
+    } else {
+      refreshXpHud(false);
+    }
+    // Fog unlock runs server-side via gpsd even without TBT — keep the map in sync
+    if (state.moving) refreshFog(false);
     const spd = document.getElementById("statSpeed");
     if (spd && Math.round(state.speedKmh) !== state.lastSpeedUi) {
       state.lastSpeedUi = Math.round(state.speedKmh);
@@ -2332,7 +2591,7 @@ function simFrame(now) {
     const fixEvery = hot ? FIX_MS : FIX_MS_IDLE;
     if (state.spawned && now - state.lastFix >= fixEvery) {
       state.lastFix = now;
-      // Stationary fixes keep radio HUD warm but skip unlock work server-side
+      // Unlock fog while driving even without TBT; idle skips unlock work
       pushFix(hot);
     }
   }
@@ -2390,27 +2649,48 @@ async function checkValhallaHint() {
 async function startExplore(opts = {}) {
   if (!state.spawned || !state.levelId) return false;
   if (!state.navigationActive && !opts.force) return false;
-  if (state.exploreInFlight) return false;
+
+  // Newer replan wins — drop the in-flight request instead of queuing
+  if (state.exploreAbort) {
+    try {
+      state.exploreAbort.abort();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  const gen = ++state.exploreGen;
+  const ac = new AbortController();
+  state.exploreAbort = ac;
   state.exploreInFlight = true;
+
   const auto = !!opts.auto;
+  const reason = opts.reason || (auto ? "Rerouting…" : "Routing…");
+  setRerouting(true, reason);
   try {
     if (!auto) {
       document.getElementById("navHint").textContent = "Checking Valhalla…";
     }
     const ready = await checkValhallaHint();
+    if (gen !== state.exploreGen) return false;
     if (!ready) {
       if (state.diverted) clearManeuverHud();
       return false;
     }
-    document.getElementById("navHint").textContent = auto
-      ? opts.reason || "Recalculating…"
-      : "Routing via Valhalla…";
+    document.getElementById("navHint").textContent = reason;
     if (state.diverted) clearManeuverHud();
     await pushFix(true);
-    const targetKm = Number(document.getElementById("targetKm")?.value) || 5;
+    if (gen !== state.exploreGen) return false;
+
+    const uiKm = Number(document.getElementById("targetKm")?.value) || 5;
+    // Auto off-route: short chunk (fast). Manual start/replan: full horizon.
+    const targetKm = auto
+      ? Math.min(REPLAN_TARGET_KM, uiKm)
+      : uiKm;
+
     const res = await WardAuth.apiFetch("/api/navigate/explore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: ac.signal,
       body: JSON.stringify({
         level_id: state.levelId,
         lat: state.lat,
@@ -2420,7 +2700,9 @@ async function startExplore(opts = {}) {
         exclude_dead_ends: !!state.excludeDeadEnds,
       }),
     });
+    if (gen !== state.exploreGen) return false;
     const data = await res.json().catch(() => ({}));
+    if (gen !== state.exploreGen) return false;
     if (!res.ok) {
       const detail =
         typeof data.detail === "string"
@@ -2432,6 +2714,7 @@ async function startExplore(opts = {}) {
       if (state.diverted) clearManeuverHud();
       return false;
     }
+    state.diverted = false;
     setRoute(data.route);
     const replanBtn = document.getElementById("btnReplan");
     if (replanBtn) replanBtn.disabled = false;
@@ -2439,8 +2722,15 @@ async function startExplore(opts = {}) {
       `Explorer route ~${Number(data.route.length_km).toFixed(1)} km · ${data.route.waypoint_count} fog waypoints`
     );
     return true;
+  } catch (err) {
+    if (err?.name === "AbortError" || gen !== state.exploreGen) return false;
+    throw err;
   } finally {
-    state.exploreInFlight = false;
+    if (gen === state.exploreGen) {
+      state.exploreInFlight = false;
+      state.exploreAbort = null;
+      setRerouting(false);
+    }
   }
 }
 
@@ -2463,6 +2753,7 @@ async function resolveLevel() {
   }
   if (!state.levelId) {
     setNavHint("No level yet — drive to a place to generate one.");
+    await refreshXpHud(true);
     return;
   }
   const lv = await WardAuth.apiFetch(`/api/levels/${state.levelId}`).then((r) =>
@@ -2475,13 +2766,8 @@ async function resolveLevel() {
     state.lon = (lv.bbox[0] + lv.bbox[2]) / 2;
     state.lat = (lv.bbox[1] + lv.bbox[3]) / 2;
   }
-  try {
-    const prog = await WardAuth.apiFetch("/api/me/progress").then((r) => r.json());
-    const xpEl = document.getElementById("statXpLevel");
-    if (xpEl && prog?.level != null) xpEl.textContent = String(prog.level);
-  } catch {
-    /* optional */
-  }
+  await refreshXpHud(true);
+  await refreshFog(true);
 }
 
 function initMap() {
@@ -2511,10 +2797,7 @@ function initMap() {
   });
   // Paint on demand (jumpTo / tile loads) — never leave continuous repaint on.
   state.map.repaint = false;
-  state.map.addControl(
-    new maplibregl.NavigationControl({ visualizePitch: true }),
-    "top-right"
-  );
+  // No MapLibre NavigationControl — pinch/scroll zoom; chrome uses AA-scale buttons.
 
   const buildingsToggle = document.getElementById("toggleBuildings");
   if (buildingsToggle) {
@@ -2523,8 +2806,13 @@ function initMap() {
   }
   syncViewModeUi();
   syncNavToggleUi();
+  syncDeadEndsUi();
 
   state.map.on("load", () => {
+    ensureFogLayers();
+    applyFogThemeColors();
+    refreshFog(true);
+    ensureRouteLayers();
     applyRouteThemeColors();
     enableBuildings(state.view3d && state.webglOk);
     bindMapCameraGestures();
@@ -2688,6 +2976,9 @@ function bindControls() {
   });
   document.getElementById("toggleAnomaly")?.addEventListener("change", (e) => {
     setAnomalyAlerts(!!e.target.checked);
+  });
+  document.getElementById("btnDeadEnds")?.addEventListener("click", () => {
+    setExcludeDeadEnds(!state.excludeDeadEnds);
   });
   document.getElementById("toggleDeadEnds")?.addEventListener("change", (e) => {
     setExcludeDeadEnds(!!e.target.checked);

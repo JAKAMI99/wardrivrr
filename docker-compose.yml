@@ -43,6 +43,9 @@ services:
       build_admins: "False"
       build_time_zones: "False"
       serve_tiles: "True"
+      # Concurrent HTTP workers (defaults to nproc). One /route is still one A*
+      # job — threads help overlapping status/replan/build, not a single path.
+      server_threads: ${VALHALLA_SERVER_THREADS:-4}
     volumes:
       - ./data/valhalla:/custom_files
 

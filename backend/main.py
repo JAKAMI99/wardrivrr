@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg2 import OperationalError
 from pydantic import BaseModel, Field
@@ -888,13 +888,14 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
     if body.unlock and level_id is not None:
         level = get_level(user["id"], level_id)
         if level and level.get("status") == "ready":
-            # Fog / road-tile unlock uses snapped position (not raw GPS)
+            # Fog unlock: snapped segment + before/behind only (not lateral radius)
             unlock_stats = unlock_near_point(
                 level_id,
                 use_lon,
                 use_lat,
                 accuracy_m=body.accuracy_m,
                 heading_deg=body.heading_deg,
+                segment_id=snap.get("segment_id"),
             )
             if unlock_stats is not None:
                 unlock_stats = dict(unlock_stats)
@@ -1381,7 +1382,7 @@ def set_active_level(body: ActiveLevelBody, user: dict = Depends(get_current_use
 
 @app.get("/api/levels/{level_id}/roads")
 def levels_roads_map(level_id: int, user: dict = Depends(get_current_user)):
-    """Discover view: locked vs explored road grid (not turn-by-turn)."""
+    """Progress / fog-of-war: locked vs explored road grid."""
     data = get_level_road_map(user["id"], level_id)
     if not data:
         raise HTTPException(404, "Level not found")
@@ -1837,9 +1838,15 @@ def levels_page():
     return FileResponse(FRONTEND / "levels.html")
 
 
+@app.get("/progress")
+def progress_page():
+    return FileResponse(FRONTEND / "progress.html")
+
+
 @app.get("/discover")
-def discover_page():
-    return FileResponse(FRONTEND / "discover.html")
+def discover_page_redirect():
+    """Legacy Discover URL → Progress (fog of war)."""
+    return RedirectResponse(url="/progress", status_code=302)
 
 
 @app.get("/navigate")

@@ -29,6 +29,11 @@ PROFILE_COSTING = {
 # Never route into cul-de-sac tips shorter than this (metres).
 DEAD_END_MIN_M = 40.0
 
+# First metres of a new route must continue along current heading.
+# Replans take a second or two; by then the car has already moved — a straight
+# lead-in keeps the path usable instead of turning behind the vehicle.
+STRAIGHT_LEAD_M = 160.0
+
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371000.0
@@ -40,78 +45,115 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _fetch_unexplored_candidates(
-    level_id: int, lon: float, lat: float, search_m: float, limit: int = 220
+    level_id: int, lon: float, lat: float, search_m: float, limit: int = 160
 ) -> list[dict[str, Any]]:
     """
     Midpoints of locked segments inside a geographic radius.
-    Marks cul-de-sac tips (endpoint degree ≤ 1) as is_dead_end.
+    Dead-end flag uses endpoint degree only for nearby candidates (not the
+    whole level) — the old full-level CTE was a major replan bottleneck.
     """
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
+            # 1) Cheap nearby unexplored scrape
             cur.execute(
                 """
-                WITH level_nodes AS (
-                  SELECT
-                    id,
-                    length_m,
-                    geom,
-                    is_explored,
-                    ROUND(ST_X(ST_StartPoint(geom))::numeric, 5) AS sx,
-                    ROUND(ST_Y(ST_StartPoint(geom))::numeric, 5) AS sy,
-                    ROUND(ST_X(ST_EndPoint(geom))::numeric, 5) AS ex,
-                    ROUND(ST_Y(ST_EndPoint(geom))::numeric, 5) AS ey
-                  FROM road_segments
-                  WHERE level_id = %s
-                ),
-                hits AS (
-                  SELECT sx AS x, sy AS y, id FROM level_nodes
-                  UNION ALL
-                  SELECT ex, ey, id FROM level_nodes
-                ),
-                deg AS (
-                  SELECT x, y, COUNT(*)::int AS n
-                  FROM hits
-                  GROUP BY x, y
-                ),
-                flagged AS (
-                  SELECT
-                    ln.id,
-                    ln.length_m,
-                    ln.geom,
-                    ln.is_explored,
-                    (ds.n <= 1 OR de.n <= 1) AS is_dead_end
-                  FROM level_nodes ln
-                  JOIN deg ds ON ds.x = ln.sx AND ds.y = ln.sy
-                  JOIN deg de ON de.x = ln.ex AND de.y = ln.ey
-                ),
-                pts AS (
-                  SELECT
-                    id,
-                    length_m,
-                    is_dead_end,
-                    ST_X(ST_LineInterpolatePoint(geom, 0.5)) AS lon,
-                    ST_Y(ST_LineInterpolatePoint(geom, 0.5)) AS lat,
-                    ST_Distance(
-                      geom::geography,
-                      ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
-                    ) AS dist_m
-                  FROM flagged
-                  WHERE is_explored = FALSE
-                    AND geom && ST_Expand(
-                      ST_SetSRID(ST_MakePoint(%s, %s), 4326),
-                      %s / 111320.0
-                    )
-                )
-                SELECT id, length_m, lon, lat, dist_m, is_dead_end
-                FROM pts
-                WHERE dist_m <= %s
-                ORDER BY dist_m ASC
+                SELECT
+                  id,
+                  length_m,
+                  ST_X(ST_LineInterpolatePoint(geom, 0.5)) AS lon,
+                  ST_Y(ST_LineInterpolatePoint(geom, 0.5)) AS lat,
+                  ST_Distance(
+                    geom::geography,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                  ) AS dist_m,
+                  ROUND(ST_X(ST_StartPoint(geom))::numeric, 5) AS sx,
+                  ROUND(ST_Y(ST_StartPoint(geom))::numeric, 5) AS sy,
+                  ROUND(ST_X(ST_EndPoint(geom))::numeric, 5) AS ex,
+                  ROUND(ST_Y(ST_EndPoint(geom))::numeric, 5) AS ey
+                FROM road_segments
+                WHERE level_id = %s
+                  AND is_explored = FALSE
+                  AND geom && ST_Expand(
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326),
+                    %s / 111320.0
+                  )
+                ORDER BY geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)
                 LIMIT %s
                 """,
-                (level_id, lon, lat, lon, lat, search_m, search_m, limit),
+                (
+                    lon,
+                    lat,
+                    level_id,
+                    lon,
+                    lat,
+                    search_m,
+                    lon,
+                    lat,
+                    limit,
+                ),
             )
-            return list(cur.fetchall())
+            rows = list(cur.fetchall())
+            if not rows:
+                return []
+
+            # 2) Degree only at the endpoints we care about (pad bbox slightly)
+            xs = [float(r["sx"]) for r in rows] + [float(r["ex"]) for r in rows]
+            ys = [float(r["sy"]) for r in rows] + [float(r["ey"]) for r in rows]
+            pad = max(0.002, search_m / 111320.0 * 0.15)
+            cur.execute(
+                """
+                WITH hits AS (
+                  SELECT
+                    ROUND(ST_X(ST_StartPoint(geom))::numeric, 5) AS x,
+                    ROUND(ST_Y(ST_StartPoint(geom))::numeric, 5) AS y
+                  FROM road_segments
+                  WHERE level_id = %s
+                    AND geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+                  UNION ALL
+                  SELECT
+                    ROUND(ST_X(ST_EndPoint(geom))::numeric, 5),
+                    ROUND(ST_Y(ST_EndPoint(geom))::numeric, 5)
+                  FROM road_segments
+                  WHERE level_id = %s
+                    AND geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+                )
+                SELECT x, y, COUNT(*)::int AS n
+                FROM hits
+                GROUP BY x, y
+                """,
+                (
+                    level_id,
+                    min(xs) - pad,
+                    min(ys) - pad,
+                    max(xs) + pad,
+                    max(ys) + pad,
+                    level_id,
+                    min(xs) - pad,
+                    min(ys) - pad,
+                    max(xs) + pad,
+                    max(ys) + pad,
+                ),
+            )
+            deg = {(float(r["x"]), float(r["y"])): int(r["n"]) for r in cur.fetchall()}
+
+            out: list[dict[str, Any]] = []
+            for r in rows:
+                if float(r["dist_m"] or 0) > search_m:
+                    continue
+                ds = deg.get((float(r["sx"]), float(r["sy"])), 1)
+                de = deg.get((float(r["ex"]), float(r["ey"])), 1)
+                out.append(
+                    {
+                        "id": r["id"],
+                        "length_m": r["length_m"],
+                        "lon": r["lon"],
+                        "lat": r["lat"],
+                        "dist_m": r["dist_m"],
+                        "is_dead_end": bool(ds <= 1 or de <= 1),
+                    }
+                )
+            return out
     finally:
         conn.close()
 
@@ -168,6 +210,27 @@ def _angle_diff_deg(a: float, b: float) -> float:
     return (float(a) - float(b) + 180.0) % 360.0 - 180.0
 
 
+def _offset_point(lat: float, lon: float, bearing_deg: float, dist_m: float) -> dict[str, float]:
+    """Point `dist_m` metres from (lat, lon) along compass bearing."""
+    r = 6371000.0
+    br = math.radians(bearing_deg)
+    lat1 = math.radians(lat)
+    lon1 = math.radians(lon)
+    d = dist_m / r
+    lat2 = math.asin(
+        math.sin(lat1) * math.cos(d)
+        + math.cos(lat1) * math.sin(d) * math.cos(br)
+    )
+    lon2 = lon1 + math.atan2(
+        math.sin(br) * math.sin(d) * math.cos(lat1),
+        math.cos(d) - math.sin(lat1) * math.sin(lat2),
+    )
+    return {
+        "lat": math.degrees(lat2),
+        "lon": (math.degrees(lon2) + 540.0) % 360.0 - 180.0,
+    }
+
+
 def _score(
     c: dict[str, Any],
     density: int,
@@ -195,7 +258,7 @@ def pick_waypoints(
     candidates: list[dict[str, Any]],
     *,
     target_km: float,
-    max_waypoints: int = 7,
+    max_waypoints: int = 4,
     heading_deg: float | None = None,
 ) -> list[dict[str, float]]:
     if not candidates:
@@ -213,7 +276,9 @@ def pick_waypoints(
     while remaining and len(waypoints) < max_waypoints and walked < target_m * 0.92:
         best_id = None
         best_score = -1.0
-        hw = 1.6 if not waypoints else 0.55
+        first_hop = not waypoints
+        # First hop: strong ahead bias so the path stays straight after the lead-in
+        hw = 2.4 if first_hop else 0.55
         for cid, c in remaining.items():
             hop = _haversine_m(cur_lat, cur_lon, float(c["lat"]), float(c["lon"]))
             if hop < 40:
@@ -221,6 +286,11 @@ def pick_waypoints(
             # Soft hop cap so we don't jump across the whole city in one leg
             if hop > max(900.0, target_m * 0.35):
                 continue
+            if first_hop and drive_heading is not None:
+                brg = _bearing_deg(cur_lat, cur_lon, float(c["lat"]), float(c["lon"]))
+                # Reject anything more than ~70° off the nose on the first pick
+                if abs(_angle_diff_deg(brg, drive_heading)) > 70.0:
+                    continue
             s = _score(
                 c,
                 density.get(cid, 1),
@@ -233,8 +303,14 @@ def pick_waypoints(
                 best_score = s
                 best_id = cid
         if best_id is None:
-            # Relax hop cap once if stuck
+            # Relax hop / heading filters once if stuck
             for cid, c in remaining.items():
+                if first_hop and drive_heading is not None:
+                    brg = _bearing_deg(
+                        cur_lat, cur_lon, float(c["lat"]), float(c["lon"])
+                    )
+                    if abs(_angle_diff_deg(brg, drive_heading)) > 110.0:
+                        continue
                 s = _score(
                     c,
                     density.get(cid, 1),
@@ -287,8 +363,20 @@ def plan_explore_route(
     candidates = filter_dead_end_candidates(
         raw_candidates, exclude_all=bool(exclude_dead_ends)
     )
+
+    # Seed greedy picks from a point ahead so the first real turn is past the lead-in
+    pick_lat, pick_lon = lat, lon
+    lead: dict[str, float] | None = None
+    if heading is not None and STRAIGHT_LEAD_M > 0:
+        lead = _offset_point(lat, lon, heading, STRAIGHT_LEAD_M)
+        pick_lat, pick_lon = float(lead["lat"]), float(lead["lon"])
+
     waypoints = pick_waypoints(
-        lat, lon, candidates, target_km=target_km, heading_deg=heading
+        pick_lat,
+        pick_lon,
+        candidates,
+        target_km=target_km,
+        heading_deg=heading,
     )
 
     if not waypoints:
@@ -296,13 +384,25 @@ def plan_explore_route(
             "No unexplored road segments nearby — try another spawn or a larger level"
         )
 
-    locations = [{"lat": lat, "lon": lon}, *waypoints]
+    locations: list[dict[str, Any]] = [{"lat": lat, "lon": lon}]
+    if lead is not None:
+        locations.append(
+            {
+                "lat": lead["lat"],
+                "lon": lead["lon"],
+                "type": "through",
+                "heading": heading,
+                "heading_tolerance": 30.0,
+            }
+        )
+    locations.extend(waypoints)
     raw = route(
         locations,
         costing=costing,
         language=language,
         heading_deg=heading,
-        heading_tolerance=50.0,
+        # Tight origin heading — Valhalla must leave facing the drive direction
+        heading_tolerance=35.0,
     )
     summary = summarize_route(raw)
     summary.update(
@@ -317,6 +417,7 @@ def plan_explore_route(
             "candidate_count_raw": len(raw_candidates),
             "exclude_dead_ends": bool(exclude_dead_ends),
             "dead_end_min_m": DEAD_END_MIN_M,
+            "straight_lead_m": STRAIGHT_LEAD_M if lead is not None else 0.0,
             "origin": {"lat": lat, "lon": lon},
             "heading_deg": heading,
         }

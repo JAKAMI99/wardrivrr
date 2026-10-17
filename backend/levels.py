@@ -771,19 +771,20 @@ def _update_level_explored_stats(cur, level_id: int):
     return cur.fetchone()
 
 
-# Live/sim unlock: also probe this far left/right of heading (debug + road offset)
-UNLOCK_LATERAL_M = 20.0
+# Endpoint match for "before/behind" neighbours (metres)
+_UNLOCK_TOUCH_M = 2.5
 
 
-def _offset_latlon(
-    lat: float, lon: float, heading_deg: float, distance_m: float
-) -> tuple[float, float]:
-    """Move distance_m along heading_deg (0=N, 90=E)."""
-    rad = math.radians(heading_deg)
-    d_lat = (distance_m * math.cos(rad)) / 111320.0
-    cos_lat = math.cos(math.radians(lat))
-    d_lon = (distance_m * math.sin(rad)) / (111320.0 * max(0.2, cos_lat))
-    return lat + d_lat, lon + d_lon
+def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    φ1, φ2 = math.radians(lat1), math.radians(lat2)
+    Δλ = math.radians(lon2 - lon1)
+    y = math.sin(Δλ) * math.cos(φ2)
+    x = math.cos(φ1) * math.sin(φ2) - math.sin(φ1) * math.cos(φ2) * math.cos(Δλ)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def _angle_diff_abs(a: float, b: float) -> float:
+    return abs(((a - b + 540.0) % 360.0) - 180.0)
 
 
 def unlock_near_point(
@@ -793,63 +794,181 @@ def unlock_near_point(
     accuracy_m: float | None = None,
     accuracy_factor: float = EXPLORE_ACCURACY_FACTOR,
     heading_deg: float | None = None,
-    lateral_m: float = UNLOCK_LATERAL_M,
+    lateral_m: float | None = None,
+    segment_id: int | None = None,
 ) -> dict[str, float | int]:
     """
-    Unlock segments near a live GPS/sim fix (covers drives with no Wi‑Fi samples).
+    Fog unlock while snapped to a road.
 
-    Radius around each probe = max(1, accuracy × factor).
-    When heading is known, also unlock at ±lateral_m perpendicular to heading
-    so you still clear the street if the fix sits in a garden / bike lane.
+    Only the snapped segment plus the best-aligned before/behind neighbours
+    (endpoint-touching) are unlocked — not a lateral radius that paints
+    parallel streets.
     """
-    acc = accuracy_m if accuracy_m and accuracy_m > 0 else _DEFAULT_GPS_ACCURACY_M
-    radius_m = max(1.0, float(acc) * accuracy_factor)
-    # Cover a bit beyond each lateral probe toward the carriageway
-    radius_m = max(radius_m, min(lateral_m, 20.0) * 0.6)
+    del accuracy_m, accuracy_factor, lateral_m, lon, lat  # snap corridor only
+    if segment_id is None:
+        return {
+            "newly_explored": 0,
+            "explored_km": 0.0,
+            "explored_pct": 0.0,
+            "segment_id": None,
+            "unlocked_ids": [],
+            "mode": "skip_no_snap",
+        }
 
-    probes: list[tuple[float, float]] = [(float(lat), float(lon))]
-    if heading_deg is not None and lateral_m and lateral_m > 0:
-        h = float(heading_deg) % 360.0
-        # Perpendicular: left = heading−90, right = heading+90
-        probes.append(_offset_latlon(lat, lon, h - 90.0, lateral_m))
-        probes.append(_offset_latlon(lat, lon, h + 90.0, lateral_m))
-
-    deg_pad = max(_EXPLORE_DEG_PAD, (radius_m + lateral_m) / 100_000.0)
-    newly = 0
-    conn = connect()
+    sid = int(segment_id)
+    ids: list[int] = [sid]
+    conn = connect_dict()
     try:
         with conn.cursor() as cur:
-            for plat, plon in probes:
-                cur.execute(
-                    """
-                    UPDATE road_segments rs
-                    SET is_explored = TRUE,
-                        explored_at = COALESCE(rs.explored_at, NOW())
-                    WHERE rs.level_id = %s
-                      AND rs.is_explored = FALSE
-                      AND rs.geom && ST_Expand(
-                        ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s
-                      )
-                      AND ST_DWithin(
-                        rs.geom::geography,
-                        ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
-                        %s
-                      )
-                    """,
-                    (level_id, plon, plat, deg_pad, plon, plat, radius_m),
-                )
-                newly += int(cur.rowcount or 0)
+            cur.execute(
+                """
+                SELECT id,
+                       ST_Y(ST_StartPoint(geom)) AS slat,
+                       ST_X(ST_StartPoint(geom)) AS slon,
+                       ST_Y(ST_EndPoint(geom)) AS elat,
+                       ST_X(ST_EndPoint(geom)) AS elon
+                FROM road_segments
+                WHERE level_id = %s AND id = %s
+                """,
+                (level_id, sid),
+            )
+            cur_seg = cur.fetchone()
+            if not cur_seg:
+                return {
+                    "newly_explored": 0,
+                    "explored_km": 0.0,
+                    "explored_pct": 0.0,
+                    "segment_id": sid,
+                    "unlocked_ids": [],
+                    "mode": "missing_segment",
+                }
+
+            # Neighbours that share a start/end within a few metres
+            cur.execute(
+                """
+                SELECT n.id,
+                       ST_Y(ST_StartPoint(n.geom)) AS slat,
+                       ST_X(ST_StartPoint(n.geom)) AS slon,
+                       ST_Y(ST_EndPoint(n.geom)) AS elat,
+                       ST_X(ST_EndPoint(n.geom)) AS elon
+                FROM road_segments c
+                JOIN road_segments n
+                  ON n.level_id = c.level_id AND n.id <> c.id
+                WHERE c.level_id = %s AND c.id = %s
+                  AND (
+                    ST_DWithin(
+                      ST_StartPoint(c.geom)::geography,
+                      ST_StartPoint(n.geom)::geography, %s
+                    )
+                    OR ST_DWithin(
+                      ST_StartPoint(c.geom)::geography,
+                      ST_EndPoint(n.geom)::geography, %s
+                    )
+                    OR ST_DWithin(
+                      ST_EndPoint(c.geom)::geography,
+                      ST_StartPoint(n.geom)::geography, %s
+                    )
+                    OR ST_DWithin(
+                      ST_EndPoint(c.geom)::geography,
+                      ST_EndPoint(n.geom)::geography, %s
+                    )
+                  )
+                """,
+                (
+                    level_id,
+                    sid,
+                    _UNLOCK_TOUCH_M,
+                    _UNLOCK_TOUCH_M,
+                    _UNLOCK_TOUCH_M,
+                    _UNLOCK_TOUCH_M,
+                ),
+            )
+            neighbours = cur.fetchall() or []
+
+            heading = float(heading_deg) % 360.0 if heading_deg is not None else None
+            ahead_id = None
+            behind_id = None
+            ahead_err = 1e9
+            behind_err = 1e9
+            c_slat, c_slon = float(cur_seg["slat"]), float(cur_seg["slon"])
+            c_elat, c_elon = float(cur_seg["elat"]), float(cur_seg["elon"])
+
+            for n in neighbours:
+                nid = int(n["id"])
+                n_slat, n_slon = float(n["slat"]), float(n["slon"])
+                n_elat, n_elon = float(n["elat"]), float(n["elon"])
+                # Outward bearing from the shared end toward the far end of neighbour
+                candidates: list[float] = []
+                for cx, cy, nx, ny, fx, fy in (
+                    (c_slon, c_slat, n_slon, n_slat, n_elon, n_elat),
+                    (c_slon, c_slat, n_elon, n_elat, n_slon, n_slat),
+                    (c_elon, c_elat, n_slon, n_slat, n_elon, n_elat),
+                    (c_elon, c_elat, n_elon, n_elat, n_slon, n_slat),
+                ):
+                    if abs(cx - nx) < 1e-5 and abs(cy - ny) < 1e-5:
+                        candidates.append(_bearing_deg(cy, cx, fy, fx))
+                if not candidates:
+                    # loose: use neighbour mid bearing from current mid
+                    mid_c_lat = (c_slat + c_elat) / 2
+                    mid_c_lon = (c_slon + c_elon) / 2
+                    mid_n_lat = (n_slat + n_elat) / 2
+                    mid_n_lon = (n_slon + n_elon) / 2
+                    candidates.append(
+                        _bearing_deg(mid_c_lat, mid_c_lon, mid_n_lat, mid_n_lon)
+                    )
+                brg = candidates[0]
+                if heading is None:
+                    # No heading — take first two neighbours
+                    if ahead_id is None:
+                        ahead_id = nid
+                    elif behind_id is None and nid != ahead_id:
+                        behind_id = nid
+                    continue
+                err_fwd = _angle_diff_abs(brg, heading)
+                err_back = _angle_diff_abs(brg, (heading + 180.0) % 360.0)
+                if err_fwd < ahead_err and err_fwd <= 75.0:
+                    ahead_err = err_fwd
+                    ahead_id = nid
+                if err_back < behind_err and err_back <= 75.0:
+                    behind_err = err_back
+                    behind_id = nid
+
+            for extra in (ahead_id, behind_id):
+                if extra is not None and extra not in ids:
+                    ids.append(int(extra))
+
+            cur.execute(
+                """
+                UPDATE road_segments
+                SET is_explored = TRUE,
+                    explored_at = COALESCE(explored_at, NOW())
+                WHERE level_id = %s
+                  AND is_explored = FALSE
+                  AND id = ANY(%s)
+                """,
+                (level_id, ids),
+            )
+            newly = int(cur.rowcount or 0)
             row = _update_level_explored_stats(cur, level_id)
         conn.commit()
     finally:
         conn.close()
+    if isinstance(row, dict):
+        explored_km = float(row.get("explored_km") or 0)
+        explored_pct = float(row.get("explored_pct") or 0)
+    elif row:
+        explored_km = float(row[0] or 0)
+        explored_pct = float(row[1] or 0)
+    else:
+        explored_km = 0.0
+        explored_pct = 0.0
     return {
         "newly_explored": newly,
-        "explored_km": float(row[0] or 0) if row else 0.0,
-        "explored_pct": float(row[1] or 0) if row else 0.0,
-        "radius_m": radius_m,
-        "lateral_m": float(lateral_m) if heading_deg is not None else 0.0,
-        "probes": len(probes),
+        "explored_km": explored_km,
+        "explored_pct": explored_pct,
+        "segment_id": sid,
+        "unlocked_ids": ids,
+        "mode": "snap_corridor",
     }
 
 
