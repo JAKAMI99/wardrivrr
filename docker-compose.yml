@@ -12,8 +12,10 @@ services:
       POSTGRES_DB: ${DB_NAME:-wardriving}
       POSTGRES_USER: ${DB_USER:-explorer}
       POSTGRES_PASSWORD: ${DB_PASS:-secure_password_here}
+    # Localhost only (the car API uses host networking). DB_BIND=0.0.0.0 to
+    # reach it from the LAN — then set a real DB_PASS first.
     ports:
-      - "5432:5432"
+      - "${DB_BIND:-127.0.0.1}:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgis/init:/docker-entrypoint-initdb.d
@@ -32,7 +34,7 @@ services:
     container_name: wardrivrr_valhalla
     restart: unless-stopped
     ports:
-      - "8002:8002"
+      - "${VALHALLA_BIND:-127.0.0.1}:8002:8002"
     environment:
       tile_urls: ${VALHALLA_TILE_URL:-}
       use_tiles_ignore_pbf: "False"

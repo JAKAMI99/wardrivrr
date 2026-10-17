@@ -5,10 +5,11 @@ Regional Geofabrik packs live in data/pbf/{extract}.osm.pbf (e.g. Arnsberg…).
 Valhalla only sees data/valhalla/ (compose bind mount).
 
 Tiles are always scoped to a selected level (city/district):
-  - prefer the level's extract.osm.pbf when present, else
-  - osmium-clip the regional pack to the level bbox, then build.
+  - osmium-clip a regional pack (or oversized level extract) to the level bbox,
+  - then wipe + rebuild Valhalla tiles from that small active.osm.pbf.
 
-Do not feed Valhalla the whole regional pack — that is what made first builds crawl.
+Never hardlink the full regional / level extract into active.osm.pbf — that
+made “city” builds crawl (hundreds of MB, hundreds of thousands of ways).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -545,14 +547,36 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
     }
 
 
-def ensure_valhalla_up(*, wipe: bool = False) -> dict[str, Any]:
+# One shared container + one active.osm.pbf: clip/restart must never overlap
+# (status polls during the rm→up window used to start a second restart).
+_valhalla_lock = threading.RLock()
+
+
+def ensure_valhalla_up(*, wipe: bool = False, blocking: bool = True) -> dict[str, Any]:
     """
     Make sure Valhalla is running against the current active.osm.pbf.
 
     - If HTTP already OK → no-op
     - If container running but still building → no-op (caller waits)
     - If PBF ready but container down/missing → start/recreate
+    - blocking=False (status polls): report busy instead of queueing behind a
+      prepare/restart already in progress
     """
+    if not _valhalla_lock.acquire(blocking=blocking):
+        return {
+            "ok": True,
+            "running": False,
+            "busy": True,
+            "http_ok": False,
+            "detail": "Valhalla prepare/restart already in progress",
+        }
+    try:
+        return _ensure_valhalla_up_locked(wipe=wipe)
+    finally:
+        _valhalla_lock.release()
+
+
+def _ensure_valhalla_up_locked(*, wipe: bool) -> dict[str, Any]:
     from valhalla_client import valhalla_reachable
 
     if not active_pbf_ready():
@@ -661,12 +685,25 @@ def prepare_valhalla_for_level(
     force: bool = False,
 ) -> dict[str, Any]:
     """
-    Point Valhalla at this level's map extract and start the container.
+    Point Valhalla at a bbox-clipped PBF for this level and start the container.
 
-    Prefers the level's own extract.osm.pbf (already city-scoped). Falls back to
-    osmium-clipping a regional Geofabrik pack to the level bbox.
-    Always ensures the Valhalla container is up when restart=True.
+    Always osmium-clips to the level bbox (+ pad). Level extract.osm.pbf is often
+    a hardlink/copy of the full regional pack (road import only filters in Python),
+    so never feed it to Valhalla unclipped.
     """
+    with _valhalla_lock:
+        return _prepare_valhalla_for_level_locked(
+            user_id, level_id, restart=restart, force=force
+        )
+
+
+def _prepare_valhalla_for_level_locked(
+    user_id: int,
+    level_id: int,
+    *,
+    restart: bool,
+    force: bool,
+) -> dict[str, Any]:
     from paths import level_dir
 
     level = get_level(user_id, level_id)
@@ -687,39 +724,37 @@ def prepare_valhalla_for_level(
     if not regional.exists() or regional.stat().st_size < 1000:
         regional = pick_regional_pbf() or regional
 
+    # Prefer regional pack as clip source; fall back to whatever sits in the level dir.
+    src: Path | None = None
+    if isinstance(regional, Path) and regional.is_file() and regional.stat().st_size >= 1000:
+        src = regional
+    elif level_extract.is_file() and level_extract.stat().st_size >= 1000:
+        src = level_extract
+    if src is None:
+        raise ValhallaPrepError(
+            f"Map pack PBF missing for level {level_id} "
+            f"(no regional pack for {gid} and no extract.osm.pbf)"
+        )
+
     VALHALLA_DIR.mkdir(parents=True, exist_ok=True)
     if ACTIVE_PBF.is_dir():
         shutil.rmtree(ACTIVE_PBF, ignore_errors=True)
 
-    clipped = False
     mode = "clip"
-    src: Path
-    if level_extract.is_file() and level_extract.stat().st_size >= 1000:
-        src = level_extract
-        mode = "level_extract"
-        # Already city-scoped — no osmium. Refresh when forced or level changed.
-        need = force or not _meta_matches(level_id, padded)
-        if not need and ACTIVE_META.exists():
-            try:
-                meta = json.loads(ACTIVE_META.read_text(encoding="utf-8"))
-                need = int(meta.get("level_id") or -1) != int(level_id)
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    need = force or not _meta_matches(level_id, padded) or not active_pbf_ready()
+    # Re-clip if active is still basically the unclipped source (old bug).
+    if not need and active_pbf_ready() and src.is_file():
+        try:
+            if ACTIVE_PBF.stat().st_size >= max(1_000_000, int(src.stat().st_size * 0.85)):
                 need = True
-        if need or not active_pbf_ready():
-            _link_or_copy(src, ACTIVE_PBF)
-            _write_meta(source=str(src), level=level, bbox=padded, mode=mode)
-            clipped = True
-    else:
-        if not isinstance(regional, Path) or not regional.exists() or regional.stat().st_size < 1000:
-            raise ValhallaPrepError(
-                f"Map pack PBF missing for level {level_id} "
-                f"(no extract.osm.pbf and no regional pack for {gid})"
-            )
-        src = regional
-        if force or not _meta_matches(level_id, padded):
-            _clip_with_osmium_docker(src, ACTIVE_PBF, padded)
-            _write_meta(source=str(src), level=level, bbox=padded, mode=mode)
-            clipped = True
+        except OSError:
+            need = True
+
+    clipped = False
+    if need:
+        _clip_with_osmium_docker(src, ACTIVE_PBF, padded)
+        _write_meta(source=str(src), level=level, bbox=padded, mode=mode)
+        clipped = True
 
     if not active_pbf_ready():
         raise ValhallaPrepError("Failed to prepare active.osm.pbf for Valhalla")

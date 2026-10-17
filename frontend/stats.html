@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0e11" />
-    <title>Explorer · wardrivrr</title>
+    <title>Stats Â· wardrivrr</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
     <script src="/static/theme.js?v=8"></script>
@@ -19,19 +19,19 @@
 
       <main class="home-main stats-main explorer-hub">
         <header class="home-hero settings-hero explorer-hero" id="explorerHero">
-          <p class="stats-kicker" id="statsTz">Explorer</p>
+          <p class="stats-kicker" id="statsTz">Stats</p>
           <div class="explorer-level-row">
-            <div class="explorer-level-num" id="explorerLevel">—</div>
+            <div class="explorer-level-num" id="explorerLevel">â€”</div>
             <div class="explorer-level-meta">
-              <h1 id="statsHeadline">Loading…</h1>
-              <p id="statsNudge" class="stats-nudge">Pulling your progress…</p>
+              <h1 id="statsHeadline">Loadingâ€¦</h1>
+              <p id="statsNudge" class="stats-nudge">Pulling your progressâ€¦</p>
               <p class="explorer-xp-total" id="explorerXpTotal"></p>
             </div>
           </div>
           <div class="meter explorer-meter" aria-hidden="true">
             <div class="meter-fill" id="explorerXpFill"></div>
           </div>
-          <p class="meter-caption" id="explorerXpCaption">—</p>
+          <p class="meter-caption" id="explorerXpCaption">â€”</p>
         </header>
 
         <section class="xp-breakdown" aria-label="XP breakdown" id="xpBreakdown">
@@ -54,24 +54,24 @@
         <section class="stat-strip stats-hero-strip" aria-label="Period totals" id="periodStrip">
           <div class="stat stat-glow">
             <span class="label">New networks</span>
-            <div class="value" id="pNetworks">—</div>
+            <div class="value" id="pNetworks">â€”</div>
             <div class="hint" id="pNetworksHint">first seen in range</div>
           </div>
           <div class="stat">
-            <span class="label">Wi‑Fi</span>
-            <div class="value" id="pWifi">—</div>
+            <span class="label">Wiâ€‘Fi</span>
+            <div class="value" id="pWifi">â€”</div>
           </div>
           <div class="stat">
             <span class="label">Bluetooth</span>
-            <div class="value" id="pBt">—</div>
+            <div class="value" id="pBt">â€”</div>
           </div>
           <div class="stat">
             <span class="label">BLE</span>
-            <div class="value" id="pBle">—</div>
+            <div class="value" id="pBle">â€”</div>
           </div>
           <div class="stat">
             <span class="label">Samples</span>
-            <div class="value" id="pSamples">—</div>
+            <div class="value" id="pSamples">â€”</div>
             <div class="hint">raw sightings</div>
           </div>
         </section>
@@ -86,9 +86,9 @@
             <p class="stats-card-copy" id="streakCopy">Days in a row with at least one new network</p>
             <dl class="status-dl">
               <dt>Best streak</dt>
-              <dd id="streakBest">—</dd>
+              <dd id="streakBest">â€”</dd>
               <dt>Today</dt>
-              <dd id="streakToday">—</dd>
+              <dd id="streakToday">â€”</dd>
             </dl>
           </article>
 
@@ -96,18 +96,18 @@
             <div class="stats-card-top">
               <span class="module-kicker">Next milestones</span>
             </div>
-            <h3>Wi‑Fi</h3>
-            <p class="stats-card-copy" id="mileWifiLabel">—</p>
+            <h3>Wiâ€‘Fi</h3>
+            <p class="stats-card-copy" id="mileWifiLabel">â€”</p>
             <div class="meter" aria-hidden="true">
               <div class="meter-fill" id="mileWifiFill"></div>
             </div>
-            <p class="meter-caption" id="mileWifiCaption">—</p>
+            <p class="meter-caption" id="mileWifiCaption">â€”</p>
             <h3 class="stats-subhead">All radios</h3>
-            <p class="stats-card-copy" id="mileNetLabel">—</p>
+            <p class="stats-card-copy" id="mileNetLabel">â€”</p>
             <div class="meter" aria-hidden="true">
               <div class="meter-fill meter-fill-alt" id="mileNetFill"></div>
             </div>
-            <p class="meter-caption" id="mileNetCaption">—</p>
+            <p class="meter-caption" id="mileNetCaption">â€”</p>
           </article>
 
           <article class="stats-card">
@@ -115,13 +115,13 @@
               <span class="module-kicker">Personal best</span>
             </div>
             <h3 id="bestDayTitle">Best day</h3>
-            <div class="streak-value streak-value-sm" id="bestDayCount">—</div>
+            <div class="streak-value streak-value-sm" id="bestDayCount">â€”</div>
             <p class="stats-card-copy" id="bestDayCopy">Most new networks in a single day</p>
             <dl class="status-dl">
               <dt>vs yesterday</dt>
-              <dd id="vsYesterday">—</dd>
+              <dd id="vsYesterday">â€”</dd>
               <dt>First find</dt>
-              <dd id="spanFirst">—</dd>
+              <dd id="spanFirst">â€”</dd>
             </dl>
           </article>
         </section>
@@ -129,7 +129,7 @@
         <section class="hub-achievements" id="achievements" aria-label="Achievements">
           <div class="hub-section-head">
             <h2 class="hub-section-title">Achievements</h2>
-            <p class="muted" id="achSub">Loading badges…</p>
+            <p class="muted" id="achSub">Loading badgesâ€¦</p>
           </div>
           <div class="ach-grid" id="achGrid"></div>
         </section>
@@ -138,17 +138,17 @@
           <h2 class="hub-section-title">Radio capture</h2>
           <dl class="status-dl radio-strip-dl" id="radioStripDl">
             <dt>Kismet</dt>
-            <dd id="radioKismet">—</dd>
-            <dt>Wi‑Fi</dt>
-            <dd id="radioWifi">—</dd>
+            <dd id="radioKismet">â€”</dd>
+            <dt>Wiâ€‘Fi</dt>
+            <dd id="radioWifi">â€”</dd>
             <dt>Bluetooth</dt>
-            <dd id="radioBt">—</dd>
+            <dd id="radioBt">â€”</dd>
           </dl>
         </section>
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=5"></script>
-    <script src="/static/stats.js?v=2"></script>
+    <script src="/static/nav.js?v=7"></script>
+    <script src="/static/stats.js?v=3"></script>
   </body>
 </html>

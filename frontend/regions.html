@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0e11" />
-    <title>Levels · wardrivrr</title>
+    <title>Regions Â· wardrivrr</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -25,7 +25,7 @@
           <a href="/database">Database</a>
           <a href="/stats">Stats</a>
           <a href="/api">API</a>
-          <a class="active" href="/levels">Levels</a>
+          <a class="active" href="/regions">Regions</a>
           <a href="/discover">Discover</a>
           <a href="/navigate">Navigate</a>
           <a href="/status">Status</a>
@@ -35,11 +35,14 @@
 
       <main class="home-main settings-main">
         <header class="home-hero settings-hero">
-          <h1>Levels</h1>
-          <p>Pick a place you want to explore — we handle the map data for you.</p>
+          <h1>Regions</h1>
+          <p>
+            Drive usually picks a region from your location. Preload one here if you want
+            a pack ready ahead of time.
+          </p>
         </header>
 
-        <section class="tools-panel wizard-panel" aria-label="Create level wizard">
+        <section class="tools-panel wizard-panel" aria-label="Preload region wizard">
           <div class="wizard-steps" id="wizardSteps" aria-hidden="true">
             <span data-step="1" class="active">Place</span>
             <span data-step="2">Area</span>
@@ -51,7 +54,7 @@
           <!-- Step 1: Search -->
           <div class="wizard-pane" id="step1">
             <h2>Where do you want to play?</h2>
-            <p class="muted">Cities and towns only — e.g. <em>Berlin, Germany</em> (not streets or neighbourhoods)</p>
+            <p class="muted">Cities and towns only â€” e.g. <em>Berlin, Germany</em> (not streets or neighbourhoods)</p>
             <form id="searchForm" class="settings-form">
               <label>
                 Place
@@ -67,18 +70,18 @@
           <!-- Step 2: Download outlines + choose city / district -->
           <div class="wizard-pane" id="step2" hidden>
             <h2 id="previewTitle">Choose your area</h2>
-            <p class="muted" id="previewSub">Preparing map data…</p>
+            <p class="muted" id="previewSub">Preparing map dataâ€¦</p>
             <div class="level-preview-wrap" id="previewWrap">
               <div id="previewMap" class="level-preview-map is-loading" role="img" aria-label="Area preview"></div>
               <div class="level-preview-overlay" id="previewOverlay" hidden>
-                <p id="prepareStatus">Downloading regional map data…</p>
+                <p id="prepareStatus">Downloading regional map dataâ€¦</p>
                 <div class="level-progress">
                   <div class="level-progress-track">
                     <div class="level-progress-fill" id="prepareFill"></div>
                   </div>
                   <div class="level-progress-meta">
                     <span id="preparePct">0%</span>
-                    <span id="prepareEta">—</span>
+                    <span id="prepareEta">â€”</span>
                   </div>
                 </div>
               </div>
@@ -97,17 +100,17 @@
             <h2>One map for this place</h2>
             <p class="muted">
               Roads for every vehicle mode are imported once. Pick Big car / Small car / Bike / Foot
-              later in <strong>Navigate</strong> — never create a second level for the same area.
+              later in <strong>Drive</strong> â€” never preload a second region for the same area.
               Parking lots stay out.
             </p>
             <p class="muted rebuild-hint">
-              Already have an older level of this place? Rebuild once to get the full street graph,
-              then switch mode in Navigate.
+              Already have an older pack of this place? Rebuild once to get the full street graph,
+              then switch mode in Drive.
             </p>
             <form class="settings-form" id="setupForm">
               <p class="level-name-fixed">
-                Level name
-                <strong id="levelNameDisplay">—</strong>
+                Region name
+                <strong id="levelNameDisplay">â€”</strong>
               </p>
               <input type="hidden" id="levelName" />
             </form>
@@ -119,14 +122,14 @@
 
           <!-- Step 4: Confirm download -->
           <div class="wizard-pane" id="step4" hidden>
-            <h2>Ready to generate</h2>
+            <h2>Ready to preload</h2>
             <div class="confirm-card" id="confirmCard">
               <p id="confirmPlace"></p>
               <p class="confirm-size" id="confirmSize"></p>
               <p class="muted" id="confirmHint">
-                The regional map pack is kept on disk and reused. Roads are clipped to this boundary —
+                The regional map pack is kept on disk and reused. Roads are clipped to this boundary â€”
                 the full playable graph (every vehicle mode). Switch Big car / Small car / Bike / Foot
-                in Navigate.
+                in Drive.
               </p>
               <details class="confirm-details">
                 <summary>Technical details</summary>
@@ -135,21 +138,21 @@
             </div>
             <div class="tools-row wizard-nav">
               <button class="btn" type="button" data-back="3">Back</button>
-              <button class="btn btn-primary" type="button" id="generateBtn">Generate level</button>
+              <button class="btn btn-primary" type="button" id="generateBtn">Preload region</button>
             </div>
           </div>
 
           <!-- Step 5: Progress -->
           <div class="wizard-pane" id="step5" hidden>
-            <h2 id="progressTitle">Building your level…</h2>
-            <p class="muted" id="progressMessage">Starting…</p>
+            <h2 id="progressTitle">Building your regionâ€¦</h2>
+            <p class="muted" id="progressMessage">Startingâ€¦</p>
             <div class="level-progress">
               <div class="level-progress-track">
                 <div class="level-progress-fill" id="progressFill"></div>
               </div>
               <div class="level-progress-meta">
                 <span id="progressPct">0%</span>
-                <span id="progressEta">—</span>
+                <span id="progressEta">â€”</span>
               </div>
             </div>
             <ul class="level-stage-list" id="stageList">
@@ -162,20 +165,20 @@
           <!-- Done -->
           <div class="wizard-pane wizard-done" id="stepDone" hidden>
             <div class="done-burst" aria-hidden="true"></div>
-            <h2>You’re set</h2>
-            <p id="doneText" class="muted">Level ready to explore.</p>
+            <h2>Youâ€™re set</h2>
+            <p id="doneText" class="muted">Region ready.</p>
             <div class="tools-row">
-              <button class="btn btn-primary" type="button" id="doneLoad">Load level</button>
-              <button class="btn" type="button" id="doneAnother">Create another</button>
+              <button class="btn btn-primary" type="button" id="doneLoad">View regions</button>
+              <button class="btn" type="button" id="doneAnother">Preload another</button>
             </div>
           </div>
 
           <div class="toast" id="toast" hidden></div>
         </section>
 
-        <section class="tools-panel" aria-label="Your levels">
-          <h2>Your levels</h2>
-          <div id="levelsList" class="levels-list">Loading…</div>
+        <section class="tools-panel" aria-label="Your regions" id="regionsListSection">
+          <h2>Your regions</h2>
+          <div id="levelsList" class="levels-list">Loadingâ€¦</div>
         </section>
       </main>
     </div>
@@ -185,7 +188,7 @@
       crossorigin=""
     ></script>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
-    <script src="/static/levels.js?v=5"></script>
+    <script src="/static/nav.js?v=7"></script>
+    <script src="/static/regions.js?v=7"></script>
   </body>
 </html>

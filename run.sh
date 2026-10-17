@@ -88,13 +88,14 @@ fi
 # (city/district clip) — never auto-seed from a full regional pack.
 
 # gpsd
-if [[ ! -f /etc/default/gpsd ]] || ! grep -q -- '-G' /etc/default/gpsd 2>/dev/null; then
+if [[ ! -f /etc/default/gpsd ]] || ! grep -q '^DEVICES=' /etc/default/gpsd 2>/dev/null; then
   GPS_DEV="/dev/ttyACM0"
   [[ -e /dev/ttyUSB0 ]] && GPS_DEV="/dev/ttyUSB0"
   [[ -e /dev/ttyACM0 ]] && GPS_DEV="/dev/ttyACM0"
+  # No -G: gpsd only needs to serve host-local clients (API, Kismet)
   sudo tee /etc/default/gpsd >/dev/null <<EOF
 DEVICES="$GPS_DEV"
-GPSD_OPTIONS="-n -G"
+GPSD_OPTIONS="-n"
 USBAUTO="true"
 START_DAEMON="true"
 EOF

@@ -122,8 +122,8 @@ function paintExplorerHero() {
   document.getElementById("explorerXpCaption").textContent =
     toNext > 0 ? `${fmt(toNext)} XP to next level` : "Max curve for now";
   document.getElementById("statsTz").textContent = dashboard?.timezone
-    ? `Explorer · ${dashboard.timezone}`
-    : "Explorer";
+    ? `Stats · ${dashboard.timezone}`
+    : "Stats";
 }
 
 function rateCaption(row) {

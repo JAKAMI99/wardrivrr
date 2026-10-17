@@ -70,7 +70,7 @@ def session_radio_stats(user_id: int, since: datetime) -> dict[str, Any]:
             for row in cur.fetchall() or []:
                 key = _bucket(row.get("network_type"))
                 if key:
-                    out[key]["seen"] = int(row["n"] or 0)
+                    out[key]["seen"] += int(row["n"] or 0)
 
             # "new" = first time we saw this network in this session
             # (works even before localize has upserted networks rows)
@@ -91,7 +91,7 @@ def session_radio_stats(user_id: int, since: datetime) -> dict[str, Any]:
             for row in cur.fetchall() or []:
                 key = _bucket(row.get("network_type"))
                 if key:
-                    out[key]["new"] = int(row["n"] or 0)
+                    out[key]["new"] += int(row["n"] or 0)
     finally:
         conn.close()
     return out

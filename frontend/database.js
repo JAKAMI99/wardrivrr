@@ -101,20 +101,29 @@ function circle(lat, lon, type) {
   });
 }
 
+// Names come from over-the-air broadcasts — build with textContent, never HTML.
 function popup(props) {
-  return `
-    <dl class="popup">
-      <dt>Name</dt><dd>${props.name ?? "—"}</dd>
-      <dt>ID</dt><dd>${props.network_id ?? "—"}</dd>
-      <dt>Type</dt><dd>${props.network_type ?? "—"}</dd>
-      <dt>Enc</dt><dd>${props.encryption ?? "—"}</dd>
-      <dt>Time</dt><dd>${props.seen_at ?? props.last_seen ?? "—"}</dd>
-      <dt>Signal</dt><dd>${props.signal ?? props.avg_signal ?? "—"}</dd>
-      <dt>Altitude</dt><dd>${props.altitude ?? "—"}</dd>
-      <dt>Samples</dt><dd>${props.sample_count ?? "—"}</dd>
-      <dt>Mode</dt><dd>${props.localization_mode ?? "—"}</dd>
-    </dl>
-  `;
+  const rows = [
+    ["Name", props.name],
+    ["ID", props.network_id],
+    ["Type", props.network_type],
+    ["Enc", props.encryption],
+    ["Time", props.seen_at ?? props.last_seen],
+    ["Signal", props.signal ?? props.avg_signal],
+    ["Altitude", props.altitude],
+    ["Samples", props.sample_count],
+    ["Mode", props.localization_mode],
+  ];
+  const dl = document.createElement("dl");
+  dl.className = "popup";
+  for (const [label, value] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value ?? "—";
+    dl.append(dt, dd);
+  }
+  return dl;
 }
 
 function toIsoLocal(value) {
@@ -163,7 +172,7 @@ async function search(event) {
   geo.features.forEach((feature) => {
     const [lon, lat] = feature.geometry.coordinates;
     const marker = circle(lat, lon, feature.properties.network_type);
-    marker.bindPopup(popup(feature.properties));
+    marker.bindPopup(() => popup(feature.properties));
     clusters.addLayer(marker);
     bounds.push([lat, lon]);
   });

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import time
 import urllib.parse
 import urllib.request
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
@@ -755,6 +756,14 @@ def _refresh_explored_from_observations(
     }
 
 
+def _read_level_explored_stats(cur, level_id: int):
+    cur.execute(
+        "SELECT explored_km, explored_pct FROM levels WHERE id = %s",
+        (level_id,),
+    )
+    return cur.fetchone()
+
+
 def _update_level_explored_stats(cur, level_id: int):
     cur.execute(
         """
@@ -795,6 +804,12 @@ def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def _angle_diff_abs(a: float, b: float) -> float:
     return abs(((a - b + 540.0) % 360.0) - 180.0)
+
+
+# An explored tile only pays "old tile" XP again once it hasn't been driven for
+# this long. Every unlock pass stamps last_driven_at, so parking on a segment
+# (or the "ahead" neighbour unlocked on the previous tick) never re-credits.
+REVISIT_COOLDOWN_S = float(os.getenv("REVISIT_COOLDOWN_S", "1800"))
 
 
 def _credit_tile_revisits(user_id: int | None, count: int) -> None:
@@ -839,7 +854,11 @@ def _unlock_by_distance(
                 WITH pt AS (
                   SELECT ST_SetSRID(ST_MakePoint(%s, %s), 4326) AS g
                 )
-                SELECT rs.id, rs.is_explored
+                SELECT rs.id, rs.is_explored,
+                       (rs.is_explored AND (
+                         rs.last_driven_at IS NULL
+                         OR rs.last_driven_at < NOW() - make_interval(secs => %s)
+                       )) AS revisit
                 FROM road_segments rs
                 CROSS JOIN pt
                 WHERE rs.level_id = %s
@@ -847,14 +866,14 @@ def _unlock_by_distance(
                   AND rs.geom && ST_Expand(pt.g, %s)
                   AND ST_DWithin(rs.geom::geography, pt.g::geography, %s)
                 """,
-                (lon, lat, level_id, highways, pad, radius_m),
+                (lon, lat, REVISIT_COOLDOWN_S, level_id, highways, pad, radius_m),
             )
             rows = list(cur.fetchall() or [])
             ids = [int(r["id"]) for r in rows]
-            revisited = sum(1 for r in rows if r.get("is_explored"))
+            revisited = sum(1 for r in rows if r.get("revisit"))
             new_ids = [int(r["id"]) for r in rows if not r.get("is_explored")]
             if not ids:
-                row = _update_level_explored_stats(cur, level_id)
+                row = _read_level_explored_stats(cur, level_id)
                 newly, newly_m = 0, 0.0
             else:
                 cur.execute(
@@ -882,7 +901,11 @@ def _unlock_by_distance(
                     """,
                     (level_id, ids),
                 )
-                row = _update_level_explored_stats(cur, level_id)
+                row = (
+                    _update_level_explored_stats(cur, level_id)
+                    if newly
+                    else _read_level_explored_stats(cur, level_id)
+                )
         conn.commit()
     finally:
         conn.close()
@@ -1002,7 +1025,7 @@ def unlock_near_point(
                     JOIN road_segments n
                       ON n.level_id = c.level_id
                      AND n.id <> c.id
-                     AND n.osm_id IS NOT DISTINCT FROM c.osm_id
+                     AND n.osm_id = c.osm_id
                     WHERE c.level_id = %s AND c.id = %s
                       AND (
                         ST_DWithin(
@@ -1063,19 +1086,24 @@ def unlock_near_point(
 
             cur.execute(
                 """
-                SELECT COUNT(*)::int AS n,
-                       COALESCE(SUM(length_m), 0)::float AS m
+                SELECT COUNT(*) FILTER (WHERE NOT is_explored)::int AS n,
+                       COALESCE(SUM(length_m) FILTER (WHERE NOT is_explored), 0)::float AS m,
+                       COUNT(*) FILTER (
+                         WHERE is_explored AND (
+                           last_driven_at IS NULL
+                           OR last_driven_at < NOW() - make_interval(secs => %s)
+                         )
+                       )::int AS revisit
                 FROM road_segments
                 WHERE level_id = %s
-                  AND is_explored = FALSE
                   AND id = ANY(%s)
                 """,
-                (level_id, ids),
+                (REVISIT_COOLDOWN_S, level_id, ids),
             )
             before = cur.fetchone() or {}
             newly = int(before.get("n") or 0)
             newly_m = float(before.get("m") or 0.0)
-            revisited = max(0, len(ids) - newly)
+            revisited = int(before.get("revisit") or 0)
             # Always stamp last_driven_at; explored_at only on first unlock
             cur.execute(
                 """
@@ -1088,7 +1116,11 @@ def unlock_near_point(
                 """,
                 (level_id, ids),
             )
-            row = _update_level_explored_stats(cur, level_id)
+            row = (
+                _update_level_explored_stats(cur, level_id)
+                if newly
+                else _read_level_explored_stats(cur, level_id)
+            )
         conn.commit()
     finally:
         conn.close()
@@ -1478,6 +1510,12 @@ def set_level_default_profile(user_id: int, level_id: int, profile: str | None) 
         conn.close()
 
 
+# Drive refetches the road map every few seconds; the observation probe scans
+# every locked segment against signal_samples, so run it at most this often.
+_OBSERVATION_REFRESH_S = 60.0
+_observation_refresh_at: dict[tuple[int, int], float] = {}
+
+
 def get_level_road_map(
     user_id: int,
     level_id: int,
@@ -1494,8 +1532,12 @@ def get_level_road_map(
         return None
 
     if level.get("status") == "ready":
-        _refresh_explored_from_observations(level_id, user_id)
-        level = get_level(user_id, level_id) or level
+        now = time.monotonic()
+        key = (user_id, level_id)
+        if now - _observation_refresh_at.get(key, -1e9) >= _OBSERVATION_REFRESH_S:
+            _observation_refresh_at[key] = now
+            _refresh_explored_from_observations(level_id, user_id)
+            level = get_level(user_id, level_id) or level
 
     mode = normalize_profile(profile) if profile else None
     highways = sorted(profile_highways(mode)) if mode else None

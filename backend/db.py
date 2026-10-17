@@ -31,6 +31,40 @@ def connect_dict(**overrides):
     return conn
 
 
+# Hot-path indexes added after the init SQL shipped; existing installs never
+# re-run postgis/init, so they are created at API startup.
+RUNTIME_INDEXES = (
+    # Fog unlock "ahead" lookup (same OSM way within a level)
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS road_segments_level_osm_idx "
+    "ON road_segments (level_id, osm_id)",
+    # Per-network strongest-sample window in localize._fetch_samples
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS signal_samples_user_net_sig_idx "
+    "ON signal_samples (user_id, network_id, signal DESC NULLS LAST)",
+    # Drive session stats / anomalies (user + time window)
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS signal_samples_user_seen_idx "
+    "ON signal_samples (user_id, seen_at)",
+    # Below-sea / mountain achievement counts
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS signal_samples_below_sea_idx "
+    "ON signal_samples (user_id) WHERE altitude < 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS signal_samples_mountain_idx "
+    "ON signal_samples (user_id) WHERE altitude > 700",
+)
+
+
+def ensure_runtime_indexes() -> None:
+    conn = connect()
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            for sql in RUNTIME_INDEXES:
+                try:
+                    cur.execute(sql)
+                except psycopg2.Error as exc:
+                    print(f"[db] index skipped: {exc}".strip(), flush=True)
+    finally:
+        conn.close()
+
+
 INSERT_SQL = """
 INSERT INTO signal_samples (
     name, network_id, encryption, seen_at, signal, accuracy,

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import math
 import os
+import threading
+import time
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,6 +20,20 @@ ACHIEVEMENTS_TZ = os.getenv("ACHIEVEMENTS_TZ") or os.getenv("STATS_TZ") or "Euro
 _MAX_STEP_M = 250.0
 # Ignore gaps longer than this between fixes
 _MAX_GAP_S = 120.0
+# Distance is credited from an anchor once the car has moved this far, so
+# parked GPS jitter (a few metres per fix at 5 Hz) never adds up to km.
+_MIN_STEP_M = 10.0
+# Reported speed below this means parked / walking in place.
+_MIN_SPEED_MPS = 0.8
+_km_anchor: dict[int, tuple[float, float, float]] = {}
+_km_anchor_lock = threading.Lock()
+
+_schema_ready = False
+_schema_lock = threading.Lock()
+
+_last_eval_at: dict[int, float] = {}
+_eval_lock = threading.Lock()
+ACH_EVAL_MIN_INTERVAL_S = float(os.getenv("ACH_EVAL_MIN_INTERVAL_S", "15"))
 
 # Activity XP (on top of achievement unlock XP) — networks + fog tiles
 XP_PER_WIFI_NET = 5
@@ -211,6 +227,18 @@ def _tz() -> ZoneInfo:
 
 
 def ensure_achievements_schema() -> None:
+    """Idempotent DDL; runs once per process (hot paths call this every tick)."""
+    global _schema_ready
+    if _schema_ready:
+        return
+    with _schema_lock:
+        if _schema_ready:
+            return
+        _create_achievements_schema()
+        _schema_ready = True
+
+
+def _create_achievements_schema() -> None:
     conn = connect()
     try:
         with conn.cursor() as cur:
@@ -254,6 +282,17 @@ def ensure_achievements_schema() -> None:
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
+            )
+            # Existing unlocks count as already shown; new rows start NULL so
+            # the Drive HUD can toast unlocks made by background collectors.
+            cur.execute(
+                """
+                ALTER TABLE user_achievements
+                ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ DEFAULT NOW()
+                """
+            )
+            cur.execute(
+                "ALTER TABLE user_achievements ALTER COLUMN notified_at DROP DEFAULT"
             )
         conn.commit()
     finally:
@@ -312,38 +351,61 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
+def _km_since_anchor(
+    user_id: int,
+    lat: float,
+    lon: float,
+    now_ts: float,
+    speed_mps: float | None,
+) -> float:
+    """Distance moved since the last credited point; 0 while parked/jittering."""
+    with _km_anchor_lock:
+        anchor = _km_anchor.get(user_id)
+        if (
+            anchor is None
+            or not (0 <= now_ts - anchor[2] <= _MAX_GAP_S)
+            or (speed_mps is not None and speed_mps < _MIN_SPEED_MPS)
+        ):
+            _km_anchor[user_id] = (lat, lon, now_ts)
+            return 0.0
+        step_m = _haversine_m(anchor[0], anchor[1], lat, lon)
+        if step_m < _MIN_STEP_M:
+            return 0.0
+        _km_anchor[user_id] = (lat, lon, now_ts)
+        if step_m > _MAX_STEP_M:
+            return 0.0
+        return step_m / 1000.0
+
+
 def record_drive_step(
     user_id: int,
     *,
     lat: float,
     lon: float,
-    prev_lat: float | None,
-    prev_lon: float | None,
-    prev_ts: float | None,
     now_ts: float | None = None,
     explored_km_delta: float = 0.0,
+    speed_mps: float | None = None,
 ) -> dict[str, Any]:
     """
-    Credit distance between consecutive fixes. Returns day counters + any new unlocks.
+    Credit distance moved (anchor-based, see _km_since_anchor) and fog km.
+    Achievement evaluation is throttled; unlocks are toasted via pop_unnotified.
     """
     ensure_achievements_schema()
     tz = _tz()
-    now = datetime.fromtimestamp(now_ts or datetime.now(tz=tz).timestamp(), tz=tz)
+    ts = float(now_ts) if now_ts is not None else time.time()
+    now = datetime.fromtimestamp(ts, tz=tz)
     day = now.date()
     hour = now.hour
     is_night = 0 <= hour < 6
 
-    added_km = 0.0
-    if (
-        prev_lat is not None
-        and prev_lon is not None
-        and prev_ts is not None
-        and now_ts is not None
-        and 0 < (now_ts - prev_ts) <= _MAX_GAP_S
-    ):
-        step_m = _haversine_m(prev_lat, prev_lon, lat, lon)
-        if step_m <= _MAX_STEP_M:
-            added_km = step_m / 1000.0
+    added_km = _km_since_anchor(user_id, lat, lon, ts, speed_mps)
+    explored_km = max(0.0, float(explored_km_delta or 0))
+    if added_km <= 0 and explored_km <= 0:
+        return {
+            "added_km": 0.0,
+            "day": day.isoformat(),
+            "newly_unlocked": maybe_evaluate_achievements(user_id),
+        }
 
     conn = connect()
     try:
@@ -364,7 +426,7 @@ def record_drive_step(
                     day,
                     added_km,
                     added_km if is_night else 0.0,
-                    max(0.0, float(explored_km_delta or 0)),
+                    explored_km,
                 ),
             )
             row = cur.fetchone()
@@ -372,7 +434,7 @@ def record_drive_step(
     finally:
         conn.close()
 
-    newly = evaluate_achievements(user_id)
+    newly = maybe_evaluate_achievements(user_id)
     return {
         "added_km": added_km,
         "day": day.isoformat(),
@@ -461,7 +523,8 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
             # Fog metres from the map itself (survives missed explored_km_delta credits)
             cur.execute(
                 """
-                SELECT COALESCE(SUM(rs.length_m), 0)::float AS m
+                SELECT COALESCE(SUM(rs.length_m), 0)::float AS m,
+                       COUNT(*)::int AS n
                 FROM road_segments rs
                 JOIN levels l ON l.id = rs.level_id
                 WHERE l.user_id = %s
@@ -469,7 +532,9 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
                 """,
                 (user_id,),
             )
-            road_explored_m = float((cur.fetchone() or {}).get("m") or 0.0)
+            road_row = cur.fetchone() or {}
+            road_explored_m = float(road_row.get("m") or 0.0)
+            segments_explored = int(road_row.get("n") or 0)
             km_explored_total = max(
                 km_explored_total, road_explored_m / 1000.0
             )
@@ -503,17 +568,6 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
                 (user_id,),
             )
             unlocked_rows = cur.fetchall()
-            cur.execute(
-                """
-                SELECT COUNT(*)::int AS n
-                FROM road_segments rs
-                JOIN levels l ON l.id = rs.level_id
-                WHERE l.user_id = %s
-                  AND rs.is_explored = TRUE
-                """,
-                (user_id,),
-            )
-            segments_explored = int((cur.fetchone() or {}).get("n") or 0)
             cur.execute(
                 """
                 SELECT tiles_revisited FROM user_activity_counters WHERE user_id = %s
@@ -744,6 +798,66 @@ def evaluate_achievements(user_id: int) -> list[dict[str, Any]]:
     finally:
         conn.close()
     return newly
+
+
+def maybe_evaluate_achievements(
+    user_id: int, min_interval_s: float | None = None
+) -> list[dict[str, Any]]:
+    """evaluate_achievements at most once per interval per user (hot paths)."""
+    interval = ACH_EVAL_MIN_INTERVAL_S if min_interval_s is None else min_interval_s
+    now = time.monotonic()
+    with _eval_lock:
+        if now - _last_eval_at.get(user_id, -1e9) < interval:
+            return []
+        _last_eval_at[user_id] = now
+    return evaluate_achievements(user_id)
+
+
+def _toast_payload(achievement_id: str, tier_n: int) -> dict[str, Any] | None:
+    for ach in CATALOG:
+        if ach["id"] != achievement_id:
+            continue
+        for tier in ach["tiers"]:
+            if int(tier["tier"]) != tier_n:
+                continue
+            is_master = bool(tier.get("master")) or tier_n >= len(ach["tiers"])
+            return {
+                "id": ach["id"],
+                "tier": tier_n,
+                "title": tier.get("title") or ach["title"],
+                "description": ach["description"],
+                "flavour": ach.get("flavour"),
+                "xp": int(tier.get("xp") or 0),
+                "mastered": is_master,
+                "status_label": "Mastered" if is_master else "Unlocked",
+            }
+    return None
+
+
+def pop_unnotified(user_id: int) -> list[dict[str, Any]]:
+    """Unlocks not yet shown to the user (from any thread); marks them shown."""
+    ensure_achievements_schema()
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE user_achievements SET notified_at = NOW()
+                WHERE user_id = %s AND notified_at IS NULL
+                RETURNING achievement_id, tier
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall() or []
+        conn.commit()
+    finally:
+        conn.close()
+    out = []
+    for achievement_id, tier_n in sorted(rows, key=lambda r: (r[0], int(r[1]))):
+        payload = _toast_payload(achievement_id, int(tier_n))
+        if payload:
+            out.append(payload)
+    return out
 
 
 def list_achievements(user_id: int) -> dict[str, Any]:
