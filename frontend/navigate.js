@@ -145,6 +145,12 @@ const state = {
   lastGoodLon: null,
   lastReplanAt: 0,
   lastCam: 0,
+  lastCamJump: null,
+  lastUserCamMarkerAt: 0,
+  lastHudAt: 0,
+  routeShapeIdx: 0,
+  routeShapeKey: "",
+  lastRouteAheadIdx: -1,
   lastFix: 0,
   lastContains: 0,
   lastSpeedUi: -1,
@@ -205,6 +211,12 @@ const FOLLOW_IDLE_TICK_MS = 250;
 /** Keep full frame rate this long after the last movement so the camera settles */
 const FOLLOW_SETTLE_MS = 2000;
 const MOVING_MIN_KMH = 1.5;
+/** Skip jumpTo when the camera barely moved (cuts fog retessellation cost) */
+const CAM_JUMP_MIN_M = 0.35;
+const CAM_JUMP_MIN_DEG = 0.2;
+const CAM_JUMP_MIN_ZOOM = 0.02;
+/** Marker updates while the user is panning/zooming */
+const USER_CAM_MARKER_MS = 200;
 
 const ANOMALY_COOLDOWN_MS = 12000;
 /** How long anomaly toasts stay visible */
@@ -296,7 +308,7 @@ function nextTurnDistanceM() {
   const route = state.route;
   const coords = route?.geometry?.coordinates;
   if (!route || !coords?.length || state.diverted) return null;
-  const idx = nearestShapeIndex(coords, state.lon, state.lat);
+  const idx = refreshRouteShapeIdx();
   const mans = route.maneuvers || [];
   const next = nextTurnManeuver(mans, idx);
   if (!next) return null;
@@ -435,6 +447,21 @@ function nearestShapeIndex(coords, lon, lat) {
   return best;
 }
 
+/** Cache nearest route vertex for the current GPS (~1 m grid) so HUD callers share one scan. */
+function refreshRouteShapeIdx() {
+  const coords = state.route?.geometry?.coordinates;
+  if (!coords?.length) {
+    state.routeShapeIdx = 0;
+    state.routeShapeKey = "";
+    return 0;
+  }
+  const key = `${coords.length}:${Math.round(state.lon * 1e5)}:${Math.round(state.lat * 1e5)}`;
+  if (key === state.routeShapeKey) return state.routeShapeIdx;
+  state.routeShapeKey = key;
+  state.routeShapeIdx = nearestShapeIndex(coords, state.lon, state.lat);
+  return state.routeShapeIdx;
+}
+
 function pathMeters(coords, fromIdx, toIdx) {
   let m = 0;
   const a = Math.max(0, fromIdx);
@@ -558,7 +585,7 @@ function showManeuverHudShell() {
   if (side) side.hidden = false;
 }
 
-function updateManeuverHud() {
+function updateManeuverHud(force = false) {
   const route = state.route;
   const coords = route?.geometry?.coordinates;
   if (
@@ -572,7 +599,11 @@ function updateManeuverHud() {
     return;
   }
 
-  const idx = nearestShapeIndex(coords, state.lon, state.lat);
+  const now = performance.now();
+  if (!force && now - (state.lastHudAt || 0) < 200) return;
+  state.lastHudAt = now;
+
+  const idx = refreshRouteShapeIdx();
 
   const mans = route.maneuvers || [];
   const next = nextTurnManeuver(mans, idx);
@@ -952,10 +983,16 @@ function ensureFogLayers() {
   if (state.map.getSource("fog-locked")) return;
   const f = fogPack();
   try {
-    state.map.addSource("fog-locked", { type: "geojson", data: emptyMultiLine() });
+    // Higher tolerance = cheaper pan/zoom retessellation on huge fog GeoJSON
+    state.map.addSource("fog-locked", {
+      type: "geojson",
+      data: emptyMultiLine(),
+      tolerance: 1.5,
+    });
     state.map.addSource("fog-explored", {
       type: "geojson",
       data: emptyMultiLine(),
+      tolerance: 1.5,
     });
     // Locked first (dark), then explored bright - route layers stack above later
     state.map.addLayer({
@@ -1146,11 +1183,14 @@ function restoreRouteLayer() {
   updateRouteProgress();
 }
 
-function updateRouteProgress() {
+function updateRouteProgress(force = false) {
   const coords = state.route?.geometry?.coordinates;
   if (!coords?.length || !state.map) return;
   ensureRouteLayers();
-  const idx = nearestShapeIndex(coords, state.lon, state.lat);
+  const idx = refreshRouteShapeIdx();
+  // Skip GeoJSON setData until the chevron advances along the shape
+  if (!force && idx === state.lastRouteAheadIdx) return;
+  state.lastRouteAheadIdx = idx;
   const aheadCoords = coords.slice(Math.max(0, idx));
   // Traveled path stays empty - fog unlock already paints driven roads
   const doneSrc = state.map.getSource("explore-route-done");
@@ -1175,6 +1215,8 @@ function setRoute(route) {
   state.offRouteStreak = 0;
   state.lastGoodLat = state.lat;
   state.lastGoodLon = state.lon;
+  state.routeShapeKey = "";
+  state.lastRouteAheadIdx = -1;
   const geom = route?.geometry;
   if (!geom?.coordinates?.length) {
     clearManeuverHud();
@@ -1184,7 +1226,7 @@ function setRoute(route) {
   restoreRouteLayer();
   applyRouteThemeColors();
   showManeuverHudShell();
-  updateManeuverHud();
+  updateManeuverHud(true);
 }
 
 function bearingDeg(lat1, lon1, lat2, lon2) {
@@ -1610,6 +1652,22 @@ function noteUserCameraGesture() {
   state.userCamUntil = performance.now() + USER_CAM_COOLDOWN_MS;
   state.userCamActive = true;
   state.userCamGesturePending = false;
+  // Drop catch-up so we do not fight the gesture with jumpTo
+  state.camCatchingUp = false;
+  state.lastCamJump = null;
+}
+
+/** True while the user is panning/zooming or in the post-gesture cooldown. */
+function userOwnsCamera(now = performance.now()) {
+  if (state.userCamUntil && now < state.userCamUntil) return true;
+  try {
+    if (state.map && typeof state.map.isMoving === "function" && state.map.isMoving()) {
+      return true;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
 }
 
 function withProgrammaticCam(fn) {
@@ -1640,12 +1698,22 @@ function bindMapCameraGestures() {
     if (state.camProgrammatic || state.spawnMode) return;
     if (e?.originalEvent) noteUserCameraGesture();
   };
+  const onGestureEnd = (e) => {
+    if (state.camProgrammatic) return;
+    if (e?.originalEvent) noteUserCameraGesture();
+    // Resume the sim loop so catch-up can start when the cooldown ends
+    wakeSimLoop();
+  };
   state.map.on("mousedown", bumpPress);
   state.map.on("touchstart", bumpPress);
   state.map.on("dragstart", bumpUser);
   state.map.on("rotatestart", bumpUser);
   state.map.on("pitchstart", bumpUser);
   state.map.on("zoomstart", bumpUser);
+  state.map.on("dragend", onGestureEnd);
+  state.map.on("rotateend", onGestureEnd);
+  state.map.on("pitchend", onGestureEnd);
+  state.map.on("zoomend", onGestureEnd);
 }
 
 function currentPitch() {
@@ -2011,13 +2079,19 @@ function toggleNavigation() {
 function followCamera(now) {
   if (!state.map || !state.spawned) return;
   updateDisplayPose(now);
-  ensureMarker();
 
-  // User is exploring the map - keep GPS marker moving, leave camera alone
-  if (state.userCamUntil && now < state.userCamUntil) {
+  // User is exploring the map - keep GPS marker moving (throttled), leave camera alone
+  if (userOwnsCamera(now)) {
+    if (now - (state.lastUserCamMarkerAt || 0) >= USER_CAM_MARKER_MS) {
+      state.lastUserCamMarkerAt = now;
+      ensureMarker();
+    }
     state.lastCam = now;
     return;
   }
+
+  ensureMarker();
+
   if (state.userCamActive) {
     // Cooldown just ended - start from the panned view, then ease back
     const c = state.map.getCenter();
@@ -2108,6 +2182,17 @@ function followCamera(now) {
     state.camZoom += (wantZoom - state.camZoom) * aZoom;
   }
 
+  const prevJump = state.lastCamJump;
+  if (
+    prevJump &&
+    haversineM(prevJump.lat, prevJump.lon, state.camLat, state.camLon) < CAM_JUMP_MIN_M &&
+    angleDiffAbsDeg(prevJump.bearing, state.camBearing) < CAM_JUMP_MIN_DEG &&
+    Math.abs(prevJump.pitch - state.camPitch) < CAM_JUMP_MIN_DEG &&
+    Math.abs(prevJump.zoom - state.camZoom) < CAM_JUMP_MIN_ZOOM
+  ) {
+    return;
+  }
+
   // Guard so synthetic rotate/move from jumpTo never re-arms the 3s cooldown
   state.camProgrammatic = true;
   try {
@@ -2117,6 +2202,13 @@ function followCamera(now) {
       pitch: state.camPitch,
       zoom: state.camZoom,
     });
+    state.lastCamJump = {
+      lat: state.camLat,
+      lon: state.camLon,
+      bearing: state.camBearing,
+      pitch: state.camPitch,
+      zoom: state.camZoom,
+    };
   } finally {
     state.camProgrammatic = false;
   }
@@ -2930,13 +3022,16 @@ function moveStep(dtSec, now) {
   }
 
   if (state.moving) {
+    const ownsCam = userOwnsCamera(now);
     followCamera(now);
-    checkOffRoute(now);
-    if (state.diverted) {
-      clearManeuverHud();
-    } else {
-      updateManeuverHud();
-      updateRouteProgress();
+    if (!ownsCam) {
+      checkOffRoute(now);
+      if (state.diverted) {
+        clearManeuverHud();
+      } else {
+        updateManeuverHud();
+        updateRouteProgress();
+      }
     }
   }
   // Distance only changes while moving; idle uses a longer poll interval
@@ -2951,19 +3046,20 @@ function isDriveInput() {
 
 function wantsFastLoop() {
   if (state.followLiveGps && state.spawned) {
-    // Full rAF only while moving (camera/marker lerp) or settling after a
-    // stop / user gesture; parked follow polls on FOLLOW_IDLE_TICK_MS.
+    // Full rAF while moving, catching up after a pan, or settling after a stop.
+    // Do NOT spin at 60fps during the user-gesture cooldown - MapLibre owns the map.
     return (
       state.moving ||
-      performance.now() - (state.lastMovingAt || 0) < FOLLOW_SETTLE_MS ||
-      !!state.userCamActive
+      !!state.camCatchingUp ||
+      performance.now() - (state.lastMovingAt || 0) < FOLLOW_SETTLE_MS
     );
   }
   return (
     isDriveInput() ||
     state.speedKmh !== 0 ||
     state.moving ||
-    state.spawnMode
+    state.spawnMode ||
+    !!state.camCatchingUp
   );
 }
 
@@ -3057,15 +3153,19 @@ function simFrame(now) {
     pollFollowGps(now);
     // Keep lerping camera between GPS polls (5 Hz backend -> smooth HUD)
     if (state.spawned) {
+      const ownsCam = userOwnsCamera(now);
       followCamera(now);
-      checkOffRoute(now);
-      if (state.diverted) clearManeuverHud();
-      else {
-        updateManeuverHud();
-        updateRouteProgress();
-      }
-      if (now - state.lastContains >= CONTAINS_MS_IDLE || state.moving) {
-        checkOutsideLevel(now);
+      // While the user pans/zooms, skip route setData / off-route / DOM HUD
+      if (!ownsCam) {
+        checkOffRoute(now);
+        if (state.diverted) clearManeuverHud();
+        else {
+          updateManeuverHud();
+          updateRouteProgress();
+        }
+        if (now - state.lastContains >= CONTAINS_MS_IDLE || state.moving) {
+          checkOutsideLevel(now);
+        }
       }
     }
     setDriveHot(wantsFastLoop());

@@ -17,6 +17,19 @@ def _iso(v):
     return v
 
 
+def _vendor(row: dict) -> str | None:
+    v = row.get("vendor")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    # Until backfill finishes (or OUI unknown), resolve from the local IEEE DB
+    try:
+        from oui import lookup_vendor
+
+        return lookup_vendor(row.get("network_id"))
+    except Exception:
+        return None
+
+
 def row_to_result(row: dict, *, reverse: bool = False) -> dict:
     out = {
         "netid": row["network_id"],
@@ -42,6 +55,7 @@ def row_to_result(row: dict, *, reverse: bool = False) -> dict:
         "country_code": row.get("country_code"),
         "location_accuracy_m": row.get("location_accuracy_m"),
         "avg_gps_accuracy_m": row.get("avg_gps_accuracy_m"),
+        "vendor": _vendor(row),
         "place": row.get("address"),
     }
     # Live reverse only if DB has no address yet and caller asked for reverse
@@ -89,6 +103,7 @@ def _where(
     mac: str | None,
     network_type: str | None,
     encryption: str | None,
+    vendor: str | None,
     exclude_no_ssid: bool,
     seen_after: datetime | None,
     seen_before: datetime | None,
@@ -119,6 +134,17 @@ def _where(
         else:
             sql += " AND name ILIKE %s"
             params.append(f"%{ssid}%")
+
+    if vendor:
+        try:
+            from oui import vendor_match_clause
+
+            clause, vparams = vendor_match_clause(vendor)
+            sql += f" AND {clause}"
+            params.extend(vparams)
+        except Exception:
+            sql += " AND vendor = %s"
+            params.append(vendor.strip())
 
     if exclude_no_ssid:
         sql += """
@@ -219,6 +245,7 @@ def search_networks(
     mac: str | None = None,
     network_type: str | None = None,
     encryption: str | None = None,
+    vendor: str | None = None,
     exclude_no_ssid: bool = False,
     seen_after: datetime | None = None,
     seen_before: datetime | None = None,
@@ -292,6 +319,7 @@ def search_networks(
         mac=mac,
         network_type=network_type,
         encryption=encryption,
+        vendor=(vendor or "").strip() or None,
         exclude_no_ssid=exclude_no_ssid,
         seen_after=seen_after,
         seen_before=seen_before,
@@ -322,7 +350,7 @@ def search_networks(
                 sample_count, lat, lon, altitude, avg_signal,
                 first_seen, last_seen, localization_mode, computed_at,
                 address, city, postcode, country, country_code,
-                location_accuracy_m, avg_gps_accuracy_m
+                location_accuracy_m, avg_gps_accuracy_m, vendor
             """
             if use_near:
                 q = f"""
@@ -375,6 +403,7 @@ def search_networks(
         out["query"] = {
             "ssid": ssid,
             "mac": mac or netid,
+            "vendor": vendor,
             "place": place,
             "postalcode": postalcode or zip_code,
             "type": network_type,
@@ -401,7 +430,7 @@ def get_network_detail(
                        sample_count, lat, lon, altitude, avg_signal,
                        first_seen, last_seen, localization_mode, computed_at,
                        address, city, postcode, country, country_code,
-                       location_accuracy_m, avg_gps_accuracy_m
+                       location_accuracy_m, avg_gps_accuracy_m, vendor
                 FROM networks
                 WHERE user_id = %s
                   AND (

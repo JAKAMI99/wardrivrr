@@ -11,7 +11,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="/static/styles.css?v=11" />
+    <link rel="stylesheet" href="/static/styles.css?v=12" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
     <script src="/static/theme.js?v=11"></script>
   </head>
@@ -24,11 +24,15 @@
       </nav>
 
       <main class="discover-main">
-        <header class="discover-bar">
-          <div>
-            <h1 id="progressTitle">Progress</h1>
-            <p class="muted" id="progressSub">Fog of war - driven bright, untouched dark</p>
+        <header class="discover-bar progress-bar">
+          <div class="progress-heading">
+            <div class="progress-title-row">
+              <h1 id="progressTitle">Progress</h1>
+              <span id="progressCompleteChip" class="progress-complete-chip" hidden></span>
+            </div>
+            <p class="muted progress-pct-strip" id="progressSub">Fog of war - driven bright, untouched dark</p>
           </div>
+          <div class="progress-modes" id="progressModes" role="group" aria-label="Transport mode"></div>
           <div class="discover-legend" aria-label="Legend">
             <span class="legend-item"><i class="swatch locked"></i> Never driven</span>
             <span class="legend-item"><i class="swatch explored"></i> Driven</span>
@@ -46,6 +50,6 @@
     ></script>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=8"></script>
-    <script src="/static/progress.js?v=3"></script>
+    <script src="/static/progress.js?v=4"></script>
   </body>
 </html>

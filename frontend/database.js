@@ -106,6 +106,7 @@ function popup(props) {
   const rows = [
     ["Name", props.name],
     ["ID", props.network_id],
+    ["Vendor", props.vendor],
     ["Type", props.network_type],
     ["Enc", props.encryption],
     ["Time", props.seen_at ?? props.last_seen],
@@ -138,10 +139,12 @@ function queryFromForm() {
   const encryption = data.get("encryption");
   const name = data.get("name")?.trim();
   const networkId = data.get("network_id")?.trim();
+  const vendor = data.get("vendor")?.trim();
   if (type) params.set("network_type", type);
   if (encryption) params.set("encryption", encryption);
   if (name) params.set("name", name);
   if (networkId) params.set("network_id", networkId);
+  if (vendor) params.set("vendor", vendor);
   if (data.get("exclude_no_ssid")) params.set("exclude_no_ssid", "true");
   const after = data.get("seen_after");
   const before = data.get("seen_before");
@@ -152,6 +155,38 @@ function queryFromForm() {
     params.set("bbox", [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(","));
   }
   return params;
+}
+
+async function loadVendorFilter() {
+  const select = document.getElementById("vendorFilter");
+  if (!select) return;
+  const prev = select.value;
+  try {
+    const res = await WardAuth.apiFetch("/api/explore/vendors");
+    if (!res.ok) return;
+    const data = await res.json();
+    const vendors = data.vendors || [];
+    select.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = vendors.length
+      ? `All vendors (${vendors.length})`
+      : "All vendors";
+    select.append(all);
+    for (const v of vendors) {
+      const opt = document.createElement("option");
+      opt.value = v.vendor;
+      // "Apple, Inc. (F0:D1:A9, AC:BC:32, +12) · 48"
+      const count = v.count != null ? ` · ${v.count}` : "";
+      opt.textContent = `${v.label || v.vendor}${count}`;
+      select.append(opt);
+    }
+    if (prev && [...select.options].some((o) => o.value === prev)) {
+      select.value = prev;
+    }
+  } catch (err) {
+    console.warn("[database] vendor filter failed", err);
+  }
 }
 
 async function search(event) {
@@ -181,7 +216,7 @@ async function search(event) {
   if (meta.truncated) {
     banner.hidden = false;
     banner.textContent =
-      "Result capped. Zoom in and enable "Only current map view", or tighten filters.";
+      'Result capped. Zoom in and enable "Only current map view", or tighten filters.';
   }
   if (bounds.length && !params.get("bbox")) {
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 });
@@ -193,6 +228,7 @@ document.getElementById("clear").addEventListener("click", () => {
   form.reset();
   form.network_type.value = "WIFI";
   form.exclude_no_ssid.checked = true;
+  if (form.vendor) form.vendor.value = "";
 });
 document.getElementById("toggleFilters").addEventListener("click", () => {
   form.classList.toggle("open");
@@ -218,6 +254,7 @@ async function refreshHealth() {
 async function boot() {
   await WardAuth.requireAuth();
   await refreshHealth();
+  await loadVendorFilter();
   await fitViewToSample();
 }
 

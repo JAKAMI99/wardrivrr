@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS networks (
     country_code TEXT,
     location_accuracy_m REAL,
     avg_gps_accuracy_m REAL,
+    vendor TEXT,
     geom GEOMETRY(Point, 4326)
         GENERATED ALWAYS AS (ST_SetSRID(ST_MakePoint(lon, lat), 4326)) STORED,
     computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

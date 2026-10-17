@@ -44,6 +44,9 @@ data/geocode/*.sqlite.building
 data/geocode/address_packs.json
 data/geocode_reverse_cache.json
 data/geofabrik-index-v1.json
+data/oui/*.sqlite
+data/oui/*.sqlite.building
+data/oui/SOURCE.txt
 
 # Local scratch at repo root
 /tmp_*
