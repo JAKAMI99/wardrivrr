@@ -225,22 +225,36 @@ def valhalla_service_status() -> dict:
             out["ok"] = False
             out["status"] = "waiting for seed"
             out["detail"] = (
-                "Regional pack in data/pbf/ — run ./run.sh (or re-download) "
-                "to seed active.osm.pbf and rebuild Valhalla"
+                "Regional pack in data/pbf/ — run ./run.sh to seed "
+                "data/valhalla/active.osm.pbf and start Valhalla"
             )
         elif not out["pbf_ready"]:
             out["ok"] = False
             out["status"] = "waiting for map"
             out["detail"] = (
-                "No map pack yet — download a Geofabrik region (lands in data/pbf/*.osm.pbf); "
-                "Valhalla then builds from data/valhalla/active.osm.pbf"
+                "No map pack yet — create a level (Levels or Drive prompt) to download "
+                "a Geofabrik region into data/pbf/, then Valhalla starts"
+            )
+        elif out.get("found") and out.get("running"):
+            out["ok"] = False
+            out["status"] = "building tiles"
+            out["detail"] = (
+                f"Valhalla is up but not ready at {url} — first tile build can take "
+                f"many minutes. Watch: docker logs -f {VALHALLA_CONTAINER}"
+            )
+        elif out.get("found"):
+            out["ok"] = False
+            out["status"] = "stopped"
+            out["detail"] = (
+                f"Container {VALHALLA_CONTAINER} exists but is not running — "
+                f"./run.sh or docker start {VALHALLA_CONTAINER}"
             )
         else:
             out["ok"] = False
-            out["status"] = out["status"] if out.get("found") else "unreachable"
+            out["status"] = "not started"
             out["detail"] = (
-                f"Valhalla not reachable at {url} — tiles may still be building "
-                f"(docker logs -f {VALHALLA_CONTAINER} on the host)"
+                f"active.osm.pbf is present but {VALHALLA_CONTAINER} is not running — "
+                f"./run.sh to start it (API may not see Docker; check on the host)"
             )
     except Exception as exc:
         out["http_ok"] = False

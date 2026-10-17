@@ -162,6 +162,8 @@ const state = {
   lastFrameAt: 0,
   /** Follow GPS posted by gpsd poller or tools/drive_sim (source=gpsd|client) */
   followLiveGps: false,
+  /** After first live GPS fix with no level, try Generate-level prompt once */
+  firstFixLevelPromptPending: false,
   followInFlight: false,
   lastFollowAt: 0,
   wrongWayStreak: 0,
@@ -2044,6 +2046,10 @@ function setFollowLiveGps(on) {
     if (!state.sessionStartedAt) {
       state.sessionStartedAt = new Date().toISOString();
     }
+    // Do not auto-start turn-by-turn. Still prompt for a level so fog unlock has roads.
+    if (!state.levelId) {
+      state.firstFixLevelPromptPending = true;
+    }
     const spawnBtn = document.getElementById("btnSpawn");
     if (spawnBtn) spawnBtn.textContent = "Respawn";
     const startBtn = document.getElementById("btnStart");
@@ -2148,6 +2154,10 @@ async function pollFollowGps(now) {
       setNavHint(
         `${fix.source || "gps"} · ${snapBit} · ${Math.round(state.speedKmh)} km/h`
       );
+    }
+    if (state.firstFixLevelPromptPending && !state.levelId) {
+      state.firstFixLevelPromptPending = false;
+      promptIfUnknownOnSpawn().catch(() => {});
     }
     maybeAutoExplore();
   } finally {
@@ -2280,7 +2290,11 @@ function setLevelPromptCopy(kind) {
 
 /** @returns {boolean} true if the Yes-timer prompt was shown */
 function openLevelPrompt(payload, kind = "switch") {
-  if (!state.navigationActive) return false;
+  // Create prompt is allowed without TBT nav (roads needed for fog unlock).
+  // Switch-while-driving still requires navigation to be on.
+  if (!state.navigationActive && kind !== "create" && state.levelId) {
+    return false;
+  }
   if (state.promptOpen || state.building) return false;
   const label = payload.label || payload.suggestion?.name;
   if (!label || label === state.dismissedLabel) return false;
@@ -2498,15 +2512,18 @@ async function trySuggestLevel(kind = "switch") {
  * prompt immediately — do not wait for the 300 m leave corridor.
  */
 async function promptIfUnknownOnSpawn() {
-  if (!state.navigationActive) return;
   if (!state.spawned || state.promptOpen || state.building) return;
 
+  // No level yet: ask to build even if TBT nav is off (unlock needs road_segments).
   if (!state.levelId) {
     document.getElementById("navHint").textContent =
       "No level here — looking up a place to generate…";
     await trySuggestLevel("create");
     return;
   }
+
+  // Already have a level — only auto-suggest switches while navigating.
+  if (!state.navigationActive) return;
 
   const res = await WardAuth.apiFetch(
     `/api/navigate/contains?lat=${state.lat}&lon=${state.lon}&level_id=${state.levelId}`
@@ -2525,8 +2542,9 @@ async function promptIfUnknownOnSpawn() {
 }
 
 async function checkOutsideLevel(now) {
-  if (!state.navigationActive) return;
   if (!state.spawned || state.promptOpen || state.building) return;
+  // Switch prompts need TBT nav; create-when-no-level does not.
+  if (!state.navigationActive && state.levelId) return;
   if (state.containsInFlight) return;
   if (now - state.lastContains < CONTAINS_MS) return;
   state.lastContains = now;
