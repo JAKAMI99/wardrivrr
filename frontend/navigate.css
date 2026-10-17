@@ -337,7 +337,7 @@ html[data-theme="crt"] .nav-maneuver-dist {
   bottom: auto;
   left: auto;
   transform: translateY(-50%);
-  z-index: 4;
+  z-index: 30;
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
@@ -522,7 +522,7 @@ html[data-theme="crt"] .nav-maneuver-dist {
 .nav-mode-sheet {
   position: absolute;
   inset: 0;
-  z-index: 25;
+  z-index: 40;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -534,6 +534,8 @@ html[data-theme="crt"] .nav-maneuver-dist {
 
 .nav-mode-sheet[hidden] {
   display: none !important;
+  pointer-events: none !important;
+  visibility: hidden;
 }
 
 .nav-mode-card {
@@ -585,24 +587,37 @@ html[data-theme="crt"] .nav-maneuver-dist {
   gap: 0.45rem;
 }
 
-.nav-mode-presets li {
+.nav-mode-presets .nav-mode-pick {
+  display: block;
+  width: 100%;
+  text-align: left;
   padding: 0.55rem 0.65rem;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--nav-cyan) 22%, transparent);
   background: color-mix(in srgb, var(--nav-panel) 70%, #000);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
-.nav-mode-presets li.is-current {
+.nav-mode-presets .nav-mode-pick:hover,
+.nav-mode-presets .nav-mode-pick:focus-visible {
+  border-color: var(--nav-cyan);
+}
+
+.nav-mode-presets .nav-mode-pick.is-current {
   border-color: var(--nav-cyan);
   background: color-mix(in srgb, var(--nav-cyan) 16%, var(--nav-panel));
 }
 
-.nav-mode-presets strong {
+.nav-mode-presets .nav-mode-pick strong {
   display: block;
   font-size: 0.92rem;
 }
 
-.nav-mode-presets span {
+.nav-mode-presets .nav-mode-pick span {
   display: block;
   margin-top: 0.2rem;
   font-size: 0.75rem;

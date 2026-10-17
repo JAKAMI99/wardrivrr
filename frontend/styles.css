@@ -1775,15 +1775,20 @@ a.module:hover {
   cursor: pointer;
   text-align: center;
   min-height: 8.5rem;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
 }
 
 .profile-card input {
   position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
-  pointer-events: none;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
 }
 
 .profile-card:has(input:checked) {
