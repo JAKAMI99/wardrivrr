@@ -31,6 +31,40 @@ function paintNa(badge, titleEl, detailEl, metaEl, title, detail) {
   fillDl(metaEl, []);
 }
 
+/** Client-facing Kismet Web UI (same host as this page, port from API url or 2501). */
+function kismetWebuiHref(info) {
+  let port = 2501;
+  const raw = info?.url || info?.webui_url;
+  if (raw) {
+    try {
+      const u = new URL(raw, window.location.origin);
+      if (u.port) port = Number(u.port) || port;
+      else if (u.protocol === "https:") port = 443;
+      else if (u.protocol === "http:") port = 80;
+    } catch (_) {
+      /* keep default */
+    }
+  }
+  const host = window.location.hostname || "127.0.0.1";
+  return `http://${host}:${port}/`;
+}
+
+function paintKismetWebui(info) {
+  const btn = document.getElementById("kismetWebui");
+  if (!btn) return;
+  const show =
+    info &&
+    info.expected !== false &&
+    info.state !== "na";
+  btn.hidden = !show;
+  if (!show) return;
+  btn.href = kismetWebuiHref(info);
+  const up = !!(info.http_ok || info.state === "ok" || info.running);
+  btn.classList.toggle("is-down", !up);
+  btn.setAttribute("aria-disabled", up ? "false" : "true");
+  btn.title = up ? "Open Kismet Web UI" : "Kismet is down";
+}
+
 function paintGps(gps) {
   const badge = document.getElementById("gpsBadge");
   const title = document.getElementById("gpsTitle");
@@ -194,15 +228,89 @@ function paintStorage(storage, db) {
   const badge = document.getElementById("storageBadge");
   setBadge(badge, "live", "OK");
   document.getElementById("storageTitle").textContent = "Storage";
+  const kismetH = storage?.kismet_logs_human || "0 B";
+  const uploadsH = storage?.uploads_human || storage?.raw_incoming_human || "0 B";
   document.getElementById("storageDetail").textContent =
-    `Raw files ${storage?.raw_incoming_human || "0 B"} · DB ${db?.size_human || "-"}`;
+    `Kismet logs ${kismetH} · Uploads ${uploadsH} · DB ${db?.size_human || "-"}`;
+  // No filesystem path shown — TTS mangled "incoming" and live capture
+  // never lands in the upload queue anyway.
   fillDl(document.getElementById("storageMeta"), [
-    ["Raw path", storage?.raw_incoming_path],
-    ["Raw size", storage?.raw_incoming_human],
-    ["Raw files", fmt(storage?.raw_incoming_files)],
+    ["Kismet logs", `${kismetH} · ${fmt(storage?.kismet_logs_files)} files`],
+    [
+      "Upload queue",
+      `${uploadsH} · ${fmt(storage?.uploads_files ?? storage?.raw_incoming_files)} files`,
+    ],
     ["Database size", db?.size_human],
     ["Disk free", storage?.disk_free_human],
     ["Disk used", `${storage?.disk_used_human} / ${storage?.disk_total_human}`],
+  ]);
+}
+
+function setMeter(fillId, meterId, pctElId, pct) {
+  const fill = document.getElementById(fillId);
+  const meter = document.getElementById(meterId);
+  const label = document.getElementById(pctElId);
+  const n = pct == null || Number.isNaN(Number(pct)) ? null : Math.max(0, Math.min(100, Number(pct)));
+  if (label) label.textContent = n == null ? "—" : `${n.toFixed(0)}%`;
+  if (fill) fill.style.width = n == null ? "0%" : `${n}%`;
+  if (meter) {
+    if (n == null) meter.removeAttribute("aria-valuenow");
+    else meter.setAttribute("aria-valuenow", String(Math.round(n)));
+  }
+  if (fill) {
+    fill.classList.toggle("is-hot", n != null && n >= 85);
+    fill.classList.toggle("is-warm", n != null && n >= 65 && n < 85);
+  }
+}
+
+function paintHost(host) {
+  const badge = document.getElementById("hostBadge");
+  const title = document.getElementById("hostTitle");
+  const detail = document.getElementById("hostDetail");
+  if (!host || host.ok === false) {
+    setBadge(badge, "warn", "Limited");
+    title.textContent = "Host";
+    detail.textContent = host?.detail || "Host metrics unavailable";
+    setMeter("hostCpuFill", "hostCpuMeter", "hostCpuPct", null);
+    setMeter("hostRamFill", "hostRamMeter", "hostRamPct", null);
+    fillDl(document.getElementById("hostMeta"), []);
+    return;
+  }
+  const cpu = host.cpu || {};
+  const mem = host.memory || {};
+  const disk = host.disk || {};
+  setBadge(badge, "live", "OK");
+  title.textContent = host.hostname || "Host";
+  const ghz = cpu.freq_ghz != null ? `${cpu.freq_ghz} GHz` : null;
+  const cores =
+    cpu.cores != null || cpu.threads != null
+      ? `${cpu.cores ?? "?"} cores / ${cpu.threads ?? "?"} threads`
+      : null;
+  detail.textContent = [cpu.model, ghz, cores].filter(Boolean).join(" · ") || host.os || "Machine";
+
+  setMeter("hostCpuFill", "hostCpuMeter", "hostCpuPct", cpu.percent);
+  setMeter("hostRamFill", "hostRamMeter", "hostRamPct", mem.percent);
+
+  fillDl(document.getElementById("hostMeta"), [
+    ["CPU", cpu.model],
+    ["Clock", ghz],
+    ["Cores / threads", cores],
+    [
+      "RAM",
+      mem.used_human && mem.total_human
+        ? `${mem.used_human} / ${mem.total_human}`
+        : null,
+    ],
+    [
+      "Disk",
+      disk.used_human && disk.total_human
+        ? `${disk.used_human} / ${disk.total_human} (${disk.percent ?? "—"}%)`
+        : null,
+    ],
+    ["Temperature", host.temperature_c != null ? `${host.temperature_c} °C` : null],
+    ["LAN IP", host.lan_ip],
+    ["Wi‑Fi SSID", host.wifi_ssid],
+    ["OS", host.os],
   ]);
 }
 
@@ -219,9 +327,11 @@ async function loadStatus() {
 
   paintGps(data.gps);
   paintContainer("kismet", data.kismet, "Kismet");
+  paintKismetWebui(data.kismet);
   paintContainer("valhalla", data.valhalla, "Valhalla");
   paintDb(data.database, data.postgis_container);
   paintStorage(data.storage, data.database);
+  paintHost(data.host);
 
   document.getElementById("statNetworks").textContent = fmt(data.database?.networks);
   document.getElementById("statWifi").textContent = fmt(data.database?.networks_wifi);

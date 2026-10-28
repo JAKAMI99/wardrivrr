@@ -35,10 +35,11 @@ _last_eval_at: dict[int, float] = {}
 _eval_lock = threading.Lock()
 ACH_EVAL_MIN_INTERVAL_S = float(os.getenv("ACH_EVAL_MIN_INTERVAL_S", "15"))
 
-# Activity XP (on top of achievement unlock XP) - networks + fog tiles
-XP_PER_WIFI_NET = 5
-XP_PER_BT_NET = 4
-XP_PER_BLE_NET = 3
+# Activity XP (on top of achievement unlock XP) - networks + fog tiles.
+# Radio finds stay low so fog tiles stay the main progression driver.
+XP_PER_WIFI_NET = 1
+XP_PER_BT_NET = 1
+XP_PER_BLE_NET = 1
 # First unlock of a fog tile (segment)
 XP_PER_TILE = 2
 # Re-driving an already unlocked tile (smaller credit)
