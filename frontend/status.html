@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0e11" />
     <title>Status · wardrivrr</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=15" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
     <script src="/static/theme.js?v=11"></script>
   </head>
@@ -64,6 +64,15 @@
             <h3 id="kismetTitle">Kismet</h3>
             <p id="kismetDetail">Checking...</p>
             <dl class="status-dl" id="kismetMeta"></dl>
+            <a
+              class="btn status-webui-btn"
+              id="kismetWebui"
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+              >Open WebUI</a
+            >
           </article>
 
           <article class="status-card" id="cardValhalla">
@@ -94,6 +103,36 @@
             <h3 id="storageTitle">Storage</h3>
             <p id="storageDetail">Checking...</p>
             <dl class="status-dl" id="storageMeta"></dl>
+          </article>
+
+          <article class="status-card status-card-wide" id="cardHost">
+            <div class="status-card-top">
+              <span class="module-kicker">Machine</span>
+              <span class="badge" id="hostBadge">...</span>
+            </div>
+            <h3 id="hostTitle">Host</h3>
+            <p id="hostDetail">Checking...</p>
+            <div class="host-meters" aria-label="CPU and memory use">
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>CPU</span>
+                  <span id="hostCpuPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostCpuMeter">
+                  <div class="host-meter-fill" id="hostCpuFill"></div>
+                </div>
+              </div>
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>RAM</span>
+                  <span id="hostRamPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostRamMeter">
+                  <div class="host-meter-fill" id="hostRamFill"></div>
+                </div>
+              </div>
+            </div>
+            <dl class="status-dl" id="hostMeta"></dl>
           </article>
         </section>
 
@@ -137,6 +176,6 @@
     </div>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=8"></script>
-    <script src="/static/status.js"></script>
+    <script src="/static/status.js?v=4"></script>
   </body>
 </html>

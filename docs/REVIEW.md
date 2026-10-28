@@ -60,7 +60,7 @@ Status legend: **Fixed** (in this branch), **Partial**, **Open**.
 | P0 | PostGIS published on `0.0.0.0:5432` with the default superuser password (re-checked). | `docker-compose.yml`, `deploy.sh` | **Fixed**: bound to `127.0.0.1` (`DB_BIND` to override); `deploy.sh` generates `DB_PASS` on fresh installs and warns when an existing volume still uses the default. |
 | P0 | `admin/admin` bootstrap, no login rate limit, 4-char passwords. | `auth.py` | **Open** |
 | P1 | Unauthenticated `/api/system/status` exposed the live GPS position; `/api/health` leaked global counts. | `main.py` | **Fixed**: status requires auth; anonymous health returns liveness only. |
-| P1 | gpsd `-G`, Kismet httpd and Valhalla on all interfaces. | `deploy.sh`, `run.sh`, compose | **Fixed** for new deploys: gpsd without `-G`, Kismet `127.0.0.1` (`KISMET_HTTPD_BIND`), Valhalla `127.0.0.1` (`VALHALLA_BIND`). Existing hosts: see deployment notes. |
+| P1 | gpsd `-G`, Kismet httpd and Valhalla on all interfaces. | `deploy.sh`, `run.sh`, compose | **Partially kept**: gpsd without `-G`, Valhalla `127.0.0.1` (`VALHALLA_BIND`). Kismet httpd defaults to `0.0.0.0` again so the Web UI works on the LAN (`KISMET_HTTPD_BIND=127.0.0.1` to lock down). |
 | P1 | API key name and other `innerHTML` sinks. | `settings.js`, `nav.js`, `regions.js` | **Fixed** |
 | P1 | Docker socket (host root) reachable via endpoints any user can call. | `main.py` navigate endpoints | **Open**: admin-gate, socket proxy, pin image digests. |
 | P1 | JWT default secret fallback, 30-day tokens, token in localStorage, no revocation. | `auth.py`, `auth.js` | **Open** |
@@ -82,9 +82,9 @@ on regions/jobs/keys/networks, bcrypt passwords, hashed API keys.
   the network.
 - **gpsd on existing hosts:** `/etc/default/gpsd` is no longer rewritten by
   `run.sh`. Remove `-G` from `GPSD_OPTIONS` manually and restart gpsd.
-- **Kismet on existing hosts:** `deploy/kismet/kismet_site.conf.teslian` still
-  binds `0.0.0.0`. Change it to `127.0.0.1` unless the Kismet web UI is used
-  from another device.
+- **Kismet httpd:** defaults to `0.0.0.0` (LAN Web UI). Set
+  `KISMET_HTTPD_BIND=127.0.0.1` before `./deploy.sh` (or edit
+  `httpd_bind_address` in `/etc/kismet/kismet_site.conf`) for localhost-only.
 - **Remote DB/Valhalla access:** set `DB_BIND=0.0.0.0` / `VALHALLA_BIND=0.0.0.0`
   in `.env` if you need it from the LAN.
 - **New env knobs:** `REVISIT_COOLDOWN_S`, `ACH_EVAL_MIN_INTERVAL_S`,
