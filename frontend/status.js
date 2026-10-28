@@ -224,28 +224,6 @@ function paintDb(db, postgisContainer) {
   ]);
 }
 
-function paintStorage(storage, db) {
-  const badge = document.getElementById("storageBadge");
-  setBadge(badge, "live", "OK");
-  document.getElementById("storageTitle").textContent = "Storage";
-  const kismetH = storage?.kismet_logs_human || "0 B";
-  const uploadsH = storage?.uploads_human || storage?.raw_incoming_human || "0 B";
-  document.getElementById("storageDetail").textContent =
-    `Kismet logs ${kismetH} · Uploads ${uploadsH} · DB ${db?.size_human || "-"}`;
-  // No filesystem path shown — TTS mangled "incoming" and live capture
-  // never lands in the upload queue anyway.
-  fillDl(document.getElementById("storageMeta"), [
-    ["Kismet logs", `${kismetH} · ${fmt(storage?.kismet_logs_files)} files`],
-    [
-      "Upload queue",
-      `${uploadsH} · ${fmt(storage?.uploads_files ?? storage?.raw_incoming_files)} files`,
-    ],
-    ["Database size", db?.size_human],
-    ["Disk free", storage?.disk_free_human],
-    ["Disk used", `${storage?.disk_used_human} / ${storage?.disk_total_human}`],
-  ]);
-}
-
 function setMeter(fillId, meterId, pctElId, pct) {
   const fill = document.getElementById(fillId);
   const meter = document.getElementById(meterId);
@@ -263,24 +241,40 @@ function setMeter(fillId, meterId, pctElId, pct) {
   }
 }
 
-function paintHost(host) {
+function paintHost(host, storage, db) {
   const badge = document.getElementById("hostBadge");
   const title = document.getElementById("hostTitle");
   const detail = document.getElementById("hostDetail");
+  const kismetH = storage?.kismet_logs_human || "0 B";
+  const uploadsH = storage?.uploads_human || storage?.raw_incoming_human || "0 B";
   if (!host || host.ok === false) {
     setBadge(badge, "warn", "Limited");
-    title.textContent = "Host";
+    title.textContent = "Machine";
     detail.textContent = host?.detail || "Host metrics unavailable";
     setMeter("hostCpuFill", "hostCpuMeter", "hostCpuPct", null);
     setMeter("hostRamFill", "hostRamMeter", "hostRamPct", null);
-    fillDl(document.getElementById("hostMeta"), []);
+    fillDl(document.getElementById("hostMeta"), [
+      ["Kismet logs", `${kismetH} · ${fmt(storage?.kismet_logs_files)} files`],
+      [
+        "Upload queue",
+        `${uploadsH} · ${fmt(storage?.uploads_files ?? storage?.raw_incoming_files)} files`,
+      ],
+      ["Database size", db?.size_human],
+      ["Disk free", storage?.disk_free_human],
+      [
+        "Disk used",
+        storage?.disk_used_human && storage?.disk_total_human
+          ? `${storage.disk_used_human} / ${storage.disk_total_human}`
+          : null,
+      ],
+    ]);
     return;
   }
   const cpu = host.cpu || {};
   const mem = host.memory || {};
   const disk = host.disk || {};
   setBadge(badge, "live", "OK");
-  title.textContent = host.hostname || "Host";
+  title.textContent = host.hostname || "Machine";
   const ghz = cpu.freq_ghz != null ? `${cpu.freq_ghz} GHz` : null;
   const cores =
     cpu.cores != null || cpu.threads != null
@@ -290,6 +284,13 @@ function paintHost(host) {
 
   setMeter("hostCpuFill", "hostCpuMeter", "hostCpuPct", cpu.percent);
   setMeter("hostRamFill", "hostRamMeter", "hostRamPct", mem.percent);
+
+  const diskLine =
+    disk.used_human && disk.total_human
+      ? `${disk.used_human} / ${disk.total_human} (${disk.percent ?? "—"}%)`
+      : storage?.disk_used_human && storage?.disk_total_human
+        ? `${storage.disk_used_human} / ${storage.disk_total_human}`
+        : null;
 
   fillDl(document.getElementById("hostMeta"), [
     ["CPU", cpu.model],
@@ -301,12 +302,14 @@ function paintHost(host) {
         ? `${mem.used_human} / ${mem.total_human}`
         : null,
     ],
+    ["Disk", diskLine],
+    ["Disk free", disk.free_human || storage?.disk_free_human],
+    ["Kismet logs", `${kismetH} · ${fmt(storage?.kismet_logs_files)} files`],
     [
-      "Disk",
-      disk.used_human && disk.total_human
-        ? `${disk.used_human} / ${disk.total_human} (${disk.percent ?? "—"}%)`
-        : null,
+      "Upload queue",
+      `${uploadsH} · ${fmt(storage?.uploads_files ?? storage?.raw_incoming_files)} files`,
     ],
+    ["Database size", db?.size_human],
     ["Temperature", host.temperature_c != null ? `${host.temperature_c} °C` : null],
     ["LAN IP", host.lan_ip],
     ["Wi‑Fi SSID", host.wifi_ssid],
@@ -330,8 +333,7 @@ async function loadStatus() {
   paintKismetWebui(data.kismet);
   paintContainer("valhalla", data.valhalla, "Valhalla");
   paintDb(data.database, data.postgis_container);
-  paintStorage(data.storage, data.database);
-  paintHost(data.host);
+  paintHost(data.host, data.storage, data.database);
 
   document.getElementById("statNetworks").textContent = fmt(data.database?.networks);
   document.getElementById("statWifi").textContent = fmt(data.database?.networks_wifi);
