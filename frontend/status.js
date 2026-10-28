@@ -247,12 +247,14 @@ function paintHost(host, storage, db) {
   const detail = document.getElementById("hostDetail");
   const kismetH = storage?.kismet_logs_human || "0 B";
   const uploadsH = storage?.uploads_human || storage?.raw_incoming_human || "0 B";
+  const storageDiskPct = storage?.disk_used_pct;
   if (!host || host.ok === false) {
     setBadge(badge, "warn", "Limited");
     title.textContent = "Machine";
     detail.textContent = host?.detail || "Host metrics unavailable";
     setMeter("hostCpuFill", "hostCpuMeter", "hostCpuPct", null);
     setMeter("hostRamFill", "hostRamMeter", "hostRamPct", null);
+    setMeter("hostDiskFill", "hostDiskMeter", "hostDiskPct", storageDiskPct);
     fillDl(document.getElementById("hostMeta"), [
       ["Kismet logs", `${kismetH} · ${fmt(storage?.kismet_logs_files)} files`],
       [
@@ -282,12 +284,20 @@ function paintHost(host, storage, db) {
       : null;
   detail.textContent = [cpu.model, ghz, cores].filter(Boolean).join(" · ") || host.os || "Machine";
 
+  const diskPct =
+    disk.percent != null
+      ? disk.percent
+      : storageDiskPct != null
+        ? storageDiskPct
+        : null;
+
   setMeter("hostCpuFill", "hostCpuMeter", "hostCpuPct", cpu.percent);
   setMeter("hostRamFill", "hostRamMeter", "hostRamPct", mem.percent);
+  setMeter("hostDiskFill", "hostDiskMeter", "hostDiskPct", diskPct);
 
   const diskLine =
     disk.used_human && disk.total_human
-      ? `${disk.used_human} / ${disk.total_human} (${disk.percent ?? "—"}%)`
+      ? `${disk.used_human} / ${disk.total_human}`
       : storage?.disk_used_human && storage?.disk_total_human
         ? `${storage.disk_used_human} / ${storage.disk_total_human}`
         : null;

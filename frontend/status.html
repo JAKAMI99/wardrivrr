@@ -102,7 +102,7 @@
             </div>
             <h3 id="hostTitle">Machine</h3>
             <p id="hostDetail">Checking...</p>
-            <div class="host-meters" aria-label="CPU and memory use">
+            <div class="host-meters" aria-label="CPU, memory, and disk use">
               <div class="host-meter">
                 <div class="host-meter-label">
                   <span>CPU</span>
@@ -119,6 +119,15 @@
                 </div>
                 <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostRamMeter">
                   <div class="host-meter-fill" id="hostRamFill"></div>
+                </div>
+              </div>
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>Disk</span>
+                  <span id="hostDiskPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostDiskMeter">
+                  <div class="host-meter-fill" id="hostDiskFill"></div>
                 </div>
               </div>
             </div>
@@ -166,6 +175,6 @@
     </div>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=8"></script>
-    <script src="/static/status.js?v=5"></script>
+    <script src="/static/status.js?v=6"></script>
   </body>
 </html>
