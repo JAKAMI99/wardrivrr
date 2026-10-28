@@ -189,12 +189,16 @@ install_host_kismet() {
 install_host_kismet || true
 if command -v kismet >/dev/null 2>&1; then
   sudo mkdir -p /etc/kismet
+  # Always overwrite site conf (credentials + sources from this deploy run)
   sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf
+  echo "Kismet: wrote /etc/kismet/kismet_site.conf (overwrote any previous file)"
   sudo usermod -aG kismet "${SUDO_USER:-$USER}" 2>/dev/null || true
   sudo systemctl disable --now wardrivrr-kismet 2>/dev/null || true
   sudo systemctl daemon-reload
-  sudo systemctl enable --now kismet || true
-  echo "Kismet: configured (/etc/kismet/kismet_site.conf) and enabled"
+  # enable --now does not restart an already-running unit — force reload of httpd auth
+  sudo systemctl enable kismet 2>/dev/null || true
+  sudo systemctl restart kismet 2>/dev/null || sudo systemctl start kismet 2>/dev/null || true
+  echo "Kismet: $(systemctl is-active kismet 2>/dev/null || echo unknown) (restarted with new credentials)"
 else
   echo "WARNING: Kismet not installed - stack will still start. Re-run ./deploy.sh after fixing apt."
 fi

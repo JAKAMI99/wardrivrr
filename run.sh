@@ -105,8 +105,16 @@ sudo systemctl enable gpsd 2>/dev/null || true
 sudo systemctl restart gpsd 2>/dev/null || sudo systemctl start gpsd 2>/dev/null || true
 echo "gpsd: $(systemctl is-active gpsd 2>/dev/null || echo unknown)"
 
-# Kismet
+# Kismet — keep site conf httpd auth in sync with .env, then install + restart
 if [[ -s deploy/kismet/kismet_site.conf ]]; then
+  _ku="$(grep -E '^KISMET_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+  _kp="$(grep -E '^KISMET_PASSWORD=' .env 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+  if [[ -n "$_ku" ]]; then
+    sed -i -E "s|^httpd_username=.*|httpd_username=${_ku}|" deploy/kismet/kismet_site.conf
+  fi
+  if [[ -n "$_kp" ]]; then
+    sed -i -E "s|^httpd_password=.*|httpd_password=${_kp}|" deploy/kismet/kismet_site.conf
+  fi
   sudo mkdir -p /etc/kismet
   sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf
 elif [[ ! -s /etc/kismet/kismet_site.conf ]]; then
