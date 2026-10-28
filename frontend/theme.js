@@ -1,6 +1,6 @@
-/* Site-wide theme engine — Classic / Kidcore / CRT
+/* Site-wide theme engine - Classic / Kidcore / CRT
  *
- * Kidcore speech ≈ Prism Launcher “Cute Engwish” (en@uwu): hewwo, pwease, :3
+ * Kidcore speech ≈ Prism Launcher "Cute Engwish" (en@uwu): hewwo, pwease, :3
  */
 (function () {
   const KEY = "wardrivrr_theme";
@@ -54,32 +54,32 @@
     ],
     [/when you can\s+wait/gi, "when you can make weighties"],
     [
-      /Drive, explore unread streets, and gather Wi‑Fi and Bluetooth as you go\s*[—–-]\s*guided routes on a pitched map, one corridor at a time\./gi,
-      "Dwive around unread streets & get Wi‑Fi and Bluetooth — smol routes, one street at a time.",
+      /Drive, explore unread streets, and gather Wi-Fi and Bluetooth as you go\s*-\s*guided routes on a pitched map, one corridor at a time\./gi,
+      "Dwive around unread streets & get Wi-Fi and Bluetooth - smol routes, one street at a time.",
     ],
     [
       /Hit the road, clear new streets, and collect signals along the way\./gi,
-      "Vroom vroom — new streets & get da signals!",
+      "Vroom vroom - new streets & get da signals!",
     ],
     [
-      /Go out, explore, and collect signals — turn-by-turn into streets you haven’t covered yet\./gi,
-      "Go out, expwore, get signals — turny-turny into streets you haven’t done yet.",
+      /Go out, explore, and collect signals - turn-by-turn into streets you haven't covered yet\./gi,
+      "Go out, expwore, get signals - turny-turny into streets you haven't done yet.",
     ],
     [
-      /City and district packs — generate, switch, and clip routing to where you play\./gi,
-      "City packs — make ’em, switch ’em, play where you want.",
+      /City and district packs - generate, switch, and clip routing to where you play\./gi,
+      "City packs - make 'em, switch 'em, play where you want.",
     ],
     [
-      /Locked vs driven road grid for your active level — overview, not turn-by-turn\./gi,
-      "Locked vs dwiven roads for your level — peek map, not turny-turny.",
+      /Locked vs driven road grid for your active level - overview, not turn-by-turn\./gi,
+      "Locked vs dwiven roads for your level - peek map, not turny-turny.",
     ],
     [
-      /Road grid — locked vs driven \(not turn-by-turn\)/gi,
-      "Roads — locked vs dwiven (not turny-turny)",
+      /Road grid - locked vs driven \(not turn-by-turn\)/gi,
+      "Roads - locked vs dwiven (not turny-turny)",
     ],
     [
-      /What you can open today — and what’s next\./gi,
-      "Toys you can open now — and what’s next.",
+      /What you can open today - and what's next\./gi,
+      "Toys you can open now - and what's next.",
     ],
     [
       /Applies across the whole app \(maps, HUD, dashboards\)\./gi,
@@ -90,12 +90,12 @@
       "Days in a row with a new network find",
     ],
     [/Most new networks in a single day/gi, "Most new finds in one day"],
-    [/Invite-only home server\./gi, "Invite-only home — pwease knock."],
-    [/Loading your badges…/gi, "Getting your badges…"],
-    [/Pulling today’s numbers…/gi, "Getting today’s numbers…"],
-    [/Preparing map data…/gi, "Making the map ready…"],
-    [/Downloading regional map data…/gi, "Getting da map bits…"],
-    [/Building your level…/gi, "Making your level…"],
+    [/Invite-only home server\./gi, "Invite-only home - pwease knock."],
+    [/Loading your badges.../gi, "Getting your badges..."],
+    [/Pulling today's numbers.../gi, "Getting today's numbers..."],
+    [/Preparing map data.../gi, "Making the map ready..."],
+    [/Downloading regional map data.../gi, "Getting da map bits..."],
+    [/Building your region.../gi, "Making your region..."],
     [/Level ready to explore\./gi, "Level ready to expwore!"],
     [/How will you explore\?/gi, "How you gonna expwore?"],
     [/Where do you want to play\?/gi, "Where we play?"],
@@ -104,19 +104,21 @@
     [/Drive\s*&\s*explore/gi, "Dwive & expwore"],
     [/Start driving/gi, "Go dwive"],
     [/Start explore/gi, "Start expwore"],
-    [/Load a level/gi, "Pick a level"],
-    [/Load level\?/gi, "Pick level?"],
-    [/\bLoad level\b/gi, "Pick level"],
-    [/Open Drive\s*→/gi, "Go dwive →"],
-    [/Open drive\s*→/gi, "Go dwive →"],
-    [/Open levels\s*→/gi, "See levels →"],
-    [/Open discover\s*→/gi, "Go peek →"],
-    [/Open explorer\s*→/gi, "Go peek →"],
-    [/Open achievements\s*→/gi, "See badges →"],
-    [/Back to levels/gi, "Back to levelsies"],
+    [/View regions/gi, "See regions"],
+    [/Preload region\?/gi, "Preload region?"],
+    [/Switch region\?/gi, "Switch region?"],
+    [/\bPreload region\b/gi, "Preload region"],
+    [/Open Drive\s*->/gi, "Go dwive ->"],
+    [/Open drive\s*->/gi, "Go dwive ->"],
+    [/View regions\s*->/gi, "See regions ->"],
+    [/Open stats\s*->/gi, "See stats ->"],
+    [/Open discover\s*->/gi, "Go peek ->"],
+    [/Open explorer\s*->/gi, "Go peek ->"],
+    [/Open achievements\s*->/gi, "See badges ->"],
+    [/Back to regions/gi, "Back to regionsies"],
     [/local explorer/gi, "smol explorer"],
     [/Your exploration/gi, "Your adventure"],
-    [/Next Wi‑Fi finish line/gi, "Next Wi‑Fi finish"],
+    [/Next Wi-Fi finish line/gi, "Next Wi-Fi finish"],
     [/Total networks/gi, "All da networks"],
     [/Main feature/gi, "Best toy"],
     [/Live services/gi, "Live toys"],
@@ -124,11 +126,11 @@
     [/Find roads/gi, "Find da roads"],
     [/Build playable segments/gi, "Build play roads"],
     [/Finish up/gi, "Almost done"],
-    [/Ready to generate/gi, "Ready to make it"],
-    [/Generate level/gi, "Make level"],
-    [/You’re set/gi, "Yay you’re set"],
-    [/Create another/gi, "Make another"],
-    [/Your levels/gi, "Your levelsies"],
+    [/Ready to preload/gi, "Ready to preload"],
+    [/Building your region.../gi, "Making your region..."],
+    [/You're set/gi, "Yay you're set"],
+    [/Preload another/gi, "Preload another"],
+    [/Your regions/gi, "Your regionsies"],
     [/Choose your area/gi, "Pick your area"],
     [/Technical details/gi, "Nerdy bits"],
     [/Save settings/gi, "Save settingsies"],
@@ -147,11 +149,11 @@
     [/first seen in range/gi, "first peek nearby"],
     [/Sign out/gi, "Byebye"],
     [/Sign in/gi, "Hewwo-in"],
-    [/Loading…/g, "Almost ready…"],
-    [/Checking…/g, "Looking…"],
-    [/Starting…/g, "Getting ready…"],
-    [/Preparing…/g, "Making ready…"],
-    [/Uploading…/g, "Sending…"],
+    [/Loading.../g, "Almost ready..."],
+    [/Checking.../g, "Looking..."],
+    [/Starting.../g, "Getting ready..."],
+    [/Preparing.../g, "Making ready..."],
+    [/Uploading.../g, "Sending..."],
   ];
 
   const FLOAT_EMOJI = ["🍼", "🎒", "🧸", "⭐", "🖍️", "🌈", "🐸", "🎮", "🦕", "🦖", "💫", "🎀"];
@@ -238,7 +240,7 @@
   }
 
   function read() {
-    // Guests always classic — never inherit another user's localStorage theme
+    // Guests always classic - never inherit another user's localStorage theme
     if (!hasAuthToken()) return "classic";
     const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY) || "classic";
     return normalize(raw);
@@ -273,7 +275,7 @@
     return copy.slice(0, n);
   }
 
-  /** Toddler Cute Engwish — phrase rewrites + selective swaps (no blanket r/l→w) */
+  /** Toddler Cute Engwish - phrase rewrites + selective swaps (no blanket r/l->w) */
   function cuteEngwish(input) {
     if (!input || !input.trim()) return input;
     let s = input;
@@ -325,7 +327,7 @@
     ];
     for (const [re, rep] of pairs) s = s.replace(re, rep);
 
-    // Soft stutter — rare
+    // Soft stutter - rare
     s = s.replace(/\b([A-Za-z])([a-z]{5,})\b/g, (full, a, rest) => {
       if (Math.random() > 0.04) return full;
       return `${a}-${a}${rest}`;
@@ -419,7 +421,7 @@
     speechObserver = new MutationObserver(() => {
       if (document.hidden || read() !== "kidcore") return;
       if (speechDebounce) return;
-      // Coalesce bursts (status chips, stats) — full TreeWalker is expensive
+      // Coalesce bursts (status chips, stats) - full TreeWalker is expensive
       speechDebounce = setTimeout(() => {
         speechDebounce = null;
         if (document.hidden || read() !== "kidcore") return;
@@ -465,7 +467,7 @@
     if (phraseTimer) clearInterval(phraseTimer);
     phraseTimer = null;
     if (read() !== "kidcore" || document.hidden) return;
-    // Rare refresh — DOM churn was waking layout every 14s for little gain
+    // Rare refresh - DOM churn was waking layout every 14s for little gain
     phraseTimer = setInterval(() => {
       if (document.hidden || read() !== "kidcore") return;
       refreshPhrases(document.getElementById("kidcoreDecor"));
@@ -599,7 +601,7 @@
       const res = await WardAuth.apiFetch("/api/settings");
       if (!res.ok) return apply(read(), { persist: false, broadcast: true });
       const data = await res.json();
-      // Per-user setting from user_settings — never a global/server-wide theme
+      // Per-user setting from user_settings - never a global/server-wide theme
       const theme = normalize(data.theme || "classic");
       return apply(theme, { persist: true, broadcast: true });
     } catch {
@@ -676,7 +678,7 @@
     apply(read(), { persist: false, broadcast: false });
   }
 
-  // Boot: guests → classic; signed-in → cached preference until /api/settings sync
+  // Boot: guests -> classic; signed-in -> cached preference until /api/settings sync
   apply(read(), { persist: false, broadcast: false });
 
   window.WardTheme = {

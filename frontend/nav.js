@@ -1,8 +1,8 @@
-/* Shared site nav — Drive + links, burger on mobile, account (+ theme) */
+/* Shared site nav - Drive + links, burger on mobile, account (+ theme) */
 (function () {
   const PRIMARY = [
     { href: "/navigate", label: "Drive", match: ["/navigate"], drive: true },
-    { href: "/levels", label: "Levels", match: ["/levels"] },
+    { href: "/regions", label: "Regions", match: ["/regions", "/levels"] },
     { href: "/progress", label: "Progress", match: ["/progress", "/discover"] },
     { href: "/database", label: "Database", match: ["/database"] },
     { href: "/status", label: "Status", match: ["/status"] },
@@ -10,7 +10,6 @@
 
   const ACCOUNT = [
     { href: "/stats", label: "Stats" },
-    { href: "/achievements", label: "Achievements" },
     { href: "/api", label: "API" },
     { href: "/settings", label: "Settings" },
   ];
@@ -47,8 +46,10 @@
   function buildAccountMenu(user) {
     const wrap = document.createElement("div");
     wrap.className = "account-menu";
-    const name = user?.username || "Account";
-    const ini = initials(name);
+    const esc = (s) =>
+      String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    const name = esc(user?.username || "Account");
+    const ini = esc(initials(user?.username || "Account"));
 
     wrap.innerHTML = `
       <button type="button" class="account-trigger" aria-expanded="false" aria-haspopup="true">

@@ -1,8 +1,9 @@
 """
-Drive / level exploration profiles.
+Drive / exploration profiles (Navigate-time).
 
-Chosen when creating a level (defines which OSM roads enter the fog map) and
-used while routing (Valhalla costing + dead-end policy).
+Levels import the union of all playable highways once. Mode (big_car / small_car /
+bicycle / foot) filters fog candidates, progress display, Valhalla costing, and
+dead-end policy while routing — never a second map for the same place.
 
 Presets:
   big_car   — arterials & collectors only; few turns; skip cul-de-sacs
@@ -11,6 +12,7 @@ Presets:
   foot      — paths, tracks, gravel/mud-friendly; every dead end
 
 Legacy DB value `car` aliases to `small_car`.
+`levels.profile` stores last-used Navigate mode only.
 """
 
 from __future__ import annotations
@@ -37,6 +39,8 @@ PROFILE_HIGHWAYS: dict[str, set[str]] = {
         "secondary_link",
         "tertiary",
         "tertiary_link",
+        # Village / through-town connectors (OSM "medium" roads without a class)
+        "unclassified",
     },
     "small_car": {
         "motorway",
@@ -165,6 +169,14 @@ def profile_highways(profile: str | None) -> set[str]:
     return set(PROFILE_HIGHWAYS[normalize_profile(profile)])
 
 
+def all_playable_highways() -> set[str]:
+    """Union of every profile's highways — what a level imports once."""
+    out: set[str] = set()
+    for hw in PROFILE_HIGHWAYS.values():
+        out |= set(hw)
+    return out
+
+
 def profile_meta(profile: str | None) -> dict[str, Any]:
     return dict(PROFILE_META[normalize_profile(profile)])
 
@@ -194,6 +206,11 @@ def is_complete(explored_pct: float | None, *, threshold: float = COMPLETE_PCT) 
         return float(explored_pct or 0) >= float(threshold)
     except (TypeError, ValueError):
         return False
+
+
+def profile_uses_road_snap(profile: str | None) -> bool:
+    """Cars snap GPS onto road_segments; foot/bike keep raw GPS and unlock by radius."""
+    return normalize_profile(profile) in {"big_car", "small_car"}
 
 
 def routing_policy(

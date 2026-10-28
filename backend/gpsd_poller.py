@@ -1,6 +1,9 @@
 """
 Background gpsd client → gps_state.set_fix(source=gpsd).
 
+Always-on for the car collection user (fog unlock + XP + Kismet positions),
+whether or not the Drive dashboard is open.
+
 Runs on the API process. gpsd itself stays on the host; use
 GPSD_HOST=host.docker.internal (Linux host-gateway) or 127.0.0.1 when
 the API is on the host.
@@ -20,8 +23,12 @@ _lock = threading.Lock()
 _last_heading: float | None = None
 _heading_moving = False
 _session_started_at: dict[int, str] = {}
-_navigation_active_users: set[int] = set()
+_last_fix_mono: dict[int, float] = {}
 _last_unlock_at: dict[int, float] = {}
+_last_collection_user: int | None = None
+_collection_user_cache: tuple[int, float] | None = None
+# A gap without fixes this long starts a new drive session (HUD stats window).
+_SESSION_IDLE_S = float(os.getenv("GPSD_SESSION_IDLE_S", "1800"))
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -31,48 +38,56 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _target_user_ids() -> list[int]:
-    global _navigation_active_users
-    pinned = os.getenv("GPSD_USER_ID", "").strip()
+def collection_user_id() -> int:
+    """
+    Always-on car account for gpsd + Kismet collection (no Drive UI required).
+
+    Prefer GPSD_USER_ID / KISMET_USER_ID, else the first user (admin).
+    """
+    global _collection_user_cache
+    pinned = (os.getenv("GPSD_USER_ID") or os.getenv("KISMET_USER_ID") or "").strip()
     if pinned.isdigit():
-        return [int(pinned)]
+        return int(pinned)
+    cached = _collection_user_cache
+    if cached and time.monotonic() - cached[1] < 60.0:
+        return cached[0]
+    uid = _lookup_first_user_id()
+    _collection_user_cache = (uid, time.monotonic())
+    return uid
+
+
+def _lookup_first_user_id() -> int:
     try:
         from db import connect_dict
 
         conn = connect_dict()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT DISTINCT user_id
-                    FROM user_settings
-                    WHERE key = 'navigation_active' AND lower(value) = 'true'
-                    """
-                )
-                rows = cur.fetchall() or []
-                ids = [int(r["user_id"]) for r in rows if r.get("user_id") is not None]
-                active = set(ids)
-                for user_id in active - _navigation_active_users:
-                    _session_started_at.pop(user_id, None)
-                    try:
-                        from gps_snap import clear_last_good
-
-                        clear_last_good(user_id)
-                    except Exception:
-                        pass
-                _navigation_active_users = active
-                if ids:
-                    return ids
-                # Car default: bootstrap admin / first user
                 cur.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1")
                 row = cur.fetchone()
                 if row and row.get("id") is not None:
-                    return [int(row["id"])]
+                    return int(row["id"])
         finally:
             conn.close()
     except Exception:
         pass
-    return [1]
+    return 1
+
+
+def _target_user_ids() -> list[int]:
+    """gpsd always writes the car collection user — independent of Drive open."""
+    global _last_collection_user
+    uid = collection_user_id()
+    if _last_collection_user is not None and _last_collection_user != uid:
+        _session_started_at.pop(_last_collection_user, None)
+        try:
+            from gps_snap import clear_last_good
+
+            clear_last_good(_last_collection_user)
+        except Exception:
+            pass
+    _last_collection_user = uid
+    return [uid]
 
 
 def _parse_tpv(msg: dict[str, Any]) -> dict[str, Any] | None:
@@ -129,13 +144,18 @@ def _parse_tpv(msg: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
-    from gps_snap import resolve_level_id, snap_to_road
+    from gps_snap import resolve_drive_profile, resolve_level_id, snap_to_road
     from gps_state import get_fix, set_fix
 
-    if user_id not in _session_started_at:
+    now_fix = time.monotonic()
+    if (
+        user_id not in _session_started_at
+        or now_fix - _last_fix_mono.get(user_id, now_fix) > _SESSION_IDLE_S
+    ):
         from datetime import datetime, timezone
 
         _session_started_at[user_id] = datetime.now(timezone.utc).isoformat()
+    _last_fix_mono[user_id] = now_fix
 
     prev = get_fix(user_id)
     # Keep an active WASD debug session stable unless GPSD_USER_ID explicitly
@@ -149,12 +169,14 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
         return
 
     level_id = resolve_level_id(user_id)
+    profile = resolve_drive_profile(user_id, level_id)
     snap = snap_to_road(
         fix["lon"],
         fix["lat"],
         level_id,
         user_id=user_id,
         heading_deg=fix.get("heading_deg"),
+        profile=profile,
     )
     use_lat = snap["lat"]
     use_lon = snap["lon"]
@@ -173,20 +195,7 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
         raw_lon=fix["lon"],
         snap=snap,
     )
-    try:
-        from achievements import record_drive_step
-
-        record_drive_step(
-            user_id,
-            lat=use_lat,
-            lon=use_lon,
-            prev_lat=prev.get("lat") if prev else None,
-            prev_lon=prev.get("lon") if prev else None,
-            prev_ts=prev.get("updated_at") if prev else None,
-            now_ts=time.time(),
-        )
-    except Exception:
-        pass
+    unlock_stats = None
     unlock_interval = max(1.0, float(os.getenv("GPSD_UNLOCK_INTERVAL", "2.5")))
     now_mono = time.monotonic()
     if now_mono - _last_unlock_at.get(user_id, 0.0) >= unlock_interval:
@@ -194,17 +203,47 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
             from levels import unlock_near_point
 
             if level_id is not None:
-                unlock_near_point(
+                unlock_lon = (
+                    fix["lon"] if snap.get("snap_mode") == "distance" else use_lon
+                )
+                unlock_lat = (
+                    fix["lat"] if snap.get("snap_mode") == "distance" else use_lat
+                )
+                unlock_stats = unlock_near_point(
                     int(level_id),
-                    use_lon,
-                    use_lat,
+                    unlock_lon,
+                    unlock_lat,
                     accuracy_m=fix.get("accuracy_m") or 12.0,
                     heading_deg=fix.get("heading_deg"),
                     segment_id=snap.get("segment_id"),
+                    profile=profile,
+                    user_id=user_id,
                 )
                 _last_unlock_at[user_id] = now_mono
         except Exception:
-            pass
+            unlock_stats = None
+
+    # Fog XP must be credited here — Drive uses gpsd, not POST /api/gps/fix.
+    explored_km = 0.0
+    if unlock_stats:
+        if unlock_stats.get("newly_explored_m") is not None:
+            explored_km = max(0.0, float(unlock_stats["newly_explored_m"]) / 1000.0)
+        elif unlock_stats.get("newly_explored"):
+            # ~20 m segments (SEGMENT_TARGET_M) when length sum unavailable
+            explored_km = float(unlock_stats["newly_explored"]) * 0.02
+    try:
+        from achievements import record_drive_step
+
+        record_drive_step(
+            user_id,
+            lat=use_lat,
+            lon=use_lon,
+            now_ts=time.time(),
+            explored_km_delta=explored_km,
+            speed_mps=fix.get("speed_mps"),
+        )
+    except Exception:
+        pass
 
 
 def _read_loop(host: str, port: int, interval: float) -> None:
@@ -215,11 +254,27 @@ def _read_loop(host: str, port: int, interval: float) -> None:
                 sock.settimeout(2.0)
                 sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
                 buf = b""
-                while True:
-                    chunk = sock.recv(8192)
+                closed = False
+                while not closed:
+                    chunk = sock.recv(65536)
                     if not chunk:
                         break
                     buf += chunk
+                    # Drain everything already queued so a slow tick never
+                    # leaves us applying positions from seconds ago.
+                    sock.setblocking(False)
+                    try:
+                        while True:
+                            more = sock.recv(65536)
+                            if not more:
+                                closed = True
+                                break
+                            buf += more
+                    except (BlockingIOError, InterruptedError):
+                        pass
+                    finally:
+                        sock.settimeout(2.0)
+                    latest = None
                     while b"\n" in buf:
                         line, buf = buf.split(b"\n", 1)
                         line = line.strip()
@@ -232,17 +287,19 @@ def _read_loop(host: str, port: int, interval: float) -> None:
                         if msg.get("class") != "TPV":
                             continue
                         fix = _parse_tpv(msg)
-                        if not fix:
-                            continue
-                        now_mono = time.monotonic()
-                        if now_mono - last_applied < interval:
-                            continue
-                        last_applied = now_mono
-                        for uid in _target_user_ids():
-                            try:
-                                _apply_fix(uid, fix)
-                            except Exception:
-                                pass
+                        if fix:
+                            latest = fix
+                    if latest is None:
+                        continue
+                    now_mono = time.monotonic()
+                    if now_mono - last_applied < interval:
+                        continue
+                    last_applied = now_mono
+                    for uid in _target_user_ids():
+                        try:
+                            _apply_fix(uid, latest)
+                        except Exception:
+                            pass
         except OSError:
             time.sleep(3.0)
         except Exception:

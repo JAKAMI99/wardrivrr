@@ -1,6 +1,9 @@
 """
 Kismet live bridge: REST poll (+ optional WS) → live_ingest.
 
+Always-on: runs with the API whether or not Drive is open, so real-world
+routes still collect networks (and XP) without the Navigate dashboard.
+
 Primary: HTTP devices/last-time on KISMET_URL (:2501).
 Fallback: watch .kismet / kis_db growth under KISMET_LOG_DIR and incremental parse.
 """
@@ -9,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import threading
 import time
@@ -32,6 +36,8 @@ _auth_probe_done = False
 _auth_error_logged = False
 _working_device_path: str | None = None
 _rest_watermarks: dict[int, float] = {}
+
+_file_fallback_seen: dict[str, tuple] = {}
 
 _REST_WATERMARK_KEY = "kismet_live_rest_watermark"
 _FILE_WATERMARK_KEY = "kismet_live_file_watermarks"
@@ -75,6 +81,49 @@ def _set_setting(user_id: int, key: str, value: str) -> None:
         pass
 
 
+# A device re-seen every poll while parked would otherwise add a sample per
+# poll (~20 rows/s with 50 devices around). Keep one unless the observer moved,
+# time passed, or the signal got clearly stronger.
+_FIX_MAX_SKEW_S = 5.0
+_THIN_MIN_MOVE_M = float(os.getenv("KISMET_THIN_MOVE_M", "20"))
+_THIN_MAX_AGE_S = float(os.getenv("KISMET_THIN_MAX_AGE_S", "300"))
+_THIN_SIGNAL_GAIN_DB = 6.0
+_last_kept: OrderedDict[str, tuple[float, float, float, float | None]] = OrderedDict()
+
+
+def _keep_sample(
+    mac: str, lat: float, lon: float, ts: float, signal: Any
+) -> bool:
+    try:
+        sig = float(signal) if signal is not None else None
+    except (TypeError, ValueError):
+        sig = None
+    prev = _last_kept.get(mac)
+    keep = prev is None
+    if not keep:
+        p_lat, p_lon, p_ts, p_sig = prev
+        moved = _haversine_m(p_lat, p_lon, lat, lon) >= _THIN_MIN_MOVE_M
+        stale = ts - p_ts >= _THIN_MAX_AGE_S
+        stronger = sig is not None and (p_sig is None or sig >= p_sig + _THIN_SIGNAL_GAIN_DB)
+        keep = moved or stale or stronger
+    if keep:
+        _last_kept[mac] = (lat, lon, ts, sig)
+        _last_kept.move_to_end(mac)
+        limit = max(1000, int(os.getenv("KISMET_DEDUP_LIMIT", "50000")))
+        while len(_last_kept) > limit:
+            _last_kept.popitem(last=False)
+    return keep
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
 def _remember_seen(keys: list[str]) -> None:
     limit = max(1000, int(os.getenv("KISMET_DEDUP_LIMIT", "50000")))
     for key in keys:
@@ -85,35 +134,16 @@ def _remember_seen(keys: list[str]) -> None:
 
 
 def _target_user_id() -> int:
-    pinned = os.getenv("KISMET_USER_ID") or os.getenv("GPSD_USER_ID") or ""
-    if pinned.strip().isdigit():
-        return int(pinned.strip())
+    """Same car account as gpsd — never gated on Drive / navigation_active."""
     try:
-        from db import connect_dict
+        from gpsd_poller import collection_user_id
 
-        conn = connect_dict()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT DISTINCT user_id
-                    FROM user_settings
-                    WHERE key = 'navigation_active' AND lower(value) = 'true'
-                    LIMIT 1
-                    """
-                )
-                row = cur.fetchone()
-                if row and row.get("user_id") is not None:
-                    return int(row["user_id"])
-                cur.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1")
-                row = cur.fetchone()
-                if row and row.get("id") is not None:
-                    return int(row["id"])
-        finally:
-            conn.close()
+        return collection_user_id()
     except Exception:
-        pass
-    return 1
+        pinned = (os.getenv("KISMET_USER_ID") or os.getenv("GPSD_USER_ID") or "").strip()
+        if pinned.isdigit():
+            return int(pinned)
+        return 1
 
 
 def _http_json(path: str, timeout: float = 4.0) -> Any | None:
@@ -199,9 +229,10 @@ def _device_to_row(device: dict, user_id: int) -> tuple | None:
     if not mac or mac == "00:00:00:00:00:00":
         return None
 
-    name = device.get("kismet.device.base.commonname") or device.get(
-        "kismet.device.base.name"
-    )
+    # Prefer advertised SSID; Kismet commonname/base.name often equals the MAC.
+    from wigle import sanitize_network_name
+
+    name = None
     channel = None
     encryption = device.get("kismet.device.base.crypt")
     if isinstance(encryption, str):
@@ -213,12 +244,17 @@ def _device_to_row(device: dict, user_id: int) -> tuple | None:
     if isinstance(dot11, dict):
         last_ssid = dot11.get("dot11.device.last_beaconed_ssid_record") or {}
         if isinstance(last_ssid, dict):
-            name = last_ssid.get("dot11.advertisedssid.ssid") or name
+            name = last_ssid.get("dot11.advertisedssid.ssid") or None
             channel = last_ssid.get("dot11.advertisedssid.channel") or channel
             if not encryption:
                 encryption = last_ssid.get("dot11.advertisedssid.crypt_string") or last_ssid.get(
                     "dot11.advertisedssid.crypt_set"
                 )
+    if not name:
+        name = device.get("kismet.device.base.commonname") or device.get(
+            "kismet.device.base.name"
+        )
+    name = sanitize_network_name(name, mac)
 
     phy = device.get("kismet.device.base.phyname")
     type_name = device.get("kismet.device.base.type")
@@ -229,33 +265,6 @@ def _device_to_row(device: dict, user_id: int) -> tuple | None:
     if isinstance(sig, dict):
         signal = sig.get("kismet.common.signal.last_signal")
 
-    lat = lon = alt = None
-    loc = device.get("kismet.device.base.location") or {}
-    if isinstance(loc, dict):
-        avg = loc.get("kismet.common.location.avg_loc") or loc.get(
-            "kismet.common.location.min_loc"
-        )
-        if isinstance(avg, dict):
-            gp = avg.get("kismet.common.location.geopoint")
-            if isinstance(gp, (list, tuple)) and len(gp) >= 2:
-                lon, lat = float(gp[0]), float(gp[1])
-            alt = avg.get("kismet.common.location.alt")
-        lat = loc.get("kismet.common.location.avg_lat", lat)
-        lon = loc.get("kismet.common.location.avg_lon", lon)
-
-    if lat is None or lon is None:
-        try:
-            from gps_state import get_fix
-
-            fix = get_fix(user_id)
-            if fix and fix.get("lat") is not None:
-                lat = float(fix["lat"])
-                lon = float(fix["lon"])
-        except Exception:
-            pass
-    if lat is None or lon is None:
-        return None
-
     last_time = device.get("kismet.device.base.last_time")
     if isinstance(last_time, (int, float)) and last_time > 0:
         ts = float(last_time)
@@ -263,11 +272,49 @@ def _device_to_row(device: dict, user_id: int) -> tuple | None:
             ts /= 1000.0
         seen_at = datetime.fromtimestamp(ts, tz=timezone.utc)
     else:
+        ts = time.time()
         seen_at = datetime.now(timezone.utc)
+
+    # Observer position at sighting time (what WiGLE-style localisation
+    # expects). Kismet's avg_loc is the running mean of every sighting, so it
+    # is only a fallback when gpsd has no fresh fix.
+    lat = lon = alt = None
+    try:
+        from gps_state import get_fix
+
+        fix = get_fix(user_id)
+        if (
+            fix
+            and fix.get("raw_lat") is not None
+            and abs(float(fix.get("updated_at") or 0) - ts) <= _FIX_MAX_SKEW_S
+        ):
+            lat = float(fix["raw_lat"])
+            lon = float(fix["raw_lon"])
+    except Exception:
+        pass
+
+    loc = device.get("kismet.device.base.location") or {}
+    if (lat is None or lon is None) and isinstance(loc, dict):
+        point = (
+            loc.get("kismet.common.location.last")
+            or loc.get("kismet.common.location.avg_loc")
+            or loc.get("kismet.common.location.min_loc")
+        )
+        if isinstance(point, dict):
+            gp = point.get("kismet.common.location.geopoint")
+            if isinstance(gp, (list, tuple)) and len(gp) >= 2:
+                lon, lat = float(gp[0]), float(gp[1])
+            alt = point.get("kismet.common.location.alt")
+        lat = loc.get("kismet.common.location.avg_lat", lat)
+        lon = loc.get("kismet.common.location.avg_lon", lon)
+    if lat is None or lon is None:
+        return None
+    if not _keep_sample(mac, float(lat), float(lon), ts, signal):
+        return None
 
     record = {
         "network_id": mac,
-        "name": str(name) if name else None,
+        "name": name,
         "encryption": encryption,
         "network_type": ntype,
         "channel": channel,
@@ -321,9 +368,9 @@ def _ingest_devices(devices: list[dict]) -> tuple[int, float | None]:
         ).lower()
         seen_ts = _device_time(d)
         key = f"rest:{mac}:{seen_ts}"
+        if seen_ts is not None:
+            committed_through = max(committed_through or seen_ts, seen_ts)
         if key in _seen_keys or key in pending_key_set:
-            if seen_ts is not None:
-                committed_through = max(committed_through or seen_ts, seen_ts)
             continue
         row = _device_to_row(d, user_id)
         if not row:
@@ -331,8 +378,6 @@ def _ingest_devices(devices: list[dict]) -> tuple[int, float | None]:
         rows.append(row)
         pending_keys.append(key)
         pending_key_set.add(key)
-        if seen_ts is not None:
-            committed_through = max(committed_through or seen_ts, seen_ts)
     if not rows:
         return 0, committed_through
     try:
@@ -438,10 +483,15 @@ def _fallback_kis_db() -> int:
     try:
         from kismet import is_kismet_db, parse_kismet_db
 
+        st = path.stat()
+        signature = (str(path), st.st_size, st.st_mtime)
+        if _file_fallback_seen.get("sig") == signature:
+            return 0
         if not is_kismet_db(path):
             return 0
         user_id = _target_user_id()
         parsed = parse_kismet_db(path)
+        _file_fallback_seen["sig"] = signature
         raw_state = _setting(user_id, _FILE_WATERMARK_KEY, "{}") or "{}"
         try:
             watermark_state = json.loads(raw_state)

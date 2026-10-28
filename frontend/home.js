@@ -8,7 +8,7 @@ const els = {
 };
 
 function fmt(n) {
-  if (n == null || Number.isNaN(n)) return "—";
+  if (n == null || Number.isNaN(n)) return "-";
   return new Intl.NumberFormat().format(n);
 }
 
@@ -65,7 +65,7 @@ async function loadOverview() {
 
     if (!healthRes.ok) {
       setChip("chipDb", "down", "Database down");
-      showToast("Database unreachable — start PostGIS and reload.", true);
+      showToast("Database unreachable - start PostGIS and reload.", true);
       return;
     }
 
@@ -111,7 +111,7 @@ async function loadOverview() {
     });
     setChip("chipRouting", routingChip.kind, routingChip.label);
   } catch {
-    showToast("API unreachable — is the backend running?", true);
+    showToast("API unreachable - is the backend running?", true);
   }
 }
 

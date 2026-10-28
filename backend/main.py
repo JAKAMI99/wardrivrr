@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -27,7 +30,7 @@ from auth import (
     get_user_by_username,
 )
 from backup import create_export, import_backup
-from db import connect_dict, get_setting, get_user_setting, set_user_setting
+from db import connect_dict, get_user_setting, set_user_setting
 from ingest_upload import ingest_file_for_user
 from jobs import enqueue_job, ensure_worker, get_job, list_jobs
 from geocode import geocode_place, geocode_postalcode, reverse_geocode
@@ -52,9 +55,9 @@ app = FastAPI(
     version="0.5.0",
     description=(
         "Local triangulated network database API. "
-        "Authenticate with `X-API-Key: wr_…` or `Authorization: Bearer <jwt|wr_…>`."
+        "Authenticate with `X-API-Key: wr_...` or `Authorization: Bearer <jwt|wr_...>`."
     ),
-    docs_url=None,  # custom /api/docs — auto-authorizes from WebUI login token
+    docs_url=None,  # custom /api/docs - auto-authorizes from WebUI login token
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
@@ -65,7 +68,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-EMPTY_SQL = "(name IS NULL OR btrim(name) = '' OR lower(btrim(name)) IN ('(no ssid)', '<no ssid>', '[no ssid]', 'null', 'none'))"
+# No real SSID: empty placeholders, or name that is just the BSSID (Kismet fallback).
+EMPTY_SQL = """(
+  name IS NULL
+  OR btrim(name) = ''
+  OR lower(btrim(name)) IN ('(no ssid)', '<no ssid>', '[no ssid]', 'null', 'none')
+  OR (
+    network_id IS NOT NULL
+    AND length(regexp_replace(lower(network_id), '[^0-9a-f]', '', 'g')) >= 12
+    AND regexp_replace(lower(btrim(name)), '[^0-9a-f]', '', 'g')
+      = regexp_replace(lower(network_id), '[^0-9a-f]', '', 'g')
+  )
+)"""
 
 
 class LoginBody(BaseModel):
@@ -110,9 +124,17 @@ class SettingsBody(BaseModel):
     anomaly_alerts: bool | None = None
     achievement_sounds: bool | None = None
     units: str | None = Field(default=None, pattern="^(metric|imperial)$")
+    map_dark_mode: str | None = Field(
+        default=None, pattern="^(auto|bright|dark|system)$"
+    )
     theme: str | None = Field(
         default=None, pattern="^(classic|kidcore|kawaii|crt)$"
     )  # kawaii = legacy alias for kidcore
+    drive_profile: str | None = Field(
+        default=None,
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+        description="Navigate vehicle mode (cars snap; foot/bike unlock by distance)",
+    )
 
 
 class PlacePrepareBody(BaseModel):
@@ -141,6 +163,11 @@ class GpsFixBody(BaseModel):
     level_id: int | None = None
     unlock: bool = True
     session_started_at: str | None = None  # ISO time when drive spawn began
+    # Navigate vehicle mode: cars snap to roads; foot/bike unlock by distance
+    profile: str | None = Field(
+        default=None,
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+    )
 
 
 class ExploreRouteBody(BaseModel):
@@ -162,9 +189,11 @@ class ExploreRouteBody(BaseModel):
 class LevelCreateBody(BaseModel):
     name: str
     place_query: str
-    profile: str = Field(
+    # Last-used Navigate default only - map always imports the full playable graph
+    profile: str | None = Field(
+        default="small_car",
         pattern="^(foot|bicycle|car|big_car|small_car)$",
-        description="Drive preset: big_car | small_car | bicycle | foot (car→small_car)",
+        description="Optional default Navigate mode (not baked into the map)",
     )
     geofabrik_id: str
     place_bbox: list[float] | None = None  # west,south,east,north
@@ -213,6 +242,16 @@ def apply_filters(sql: str, params: list, **filters) -> tuple[str, list]:
     if filters.get("network_id"):
         sql += " AND lower(network_id) = lower(%s)"
         params.append(filters["network_id"])
+    if filters.get("vendor"):
+        try:
+            from oui import vendor_match_clause
+
+            clause, vparams = vendor_match_clause(str(filters["vendor"]))
+            sql += f" AND {clause}"
+            params.extend(vparams)
+        except Exception:
+            sql += " AND vendor = %s"
+            params.append(str(filters["vendor"]).strip())
     if filters.get("exclude_no_ssid"):
         sql += f" AND NOT {EMPTY_SQL}"
     if filters.get("seen_after"):
@@ -246,9 +285,20 @@ def parse_bbox(value: str | None):
 def on_startup():
     try:
         ensure_bootstrap_admin()
+    except Exception as exc:
+        print(f"[startup] bootstrap admin: {exc}")
+    try:
         ensure_worker()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[startup] job worker: {exc}")
+    try:
+        from db import ensure_runtime_indexes
+
+        threading.Thread(
+            target=ensure_runtime_indexes, name="db-indexes", daemon=True
+        ).start()
+    except Exception as exc:
+        print(f"[startup] db indexes: {exc}")
     # Offline geo DBs (prefer `python scripts/prepare_offline_data.py` / docker/prepare-data)
     try:
         from cities_db import ensure_cities_db
@@ -268,6 +318,12 @@ def on_startup():
         ensure_index()
     except Exception as exc:
         print(f"[startup] geofabrik index: {exc}")
+    try:
+        from oui import start_oui_background
+
+        start_oui_background()
+    except Exception as exc:
+        print(f"[startup] OUI vendor DB: {exc}")
     try:
         from gpsd_poller import start_gpsd_poller
 
@@ -360,8 +416,8 @@ def me(user: dict = Depends(get_current_user)):
 def _normalize_username(raw: str) -> str:
     name = (raw or "").strip()
     if len(name) < 2 or len(name) > 64:
-        raise HTTPException(400, "Username must be 2–64 characters")
-    # Letters, digits, underscore, hyphen, period — no spaces
+        raise HTTPException(400, "Username must be 2-64 characters")
+    # Letters, digits, underscore, hyphen, period - no spaces
     if not re.fullmatch(r"[A-Za-z0-9_.\-]+", name):
         raise HTTPException(
             400, "Username may only use letters, numbers, _ . -"
@@ -542,7 +598,7 @@ def create_key(body: ApiKeyCreateBody, user: dict = Depends(get_current_user)):
             )
             row = cur.fetchone()
         conn.commit()
-        return {**row, "key": raw, "note": "Copy now — key is shown only once."}
+        return {**row, "key": raw, "note": "Copy now - key is shown only once."}
     finally:
         conn.close()
 
@@ -572,8 +628,30 @@ def revoke_key(key_id: int, user: dict = Depends(get_current_user)):
 # ----- Ingest / upload -----
 
 
+MAX_UPLOAD_BYTES = int(float(os.getenv("MAX_UPLOAD_MB", "2048")) * 1024 * 1024)
+
+
+def _save_upload(file: UploadFile, dest: Path) -> None:
+    """Stream an upload to disk in chunks, enforcing MAX_UPLOAD_BYTES."""
+    written = 0
+    try:
+        with dest.open("wb") as out:
+            while chunk := file.file.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        413, f"Upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+                    )
+                out.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+
+
+# Sync handlers on purpose: parsing/localizing runs for minutes and must stay
+# off the event loop (FastAPI runs def endpoints in its threadpool).
 @app.post("/api/v1/ingest/upload")
-async def ingest_upload(
+def ingest_upload(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
@@ -582,8 +660,7 @@ async def ingest_upload(
 
     final_name = Path(file.filename or "upload.bin").name
     dest = user_incoming(user["id"]) / final_name
-    content = await file.read()
-    dest.write_bytes(content)
+    _save_upload(file, dest)
     try:
         mode = get_user_setting(user["id"], "default_localization_mode", "2d") or "2d"
         precision = (
@@ -618,7 +695,7 @@ def backup_export(body: ExportBody, user: dict = Depends(get_current_user)):
 
 
 @app.post("/api/backup/import")
-async def backup_import(
+def backup_import(
     file: UploadFile = File(...),
     mode: str = Form(default="merge"),
     user: dict = Depends(get_current_user),
@@ -626,8 +703,8 @@ async def backup_import(
     if mode not in ("merge", "replace"):
         raise HTTPException(400, "mode must be merge or replace")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-        tmp.write(await file.read())
         tmp_path = Path(tmp.name)
+    _save_upload(file, tmp_path)
     try:
         stats = import_backup(user["id"], tmp_path, mode=mode)  # type: ignore[arg-type]
         return {"ok": True, **stats}
@@ -645,30 +722,23 @@ def health(user: dict | None = Depends(get_optional_user)):
     try:
         conn = connect_dict()
         with conn.cursor() as cur:
-            if user:
-                cur.execute(
-                    """
-                    SELECT
-                        (SELECT COUNT(*) FROM signal_samples WHERE user_id = %s) AS samples,
-                        (SELECT COUNT(*) FROM networks WHERE user_id = %s) AS networks
-                    """,
-                    (user["id"], user["id"]),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT
-                        (SELECT COUNT(*) FROM signal_samples) AS samples,
-                        (SELECT COUNT(*) FROM networks) AS networks
-                    """
-                )
-            row = cur.fetchone()
             cur.execute("SELECT PostGIS_Version() AS postgis")
             pg = cur.fetchone()
-            mode = (
-                get_user_setting(user["id"], "default_localization_mode", "2d", conn=conn)
-                if user
-                else get_setting("default_localization_mode", "2d", conn=conn)
+            if not user:
+                # Liveness probe (Docker healthcheck / run.sh) - no data counts
+                conn.close()
+                return {"ok": True, "postgis": pg["postgis"], "authenticated": False}
+            cur.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM signal_samples WHERE user_id = %s) AS samples,
+                    (SELECT COUNT(*) FROM networks WHERE user_id = %s) AS networks
+                """,
+                (user["id"], user["id"]),
+            )
+            row = cur.fetchone()
+            mode = get_user_setting(
+                user["id"], "default_localization_mode", "2d", conn=conn
             )
         conn.close()
         return {
@@ -734,8 +804,6 @@ def stats_dashboard(user: dict = Depends(get_current_user)):
         return build_stats_dashboard(user_id=user["id"])
     except OperationalError as exc:
         raise HTTPException(503, f"database unavailable: {exc}") from exc
-    except TypeError:
-        return build_stats_dashboard()
 
 
 def _normalize_theme(theme: str) -> str:
@@ -743,6 +811,19 @@ def _normalize_theme(theme: str) -> str:
     if t == "kawaii":
         return "kidcore"
     return t
+
+
+def _normalize_map_dark_mode(mode: str) -> str:
+    m = (mode or "auto").strip().lower()
+    if m in {"sun", "solar", "auto_sun"}:
+        return "auto"
+    if m in {"light", "day", "bright"}:
+        return "bright"
+    if m in {"night", "dark"}:
+        return "dark"
+    if m in {"system", "os", "prefers"}:
+        return "system"
+    return "auto"
 
 
 @app.get("/api/settings")
@@ -777,6 +858,11 @@ def read_settings(user: dict = Depends(get_current_user)):
             get_user_setting(user["id"], "achievement_sounds", "true") or "true"
         ).lower()
         == "true",
+        "map_dark_mode": _normalize_map_dark_mode(
+            get_user_setting(user["id"], "map_dark_mode", "auto") or "auto"
+        ),
+        "drive_profile": get_user_setting(user["id"], "drive_profile", "small_car")
+        or "small_car",
     }
 
 
@@ -812,14 +898,24 @@ def patch_settings(body: SettingsBody, user: dict = Depends(get_current_user)):
         )
     if body.units is not None:
         set_user_setting(user["id"], "units", body.units)
+    if body.map_dark_mode is not None:
+        set_user_setting(
+            user["id"], "map_dark_mode", _normalize_map_dark_mode(body.map_dark_mode)
+        )
     if body.theme is not None:
         set_user_setting(user["id"], "theme", _normalize_theme(body.theme))
+    if body.drive_profile is not None:
+        from drive_profiles import normalize_profile
+
+        set_user_setting(
+            user["id"], "drive_profile", normalize_profile(body.drive_profile)
+        )
     return read_settings(user)
 
 
 @app.put("/api/navigation/active")
 def set_navigation_active(body: NavigationBody, user: dict = Depends(get_current_user)):
-    """UI calls this when turn-by-turn starts/stops — throttles background geocode."""
+    """UI calls this when turn-by-turn starts/stops - throttles background geocode."""
     set_user_setting(
         user["id"], "navigation_active", "true" if body.active else "false"
     )
@@ -840,52 +936,95 @@ def gps_get_fix(
     out: dict = {"ok": True, "fix": fix}
     session_key = session_started_at or fix.get("session_started_at")
     if session_key:
-        from drive_session import parse_session_start, session_radio_stats
-
-        since = parse_session_start(session_key)
-        if since is not None:
-            try:
-                out["radio"] = session_radio_stats(user["id"], since)
-            except Exception:
-                out["radio"] = None
-            try:
-                from anomalies import session_anomaly_hits
-
-                out["anomalies"] = session_anomaly_hits(user["id"], since)
-            except Exception:
-                out["anomalies"] = None
-            try:
-                from achievements import evaluate_achievements
-
-                out["newly_unlocked"] = evaluate_achievements(user["id"])
-            except Exception:
-                out["newly_unlocked"] = []
+        out.update(_drive_hud_extras(user["id"], session_key))
     return out
+
+
+# The Drive HUD polls the fix at 5 Hz; session stats/anomalies/toasts are
+# aggregate queries, so refresh them at most every _HUD_EXTRAS_TTL_S.
+_HUD_EXTRAS_TTL_S = 2.0
+_hud_extras_cache: dict[tuple[int, str], tuple[float, dict]] = {}
+_hud_extras_lock = threading.Lock()
+
+
+def _drive_hud_extras(user_id: int, session_key: str) -> dict:
+    from drive_session import parse_session_start, session_radio_stats
+
+    key = (user_id, session_key)
+    now = time.monotonic()
+    with _hud_extras_lock:
+        hit = _hud_extras_cache.get(key)
+        if hit and now - hit[0] < _HUD_EXTRAS_TTL_S:
+            return {**hit[1], "newly_unlocked": []}
+        _hud_extras_cache[key] = (now, hit[1] if hit else {})
+    since = parse_session_start(session_key)
+    if since is None:
+        return {}
+    extras: dict = {}
+    try:
+        extras["radio"] = session_radio_stats(user_id, since)
+    except Exception:
+        extras["radio"] = None
+    try:
+        from anomalies import session_anomaly_hits
+
+        extras["anomalies"] = session_anomaly_hits(user_id, since)
+    except Exception:
+        extras["anomalies"] = None
+    try:
+        from achievements import maybe_evaluate_achievements, pop_unnotified
+
+        maybe_evaluate_achievements(user_id)
+        newly = pop_unnotified(user_id)
+    except Exception:
+        newly = []
+    with _hud_extras_lock:
+        for k in [k for k in _hud_extras_cache if k[0] == user_id and k != key]:
+            _hud_extras_cache.pop(k, None)
+        _hud_extras_cache[key] = (now, extras)
+    return {**extras, "newly_unlocked": newly}
 
 
 @app.post("/api/gps/fix")
 def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
-    """Push a sim or live GPS fix. Snaps to road; fog unlock uses snapped coords."""
+    """Push a sim or live GPS fix. Cars snap to roads; foot/bike unlock by radius."""
     from achievements import record_drive_step
-    from gps_snap import resolve_level_id, snap_to_road
+    from drive_profiles import normalize_profile
+    from gps_snap import resolve_drive_profile, resolve_level_id, snap_to_road
     from gps_state import set_fix
-    from levels import unlock_near_point
+    from levels import set_level_default_profile, unlock_near_point
 
     level_id = body.level_id
     if level_id is None:
         level_id = resolve_level_id(user["id"])
+    profile = normalize_profile(
+        body.profile or resolve_drive_profile(user["id"], level_id)
+    )
+    try:
+        from db import set_user_setting
+
+        set_user_setting(user["id"], "drive_profile", profile)
+    except Exception:
+        pass
+    if level_id is not None:
+        try:
+            set_level_default_profile(user["id"], int(level_id), profile)
+        except Exception:
+            pass
+
     snap = snap_to_road(
         body.lon,
         body.lat,
         level_id,
         user_id=user["id"],
         heading_deg=body.heading_deg,
+        profile=profile,
     )
     use_lat = snap["lat"]
     use_lon = snap["lon"]
 
     try:
-        prev, fix = set_fix(
+        _prev, fix = set_fix(
             user["id"],
             lat=use_lat,
             lon=use_lon,
@@ -906,14 +1045,18 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
     if body.unlock and level_id is not None:
         level = get_level(user["id"], level_id)
         if level and level.get("status") == "ready":
-            # Fog unlock: snapped segment + before/behind only (not lateral radius)
+            # Cars: snapped segment corridor. Foot/bike: radius around raw GPS.
+            unlock_lon = body.lon if snap.get("snap_mode") == "distance" else use_lon
+            unlock_lat = body.lat if snap.get("snap_mode") == "distance" else use_lat
             unlock_stats = unlock_near_point(
                 level_id,
-                use_lon,
-                use_lat,
+                unlock_lon,
+                unlock_lat,
                 accuracy_m=body.accuracy_m,
                 heading_deg=body.heading_deg,
                 segment_id=snap.get("segment_id"),
+                profile=profile,
+                user_id=user["id"],
             )
             if unlock_stats is not None:
                 unlock_stats = dict(unlock_stats)
@@ -926,20 +1069,27 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
                 }
 
     explored_km = 0.0
-    if unlock_stats and unlock_stats.get("newly_explored"):
-        # ~20 m average segment length estimate for achievement flavour counters
-        explored_km = float(unlock_stats["newly_explored"]) * 0.02
+    if unlock_stats:
+        if unlock_stats.get("newly_explored_m") is not None:
+            explored_km = max(0.0, float(unlock_stats["newly_explored_m"]) / 1000.0)
+        elif unlock_stats.get("newly_explored"):
+            # Fallback: ~20 m segments (SEGMENT_TARGET_M)
+            explored_km = float(unlock_stats["newly_explored"]) * 0.02
 
     drive = record_drive_step(
         user["id"],
         lat=use_lat,
         lon=use_lon,
-        prev_lat=prev["lat"] if prev else None,
-        prev_lon=prev["lon"] if prev else None,
-        prev_ts=prev.get("updated_at") if prev else None,
         now_ts=fix.get("updated_at"),
         explored_km_delta=explored_km,
+        speed_mps=body.speed_mps,
     )
+    try:
+        from achievements import pop_unnotified
+
+        newly_unlocked = pop_unnotified(user["id"])
+    except Exception:
+        newly_unlocked = []
 
     radio = None
     anomalies = None
@@ -964,7 +1114,7 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
         "snap": snap,
         "unlock": unlock_stats,
         "drive": drive,
-        "newly_unlocked": drive.get("newly_unlocked") or [],
+        "newly_unlocked": newly_unlocked,
         "radio": radio,
         "anomalies": anomalies,
     }
@@ -1007,7 +1157,7 @@ def navigate_status(user: dict = Depends(get_current_user)):
     if active_pbf_ready() and not st.get("ok"):
         # Heal "PBF present, container never started" without a manual ./run.sh
         try:
-            ensure_note = ensure_valhalla_up(wipe=False)
+            ensure_note = ensure_valhalla_up(wipe=False, blocking=False)
             st = valhalla_status(bypass_cache=True)
         except Exception as exc:
             ensure_note = {"ok": False, "detail": str(exc)}
@@ -1110,7 +1260,7 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
         fix = get_fix(user["id"])
     if lat is None or lon is None:
         if not fix:
-            raise HTTPException(400, "No GPS fix — spawn on the map or send lat/lon")
+            raise HTTPException(400, "No GPS fix - spawn on the map or send lat/lon")
         lat, lon = fix["lat"], fix["lon"]
     if heading is None and fix:
         heading = fix.get("heading_deg")
@@ -1139,7 +1289,7 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
-        # e.g. connection dropped mid-build — never 500 the HUD
+        # e.g. connection dropped mid-build - never 500 the HUD
         raise HTTPException(
             503,
             f"Valhalla error (still building?). {exc}",
@@ -1148,8 +1298,9 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
 
 
 @app.get("/api/system/status")
-def system_status(user: dict | None = Depends(get_optional_user)):
-    return collect_system_status(user_id=user["id"] if user else None)
+def system_status(user: dict = Depends(get_current_user)):
+    # Includes the car's live GPS position - never serve it anonymously.
+    return collect_system_status(user_id=user["id"])
 
 
 @app.post("/api/localize/recompute")
@@ -1266,7 +1417,7 @@ def levels_place_parts(
     user: dict = Depends(get_current_user),
 ):
     """
-    OSM districts (next admin level) for a large city — names/centroids only.
+    OSM districts (next admin level) for a large city - names/centroids only.
 
     Full polygons load when a district is selected. Small cities return [].
     """
@@ -1411,9 +1562,17 @@ def set_active_level(body: ActiveLevelBody, user: dict = Depends(get_current_use
 
 
 @app.get("/api/levels/{level_id}/roads")
-def levels_roads_map(level_id: int, user: dict = Depends(get_current_user)):
+def levels_roads_map(
+    level_id: int,
+    profile: str | None = Query(
+        default=None,
+        pattern="^(foot|bicycle|car|big_car|small_car)$",
+        description="Filter fog to this Navigate mode's highways",
+    ),
+    user: dict = Depends(get_current_user),
+):
     """Progress / fog-of-war: locked vs explored road grid."""
-    data = get_level_road_map(user["id"], level_id)
+    data = get_level_road_map(user["id"], level_id, profile=profile)
     if not data:
         raise HTTPException(404, "Level not found")
     if data["level"]["status"] != "ready":
@@ -1443,6 +1602,9 @@ def network_search(
         default=None, alias="type", description="WIFI | BT | BLE"
     ),
     encryption: str | None = None,
+    vendor: str | None = Query(
+        default=None, description="IEEE organization name (exact), e.g. Apple, Inc."
+    ),
     exclude_no_ssid: bool = False,
     seen_after: datetime | None = None,
     seen_before: datetime | None = None,
@@ -1450,7 +1612,7 @@ def network_search(
     localization_mode: str | None = Query(default=None, pattern="^(2d|3d)$"),
     place: str | None = Query(
         default=None,
-        description="Place name → geocoded bbox (e.g. Berlin, or street + city)",
+        description="Place name -> geocoded bbox (e.g. Berlin, or street + city)",
     ),
     postalcode: str | None = Query(default=None, description="ZIP / postal code (e.g. 10115)"),
     zip_code: str | None = Query(
@@ -1471,7 +1633,7 @@ def network_search(
     latrange2: float | None = None,
     longrange1: float | None = None,
     longrange2: float | None = None,
-    near: str | None = Query(default=None, description="lat,lon — order by distance"),
+    near: str | None = Query(default=None, description="lat,lon - order by distance"),
     radius_m: float = Query(default=500.0, ge=1, le=50000),
     search_after: str | None = Query(default=None, alias="searchAfter"),
     limit: int = Query(default=100, ge=1, le=1000),
@@ -1500,6 +1662,7 @@ def network_search(
         mac=mac,
         network_type=network_type,
         encryption=encryption,
+        vendor=vendor,
         exclude_no_ssid=exclude_no_ssid,
         seen_after=seen_after,
         seen_before=seen_before,
@@ -1637,7 +1800,7 @@ def api_geocode(
     country: str | None = Query(default="de"),
     user: dict = Depends(get_current_user),
 ):
-    """Resolve Berlin / 10115 → bbox for composing searches."""
+    """Resolve Berlin / 10115 -> bbox for composing searches."""
     _ = user
     pc = postalcode or zip_code
     if pc:
@@ -1658,6 +1821,16 @@ def api_geocode_reverse(
     if not hit:
         raise HTTPException(404, "No reverse geocode result")
     return {"success": True, "result": hit}
+
+
+@app.get("/api/explore/vendors")
+def explore_vendors(user: dict = Depends(get_current_user)):
+    """Vendors present in this user's networks, with sample OUI chips for the filter UI."""
+    from oui import ensure_oui_db, list_vendors_for_user
+
+    ensure_oui_db()
+    vendors = list_vendors_for_user(user["id"])
+    return {"ok": True, "vendors": vendors, "count": len(vendors)}
 
 
 @app.get("/api/explore/view")
@@ -1765,6 +1938,9 @@ def explore(
     encryption: str | None = None,
     name: str | None = None,
     network_id: str | None = None,
+    vendor: str | None = Query(
+        default=None, description="IEEE organization name (exact)"
+    ),
     exclude_no_ssid: bool = False,
     seen_after: datetime | None = None,
     seen_before: datetime | None = None,
@@ -1779,6 +1955,7 @@ def explore(
         encryption=encryption,
         name=name,
         network_id=network_id,
+        vendor=(vendor or "").strip() or None,
         exclude_no_ssid=exclude_no_ssid,
         seen_after=seen_after,
         seen_before=seen_before,
@@ -1807,6 +1984,16 @@ def explore(
         props.pop("geom", None)
         props["seen_at"] = props.get("last_seen")
         props["signal"] = props.get("avg_signal")
+        vendor = props.get("vendor")
+        if isinstance(vendor, str) and vendor.strip():
+            props["vendor"] = vendor.strip()
+        else:
+            try:
+                from oui import lookup_vendor
+
+                props["vendor"] = lookup_vendor(props.get("network_id"))
+            except Exception:
+                props["vendor"] = None
         for key in ("first_seen", "last_seen", "computed_at", "seen_at"):
             if props.get(key) is not None:
                 props[key] = props[key].isoformat()
@@ -1863,9 +2050,15 @@ def settings_page():
     return FileResponse(FRONTEND / "settings.html")
 
 
+@app.get("/regions")
+def regions_page():
+    return FileResponse(FRONTEND / "regions.html")
+
+
 @app.get("/levels")
-def levels_page():
-    return FileResponse(FRONTEND / "levels.html")
+def levels_page_redirect():
+    """Legacy Levels URL -> Regions."""
+    return RedirectResponse(url="/regions", status_code=302)
 
 
 @app.get("/progress")
@@ -1875,7 +2068,7 @@ def progress_page():
 
 @app.get("/discover")
 def discover_page_redirect():
-    """Legacy Discover URL → Progress (fog of war)."""
+    """Legacy Discover URL -> Progress (fog of war)."""
     return RedirectResponse(url="/progress", status_code=302)
 
 
@@ -1886,7 +2079,8 @@ def navigate_page():
 
 @app.get("/achievements")
 def achievements_page():
-    return FileResponse(FRONTEND / "achievements.html")
+    """Legacy Achievements URL -> Explorer hub section."""
+    return RedirectResponse(url="/stats#achievements", status_code=302)
 
 
 @app.get("/api")
@@ -1899,14 +2093,14 @@ def api_page():
 def swagger_ui():
     """
     Swagger UI that auto-authorizes with the WebUI JWT from localStorage
-    (`wardrivrr_token` — same origin as the API menu).
+    (`wardrivrr_token` - same origin as the API menu).
     """
     html = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>wardrivrr — API</title>
+  <title>wardrivrr - API</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"/>
   <style>
     body { margin: 0; background: #fafafa; }
@@ -1921,7 +2115,7 @@ def swagger_ui():
   </style>
 </head>
 <body>
-  <div id="authBanner" class="auth-banner">Authorizing with your WebUI login…</div>
+  <div id="authBanner" class="auth-banner">Authorizing with your WebUI login...</div>
   <div id="swagger-ui"></div>
   <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
@@ -1933,7 +2127,7 @@ def swagger_ui():
     var banner = document.getElementById("authBanner");
     if (!token) {
       banner.className = "auth-banner warn";
-      banner.textContent = "No WebUI login token found — use Authorize, or open Swagger from the API page while logged in.";
+      banner.textContent = "No WebUI login token found - use Authorize, or open Swagger from the API page while logged in.";
     } else {
       banner.textContent = "Authorized with your current WebUI login (Bearer). You can still change it via Authorize.";
     }

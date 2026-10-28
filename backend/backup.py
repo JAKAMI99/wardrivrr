@@ -229,8 +229,7 @@ def import_backup(
                                 %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                                 %s,%s,%s,%s,%s,%s,%s,NOW()
                             )
-                            ON CONFLICT ((COALESCE(user_id, 0)), network_id) DO UPDATE SET
-                                user_id = EXCLUDED.user_id,
+                            ON CONFLICT (user_id, network_id) DO UPDATE SET
                                 name = EXCLUDED.name,
                                 encryption = EXCLUDED.encryption,
                                 network_type = EXCLUDED.network_type,

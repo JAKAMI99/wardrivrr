@@ -2,6 +2,7 @@
 # Passwords must match .env: KISMET_USER / KISMET_PASSWORD
 
 server_name=wardrivrr
+# 0.0.0.0 so phones / LAN can open the Web UI; API still uses KISMET_URL=127.0.0.1
 httpd_bind_address=0.0.0.0
 httpd_port=2501
 httpd_username=wardrivrr

@@ -7,7 +7,7 @@
     <title>Settings · wardrivrr</title>
     <link rel="stylesheet" href="/static/styles.css?v=8" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=8"></script>
+    <script src="/static/theme.js?v=11"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -54,17 +54,17 @@
               aria-label="Account"
             >
               <h2>Account</h2>
-              <p class="muted">Change how you sign in — display name and password.</p>
+              <p class="muted">Change how you sign in - display name and password.</p>
 
               <div class="xp-strip settings-xp" id="settingsXp" hidden>
                 <div class="xp-strip-meta">
-                  <span class="xp-level" id="settingsXpLevel">Level —</span>
-                  <span class="xp-points" id="settingsXpPoints">— XP</span>
+                  <span class="xp-level" id="settingsXpLevel">Level -</span>
+                  <span class="xp-points" id="settingsXpPoints">- XP</span>
                 </div>
                 <div class="xp-bar" aria-hidden="true">
                   <div class="xp-bar-fill" id="settingsXpFill" style="width:0%"></div>
                 </div>
-                <p class="muted settings-hint" id="settingsXpBlurb">Explorer progress from achievements.</p>
+                <p class="muted settings-hint" id="settingsXpBlurb">XP and level from driving, finds, and achievements.</p>
               </div>
 
               <form id="usernameForm" class="settings-form">
@@ -81,7 +81,7 @@
                     required
                   />
                 </label>
-                <p class="muted settings-hint">Letters, numbers, <code>_</code> <code>.</code> <code>-</code> — no spaces.</p>
+                <p class="muted settings-hint">Letters, numbers, <code>_</code> <code>.</code> <code>-</code> - no spaces.</p>
                 <div class="tools-row">
                   <button class="btn btn-primary" type="submit">Save username</button>
                 </div>
@@ -128,7 +128,7 @@
               <hr class="settings-divider" />
 
               <h3 class="settings-subhead">API keys</h3>
-              <p class="muted">For edge / second instance uploads: <code>X-API-Key: wr_…</code> → <code>POST /api/v1/ingest/upload</code></p>
+              <p class="muted">For edge / second instance uploads: <code>X-API-Key: wr_...</code> -> <code>POST /api/v1/ingest/upload</code></p>
               <div class="tools-row">
                 <input id="keyName" placeholder="key name" value="default" />
                 <button class="btn" type="button" id="createKey">Create key</button>
@@ -168,12 +168,12 @@
                 <label class="checkbox-row">
                   <input type="checkbox" id="anomalyAlerts" checked />
                   Special detections
-                  <span class="muted"> — Flipper, Starlink, trains… toasts &amp; Starlink XP</span>
+                  <span class="muted"> - Flipper, Starlink, trains... toasts &amp; Flipper/Starlink XP</span>
                 </label>
                 <label class="checkbox-row">
                   <input type="checkbox" id="achievementSounds" checked />
                   Achievement &amp; detection sounds
-                  <span class="muted"> — short Web Audio cues (mute anytime)</span>
+                  <span class="muted"> - short Web Audio cues (mute anytime)</span>
                 </label>
                 <label>
                   Units
@@ -182,6 +182,18 @@
                     <option value="imperial">Imperial (mi, ft)</option>
                   </select>
                 </label>
+                <label>
+                  Drive map lighting
+                  <select id="mapDarkMode">
+                    <option value="auto" selected>Auto by sun</option>
+                    <option value="bright">Bright (always day)</option>
+                    <option value="dark">Dark (always night)</option>
+                    <option value="system">System</option>
+                  </select>
+                </label>
+                <p class="muted settings-hint">
+                  Controls the Drive basemap: follow the sun at your GPS, force day/night, or match the OS light/dark preference.
+                </p>
                 <div class="tools-row">
                   <button class="btn btn-primary" type="submit">Save preferences</button>
                   <button class="btn" type="button" id="recomputeNow">Run full calculation now</button>
@@ -197,7 +209,7 @@
               hidden
             >
               <h2>Import capture file</h2>
-              <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV — same pipeline as the ingest API.</p>
+              <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV - same pipeline as the ingest API.</p>
               <input type="file" id="uploadFile" accept=".kismet,.csv,.wiglecsv,.db" />
               <div class="tools-row">
                 <button class="btn btn-primary btn-busyable" type="button" id="uploadBtn">
@@ -207,7 +219,7 @@
               </div>
               <div class="job-progress" id="uploadProgress" hidden>
                 <div class="job-progress-bar" id="uploadProgressBar"></div>
-                <span class="job-progress-text" id="uploadProgressText">Uploading…</span>
+                <span class="job-progress-text" id="uploadProgressText">Uploading...</span>
               </div>
 
               <hr class="settings-divider" />
@@ -230,7 +242,7 @@
               </div>
               <div class="job-progress" id="exportProgress" hidden>
                 <div class="job-progress-bar" id="exportProgressBar"></div>
-                <span class="job-progress-text" id="exportProgressText">Preparing…</span>
+                <span class="job-progress-text" id="exportProgressText">Preparing...</span>
               </div>
               <label>
                 Import mode
@@ -248,7 +260,7 @@
               </div>
               <div class="job-progress" id="importProgress" hidden>
                 <div class="job-progress-bar" id="importProgressBar"></div>
-                <span class="job-progress-text" id="importProgressText">Working…</span>
+                <span class="job-progress-text" id="importProgressText">Working...</span>
               </div>
             </section>
 
@@ -262,7 +274,7 @@
               <h2>Advanced</h2>
               <p>
                 Ingest always uses fast 2D localization. Start a full 3D recalculation only when you can
-                wait — altitude stays stored either way.
+                wait - altitude stays stored either way.
               </p>
               <div class="tools-row">
                 <span class="mode-pill" id="locMode">2d</span>
@@ -293,7 +305,7 @@
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
-    <script src="/static/settings.js?v=7"></script>
+    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/settings.js?v=9"></script>
   </body>
 </html>

@@ -9,6 +9,8 @@ from pathlib import Path
 
 EMPTY_NAMES = {"", "(no ssid)", "<no ssid>", "[no ssid]", "null", "none"}
 
+_MAC_HEX_RE = re.compile(r"[^0-9a-f]")
+
 TIME_FORMATS = (
     "%Y-%m-%d %H:%M:%S",
     "%Y-%m-%dT%H:%M:%S",
@@ -90,8 +92,32 @@ def _to_int(value) -> int | None:
         return None
 
 
-def is_empty_ssid(name: str | None) -> bool:
-    return (name or "").strip().lower() in EMPTY_NAMES
+def _mac_hex(value: str | None) -> str:
+    """Normalize a MAC / BSSID to lowercase hex digits only."""
+    if not value:
+        return ""
+    return _MAC_HEX_RE.sub("", str(value).lower())
+
+
+def is_empty_ssid(name: str | None, network_id: str | None = None) -> bool:
+    """True when there is no real SSID/name (placeholder or MAC-as-name)."""
+    text = (name or "").strip()
+    if not text or text.lower() in EMPTY_NAMES:
+        return True
+    nid = _mac_hex(network_id)
+    if nid and len(nid) >= 12 and _mac_hex(text) == nid:
+        # Kismet commonname/base.name often falls back to the BSSID
+        return True
+    return False
+
+
+def sanitize_network_name(
+    name: str | None, network_id: str | None = None
+) -> str | None:
+    """Keep real SSIDs; drop empty placeholders and MAC-as-name copies."""
+    if is_empty_ssid(name, network_id):
+        return None
+    return str(name).strip()
 
 
 def observation_tuple(
@@ -111,9 +137,7 @@ def observation_tuple(
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None
     network_type = (record.get("network_type") or "WIFI").strip().upper()
-    name = record.get("name")
-    if name is not None:
-        name = str(name)
+    name = sanitize_network_name(record.get("name"), network_id)
     seen = record.get("seen_at")
     if isinstance(seen, datetime):
         seen_at = seen if seen.tzinfo else seen.replace(tzinfo=timezone.utc)

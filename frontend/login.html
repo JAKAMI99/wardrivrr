@@ -7,7 +7,7 @@
     <title>Login · wardrivrr</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=8"></script>
+    <script src="/static/theme.js?v=11"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -43,7 +43,7 @@
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
+    <script src="/static/nav.js?v=8"></script>
     <script>
       const toast = document.getElementById("toast");
       function showToast(msg, isError = false) {
@@ -51,12 +51,27 @@
         toast.textContent = msg;
         toast.classList.toggle("error", isError);
       }
+      // Only same-origin paths: blocks javascript: URLs and open redirects
+      // (//evil.example, /\evil.example).
+      function safeNext() {
+        const raw = new URLSearchParams(location.search).get("next") || "/";
+        if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
+          return "/";
+        }
+        try {
+          const url = new URL(raw, location.origin);
+          return url.origin === location.origin
+            ? url.pathname + url.search + url.hash
+            : "/";
+        } catch (_) {
+          return "/";
+        }
+      }
       (async () => {
         try {
           const res = await fetch("/api/auth/me", { credentials: "same-origin" });
           if (res.ok) {
-            const next = new URLSearchParams(location.search).get("next") || "/";
-            location.href = next;
+            location.href = safeNext();
           }
         } catch (_) {}
       })();
@@ -77,8 +92,7 @@
           return;
         }
         WardAuth.setToken(body.access_token, !!body.keep_logged_in);
-        const next = new URLSearchParams(location.search).get("next") || "/";
-        location.href = next;
+        location.href = safeNext();
       });
     </script>
   </body>

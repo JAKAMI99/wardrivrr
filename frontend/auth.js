@@ -74,7 +74,7 @@ async function logout() {
     });
   } catch (_) {}
   setToken(null);
-  // Guests always get classic — don't leave the previous user's theme sticky
+  // Guests always get classic - don't leave the previous user's theme sticky
   if (window.WardTheme?.applyGuestClassic) {
     WardTheme.applyGuestClassic({ broadcast: false });
   }

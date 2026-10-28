@@ -7,33 +7,37 @@
     <title>Stats · wardrivrr</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=8"></script>
+    <script src="/static/theme.js?v=11"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
     <div class="app-shell">
       <nav class="site-nav" aria-label="Primary">
         <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
-        <div class="site-links">
-          <a href="/">Home</a>
-          <a href="/database">Database</a>
-          <a class="active" href="/stats">Stats</a>
-          <a href="/levels">Levels</a>
-          <a href="/discover">Discover</a>
-          <a href="/navigate">Navigate</a>
-          
-          <a href="/api">API</a>
-          <a href="/status">Status</a>
-          <a href="/settings">Settings</a>
-        </div>
+        <div class="site-links"></div>
       </nav>
 
-      <main class="home-main stats-main">
-        <header class="home-hero settings-hero">
-          <p class="stats-kicker" id="statsTz">Your exploration</p>
-          <h1 id="statsHeadline">Loading…</h1>
-          <p id="statsNudge" class="stats-nudge">Pulling today’s numbers…</p>
+      <main class="home-main stats-main explorer-hub">
+        <header class="home-hero settings-hero explorer-hero" id="explorerHero">
+          <p class="stats-kicker" id="statsTz">Stats</p>
+          <div class="explorer-level-row">
+            <div class="explorer-level-num" id="explorerLevel">-</div>
+            <div class="explorer-level-meta">
+              <h1 id="statsHeadline">Loading...</h1>
+              <p id="statsNudge" class="stats-nudge">Pulling your progress...</p>
+              <p class="explorer-xp-total" id="explorerXpTotal"></p>
+            </div>
+          </div>
+          <div class="meter explorer-meter" aria-hidden="true">
+            <div class="meter-fill" id="explorerXpFill"></div>
+          </div>
+          <p class="meter-caption" id="explorerXpCaption">-</p>
         </header>
+
+        <section class="xp-breakdown" aria-label="XP breakdown" id="xpBreakdown">
+          <h2 class="hub-section-title">XP breakdown</h2>
+          <div class="xp-breakdown-list" id="xpBreakdownList"></div>
+        </section>
 
         <div class="period-tabs" role="tablist" aria-label="Time range">
           <button type="button" class="period-tab active" data-period="today" role="tab" aria-selected="true">
@@ -50,29 +54,29 @@
         <section class="stat-strip stats-hero-strip" aria-label="Period totals" id="periodStrip">
           <div class="stat stat-glow">
             <span class="label">New networks</span>
-            <div class="value" id="pNetworks">—</div>
+            <div class="value" id="pNetworks">-</div>
             <div class="hint" id="pNetworksHint">first seen in range</div>
           </div>
           <div class="stat">
-            <span class="label">Wi‑Fi</span>
-            <div class="value" id="pWifi">—</div>
+            <span class="label">Wi-Fi</span>
+            <div class="value" id="pWifi">-</div>
           </div>
           <div class="stat">
             <span class="label">Bluetooth</span>
-            <div class="value" id="pBt">—</div>
+            <div class="value" id="pBt">-</div>
           </div>
           <div class="stat">
             <span class="label">BLE</span>
-            <div class="value" id="pBle">—</div>
+            <div class="value" id="pBle">-</div>
           </div>
           <div class="stat">
             <span class="label">Samples</span>
-            <div class="value" id="pSamples">—</div>
+            <div class="value" id="pSamples">-</div>
             <div class="hint">raw sightings</div>
           </div>
         </section>
 
-        <section class="stats-grid" aria-label="Motivation">
+        <section class="stats-grid stats-grid-tight" aria-label="Continuity">
           <article class="stats-card streak-card">
             <div class="stats-card-top">
               <span class="module-kicker">Continuity</span>
@@ -82,36 +86,28 @@
             <p class="stats-card-copy" id="streakCopy">Days in a row with at least one new network</p>
             <dl class="status-dl">
               <dt>Best streak</dt>
-              <dd id="streakBest">—</dd>
+              <dd id="streakBest">-</dd>
               <dt>Today</dt>
-              <dd id="streakToday">—</dd>
+              <dd id="streakToday">-</dd>
             </dl>
           </article>
 
           <article class="stats-card">
             <div class="stats-card-top">
-              <span class="module-kicker">Competence</span>
-              <span class="badge live">Milestone</span>
+              <span class="module-kicker">Next milestones</span>
             </div>
-            <h3>Next Wi‑Fi finish line</h3>
-            <p class="stats-card-copy" id="mileWifiLabel">—</p>
+            <h3>Wi-Fi</h3>
+            <p class="stats-card-copy" id="mileWifiLabel">-</p>
             <div class="meter" aria-hidden="true">
               <div class="meter-fill" id="mileWifiFill"></div>
             </div>
-            <p class="meter-caption" id="mileWifiCaption">—</p>
-          </article>
-
-          <article class="stats-card">
-            <div class="stats-card-top">
-              <span class="module-kicker">Collection</span>
-              <span class="badge">All radios</span>
-            </div>
-            <h3>Total networks</h3>
-            <p class="stats-card-copy" id="mileNetLabel">—</p>
+            <p class="meter-caption" id="mileWifiCaption">-</p>
+            <h3 class="stats-subhead">All radios</h3>
+            <p class="stats-card-copy" id="mileNetLabel">-</p>
             <div class="meter" aria-hidden="true">
               <div class="meter-fill meter-fill-alt" id="mileNetFill"></div>
             </div>
-            <p class="meter-caption" id="mileNetCaption">—</p>
+            <p class="meter-caption" id="mileNetCaption">-</p>
           </article>
 
           <article class="stats-card">
@@ -119,32 +115,40 @@
               <span class="module-kicker">Personal best</span>
             </div>
             <h3 id="bestDayTitle">Best day</h3>
-            <div class="streak-value streak-value-sm" id="bestDayCount">—</div>
+            <div class="streak-value streak-value-sm" id="bestDayCount">-</div>
             <p class="stats-card-copy" id="bestDayCopy">Most new networks in a single day</p>
             <dl class="status-dl">
               <dt>vs yesterday</dt>
-              <dd id="vsYesterday">—</dd>
+              <dd id="vsYesterday">-</dd>
               <dt>First find</dt>
-              <dd id="spanFirst">—</dd>
+              <dd id="spanFirst">-</dd>
             </dl>
           </article>
         </section>
 
-        <section class="tools-panel xp-teaser" aria-label="XP coming soon">
-          <h2>XP & levels — soon</h2>
-          <p>
-            These counters already drive the loop (progress, streaks, milestones). Experience points
-            and level-ups plug in next without changing how your data is stored.
-          </p>
-          <div class="meter meter-locked">
-            <div class="meter-fill" style="width: 8%"></div>
+        <section class="hub-achievements" id="achievements" aria-label="Achievements">
+          <div class="hub-section-head">
+            <h2 class="hub-section-title">Achievements</h2>
+            <p class="muted" id="achSub">Loading badges...</p>
           </div>
-          <p class="meter-caption">Scaffold ready · XP disabled</p>
+          <div class="ach-grid" id="achGrid"></div>
+        </section>
+
+        <section class="radio-capture-strip" aria-label="Radio capture" id="radioStrip">
+          <h2 class="hub-section-title">Radio capture</h2>
+          <dl class="status-dl radio-strip-dl" id="radioStripDl">
+            <dt>Kismet</dt>
+            <dd id="radioKismet">-</dd>
+            <dt>Wi-Fi</dt>
+            <dd id="radioWifi">-</dd>
+            <dt>Bluetooth</dt>
+            <dd id="radioBt">-</dd>
+          </dl>
         </section>
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
-    <script src="/static/stats.js"></script>
+    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/stats.js?v=4"></script>
   </body>
 </html>

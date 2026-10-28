@@ -15,81 +15,15 @@ let prepareMeta = null; // last prepare job result (pack reuse info)
 let existingOsmIds = new Set();
 
 function fmt(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return "-";
   return new Intl.NumberFormat().format(n);
 }
 
 const COMPLETE_PCT = 90;
-const PROFILE_LABELS = {
-  big_car: "Big car",
-  small_car: "Small car",
-  car: "Small car",
-  bicycle: "Bike",
-  foot: "On foot",
-};
-
-function normalizeProfile(profile) {
-  const p = String(profile || "small_car").toLowerCase();
-  return p === "car" ? "small_car" : p;
-}
 
 function isLevelComplete(lv) {
   if (lv && typeof lv.complete === "boolean") return lv.complete;
   return Number(lv?.explored_pct || 0) >= COMPLETE_PCT;
-}
-
-/** Inline SVG silhouettes; themed via CSS on `.profile-icon`. */
-function profileIconSvg(profile) {
-  const p = normalizeProfile(profile);
-  if (p === "foot") {
-    return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M8.2 21c.4-2.2 1.1-3.6 2.2-4.4 1.4-1 3.1-.6 4.2.2 1 .7 1.6 1.8 1.9 3.2"/>
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M7.5 14.5c-.2-1.8.3-3.4 1.4-4.3 1.2-1 2.9-1.1 4.2-.2 1.1.7 1.8 2 2 3.5"/>
-      <circle class="profile-svg-dot" cx="10.2" cy="7.2" r="1.15" fill="currentColor"/>
-      <circle class="profile-svg-dot" cx="13.6" cy="6.4" r="1" fill="currentColor"/>
-      <circle class="profile-svg-dot" cx="16.2" cy="8.1" r=".85" fill="currentColor"/>
-      <circle class="profile-svg-dot" cx="8.4" cy="9.6" r=".9" fill="currentColor"/>
-    </svg>`;
-  }
-  if (p === "bicycle") {
-    return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-      <circle class="profile-svg-body" cx="6.2" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <circle class="profile-svg-body" cx="17.8" cy="16.2" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M6.2 16.2 10.5 9.2h3.2l2.6 7M10.5 9.2 12.8 16.2M13.7 9.2h3.4M14.2 6.4h2.6"/>
-    </svg>`;
-  }
-  if (p === "big_car") {
-    return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-        d="M3.5 14.2h17M5.2 14.2l1.6-4.5c.3-.9 1.2-1.5 2.1-1.5h6.2c.9 0 1.8.6 2.1 1.5l1.6 4.5"/>
-      <circle class="profile-svg-body" cx="7.2" cy="16.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <circle class="profile-svg-body" cx="16.8" cy="16.4" r="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M9 8.8h6"/>
-    </svg>`;
-  }
-  return `<svg class="profile-svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">
-    <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-      d="M4.2 14.5h15.6M6 14.5l1.4-4.2c.3-.9 1.1-1.5 2-1.5h5.2c.9 0 1.7.6 2 1.5l1.4 4.2"/>
-    <circle class="profile-svg-body" cx="7.4" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
-    <circle class="profile-svg-body" cx="16.6" cy="16.6" r="1.7" fill="none" stroke="currentColor" stroke-width="1.6"/>
-    <path class="profile-svg-body" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-      d="M9.2 9h5.6"/>
-  </svg>`;
-}
-
-function profileIconHtml(profile, { size = "" } = {}) {
-  const p = normalizeProfile(profile);
-  const label = PROFILE_LABELS[p] || p;
-  const sizeClass = size ? ` profile-icon--${size}` : "";
-  return `<span class="profile-icon profile-icon-${p}${sizeClass}" data-kidcore-skip title="${label}" aria-label="${label}">${profileIconSvg(p)}</span>`;
-}
-
-function profileLabel(profile) {
-  const p = normalizeProfile(profile);
-  return PROFILE_LABELS[p] || p;
 }
 
 function fmtBytes(n) {
@@ -116,14 +50,14 @@ function packLine(lv) {
   if (others != null) {
     line +=
       others === 1
-        ? " · used in 1 other level"
-        : ` · used in ${others} other levels`;
+        ? " · used in 1 other region"
+        : ` · used in ${others} other regions`;
   }
   return line;
 }
 
 function fmtEta(sec) {
-  if (sec == null || !Number.isFinite(sec)) return "estimating…";
+  if (sec == null || !Number.isFinite(sec)) return "estimating...";
   if (sec <= 0) return "almost done";
   if (sec < 60) return `~${Math.ceil(sec)}s left`;
   const m = Math.floor(sec / 60);
@@ -253,10 +187,10 @@ async function beginPrepare(city) {
   document.getElementById("areaChoices").innerHTML = "";
   document.getElementById("previewTitle").textContent = city.label;
   document.getElementById("previewSub").textContent = "";
-  document.getElementById("prepareStatus").textContent = "Starting download…";
+  document.getElementById("prepareStatus").textContent = "Starting download...";
   document.getElementById("prepareFill").style.width = "2%";
   document.getElementById("preparePct").textContent = "0%";
-  document.getElementById("prepareEta").textContent = "estimating…";
+  document.getElementById("prepareEta").textContent = "estimating...";
   setMapLoading(true);
   goStep(2);
   ensurePreviewMap();
@@ -306,7 +240,7 @@ async function pollPrepareJob() {
   document.getElementById("prepareFill").style.width = `${pct}%`;
   document.getElementById("preparePct").textContent = `${pct}%`;
   document.getElementById("prepareStatus").textContent =
-    result.message || (job.status === "queued" ? "Waiting in queue…" : "Working…");
+    result.message || (job.status === "queued" ? "Waiting in queue..." : "Working...");
   document.getElementById("prepareEta").textContent = fmtEta(result.eta_seconds);
 
   if (job.status === "done") {
@@ -361,7 +295,7 @@ async function showAreaChoices(result) {
   box.innerHTML = html;
   box.hidden = false;
   document.getElementById("previewSub").textContent =
-    "Pick the whole city or a district — boundary shows on the map first";
+    "Pick the whole city or a district - boundary shows on the map first";
   box.querySelectorAll("[data-area-i]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.disabled) return;
@@ -386,7 +320,7 @@ function areaChoiceHtml(p, i) {
       <strong>${escapeHtml(p.label)}</strong>
       <span>${
         owned
-          ? "Already in your levels"
+          ? "Already in your regions"
           : `${escapeHtml(kind)} · ${escapeHtml(fmtArea(p.area_km2))}`
       }</span>
     </button>`;
@@ -402,8 +336,8 @@ async function selectAreaOption(index) {
   setFixedLevelName(selectedPlace.label);
   document.getElementById("previewTitle").textContent = selectedPlace.label;
   document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-    ? "Loading district boundary…"
-    : "Whole-city boundary — this will be your playable level";
+    ? "Loading district boundary..."
+    : "Whole-city boundary - this will be your playable region";
   fillConfirm();
   setAreaNextEnabled(false);
   ensurePreviewMap();
@@ -455,17 +389,17 @@ async function searchPlaces(e) {
   const q = document.getElementById("placeQuery").value.trim();
   if (!q) return;
   const box = document.getElementById("placeResults");
-  box.innerHTML = `<p class="muted">Searching places…</p>`;
+  box.innerHTML = `<p class="muted">Searching places...</p>`;
   const res = await WardAuth.apiFetch(
     `/api/levels/places/search?q=${encodeURIComponent(q)}`
   );
   const data = await res.json().catch(() => []);
   if (!res.ok) {
-    box.innerHTML = `<p class="muted">${data.detail || "Search failed"}</p>`;
+    box.innerHTML = `<p class="muted">${escapeHtml(data.detail || "Search failed")}</p>`;
     return;
   }
   if (!data.length) {
-    box.innerHTML = `<p class="muted">No places found. Try “Berlin, Germany”.</p>`;
+    box.innerHTML = `<p class="muted">No places found. Try "Berlin, Germany".</p>`;
     return;
   }
   placeResults = data.slice();
@@ -474,8 +408,8 @@ async function searchPlaces(e) {
 }
 
 function setFixedLevelName(label) {
-  const name = label || "—";
-  document.getElementById("levelName").value = name === "—" ? "" : name;
+  const name = label || "-";
+  document.getElementById("levelName").value = name === "-" ? "" : name;
   const el = document.getElementById("levelNameDisplay");
   if (el) el.textContent = name;
 }
@@ -485,7 +419,7 @@ function fillConfirm() {
   const pack = selectedPlace.map_pack || prepareMeta?.map_pack || {};
   const area = selectedPlace.area_km2 != null ? ` (${fmtArea(selectedPlace.area_km2)})` : "";
   document.getElementById("confirmPlace").textContent =
-    `Generate level: ${selectedPlace.label}${area}`;
+    `Preload region: ${selectedPlace.label}${area}`;
   const packId = pack.id || prepareMeta?.extract_id || "";
   const packName = pack.name || packId.split("/").pop() || "regional pack";
   const size = pack.size_bytes != null ? fmtBytes(pack.size_bytes) : null;
@@ -495,8 +429,8 @@ function fillConfirm() {
   if (usedBy != null) {
     sizeLine +=
       usedBy === 0
-        ? " — not used by any of your levels yet"
-        : ` — already used by ${usedBy} of your level${usedBy === 1 ? "" : "s"}`;
+        ? " - not used by any of your regions yet"
+        : ` - already used by ${usedBy} of your region${usedBy === 1 ? "" : "s"}`;
   }
   sizeLine += ".";
   document.getElementById("confirmSize").textContent = sizeLine;
@@ -549,7 +483,7 @@ async function pollJob() {
   document.getElementById("progressFill").style.width = `${pct}%`;
   document.getElementById("progressPct").textContent = `${pct}%`;
   document.getElementById("progressMessage").textContent =
-    result.message || (job.status === "queued" ? "Waiting in queue…" : "Working…");
+    result.message || (job.status === "queued" ? "Waiting in queue..." : "Working...");
   document.getElementById("progressEta").textContent = fmtEta(result.eta_seconds);
   if (result.stage) setStage(result.stage);
 
@@ -558,7 +492,7 @@ async function pollJob() {
     pollTimer = null;
     document.getElementById("progressFill").style.width = "100%";
     document.getElementById("doneText").textContent =
-      `${document.getElementById("levelName").value} is ready to explore.`;
+      `${document.getElementById("levelName").value} is ready.`;
     goStep("done");
     document.getElementById("stepDone").classList.add("celebrate");
     loadLevels();
@@ -577,19 +511,18 @@ async function generateLevel() {
     showToast("Pick a place first", true);
     return;
   }
-  const profile =
-    document.querySelector('input[name="profile"]:checked')?.value || "small_car";
   const name = selectedPlace.label;
   setFixedLevelName(name);
   goStep(5);
-  document.getElementById("progressTitle").textContent = `Building ${name}…`;
+  document.getElementById("progressTitle").textContent = `Building ${name}...`;
   document.getElementById("progressFill").style.width = "2%";
   setStage("extract");
 
   const payload = {
     name,
     place_query: selectedPlace.place_query || selectedPlace.label,
-    profile,
+    // Default Navigate mode only - map imports the full playable graph
+    profile: "small_car",
     geofabrik_id: selectedPlace.map_pack.id,
     place_bbox: selectedPlace.bbox,
     place_boundary: selectedPlace.boundary,
@@ -616,7 +549,7 @@ async function generateLevel() {
   createdLevelId = body.level?.id;
   activeJobId = body.job?.id;
   if (!activeJobId) {
-    showToast("Level created but no job queued", true);
+    showToast("Region created but no job queued", true);
     return;
   }
   pollTimer = setInterval(pollJob, 500);
@@ -624,7 +557,7 @@ async function generateLevel() {
 }
 
 function fmtPct(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return "-";
   return `${Number(n).toFixed(1)}%`;
 }
 
@@ -635,7 +568,6 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
     ? `<em class="place-kind">District</em>`
     : "";
   const pack = packLine(lv);
-  const mode = lv.profile_label || profileLabel(lv.profile);
   const done = isLevelComplete(lv);
   const placeHint =
     lv.place_query && lv.place_query !== title
@@ -645,7 +577,6 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
     <article class="level-card ${isActive ? "active" : ""} ${nested ? "is-part" : ""} ${done ? "is-complete" : ""}">
       <header>
         <h3 class="level-card-title">
-          ${profileIconHtml(lv.profile, { size: "sm" })}
           <span class="level-card-name">${kind}${escapeHtml(title)}</span>
         </h3>
         <span class="level-status-stack">
@@ -653,7 +584,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
           <span class="level-status status-${lv.status}">${lv.status}</span>
         </span>
       </header>
-      <p class="muted level-mode-line"><span data-kidcore-skip>${escapeHtml(mode)}</span> mode</p>
+      <p class="muted level-mode-line">Vehicle mode -> Drive</p>
       ${placeHint}
       <ul class="level-stats">
         <li>${fmtPct(lv.explored_pct)} explored${done ? " · done" : ""}</li>
@@ -668,7 +599,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
   }" ${lv.status !== "ready" ? 'aria-disabled="true"' : ""}>Map</a>
         <button class="btn" data-load="${lv.id}" ${
     lv.status !== "ready" ? "disabled" : ""
-  }>Load</button>
+  }>Use</button>
         <button class="btn" data-del="${lv.id}">Delete</button>
       </div>
     </article>`;
@@ -735,13 +666,13 @@ function bindLevelActions(el) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ level_id: Number(btn.dataset.load) }),
       });
-      showToast("Level loaded");
+      showToast("Region active");
       loadLevels();
     });
   });
   el.querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!window.confirm("Delete this level?")) return;
+      if (!window.confirm("Delete this region?")) return;
       await WardAuth.apiFetch(`/api/levels/${btn.dataset.del}`, { method: "DELETE" });
       loadLevels();
     });
@@ -761,11 +692,11 @@ async function loadLevels() {
   const data = await res.json().catch(() => []);
   const el = document.getElementById("levelsList");
   if (!res.ok) {
-    el.textContent = data.detail || "Failed to load levels";
+    el.textContent = data.detail || "Failed to load regions";
     return;
   }
   if (!data.length) {
-    el.innerHTML = `<p class="muted">No levels yet — start with a place above.</p>`;
+    el.innerHTML = `<p class="muted">No regions yet - preload a place above, or let Drive offer one by location.</p>`;
     return;
   }
   const settings = await WardAuth.apiFetch("/api/settings").then((r) => r.json());
@@ -781,7 +712,7 @@ async function loadLevels() {
           ? fmtPct(cityPct)
           : partPcts.length
             ? fmtPct(partPcts.reduce((a, b) => a + b, 0) / partPcts.length)
-            : "—";
+            : "-";
       const districtsDone = g.parts.filter((p) => isLevelComplete(p)).length;
       const districtsTotal = g.parts.length;
       const districtLine =
@@ -860,8 +791,9 @@ document.getElementById("doneLoad").addEventListener("click", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ level_id: createdLevelId }),
   });
-  showToast("Level loaded");
+  showToast("Region active");
   loadLevels();
+  document.getElementById("regionsListSection")?.scrollIntoView({ behavior: "smooth" });
 });
 
 (async () => {

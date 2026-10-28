@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import math
 import os
+import threading
+import time
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,15 +20,30 @@ ACHIEVEMENTS_TZ = os.getenv("ACHIEVEMENTS_TZ") or os.getenv("STATS_TZ") or "Euro
 _MAX_STEP_M = 250.0
 # Ignore gaps longer than this between fixes
 _MAX_GAP_S = 120.0
+# Distance is credited from an anchor once the car has moved this far, so
+# parked GPS jitter (a few metres per fix at 5 Hz) never adds up to km.
+_MIN_STEP_M = 10.0
+# Reported speed below this means parked / walking in place.
+_MIN_SPEED_MPS = 0.8
+_km_anchor: dict[int, tuple[float, float, float]] = {}
+_km_anchor_lock = threading.Lock()
 
-# Activity XP (on top of achievement unlock XP) — networks pay most; roads pay too
-XP_PER_WIFI_NET = 5
-XP_PER_BT_NET = 4
-XP_PER_BLE_NET = 3
-# Any driven metre (including revisits) — ~5 XP / km
-XP_PER_DRIVEN_M = 1.0 / 200.0
-# Extra for newly unlocked fog — ~20 XP / km on top of driven
-XP_PER_NEW_ROAD_M = 1.0 / 50.0
+_schema_ready = False
+_schema_lock = threading.Lock()
+
+_last_eval_at: dict[int, float] = {}
+_eval_lock = threading.Lock()
+ACH_EVAL_MIN_INTERVAL_S = float(os.getenv("ACH_EVAL_MIN_INTERVAL_S", "15"))
+
+# Activity XP (on top of achievement unlock XP) - networks + fog tiles.
+# Radio finds stay low so fog tiles stay the main progression driver.
+XP_PER_WIFI_NET = 1
+XP_PER_BT_NET = 1
+XP_PER_BLE_NET = 1
+# First unlock of a fog tile (segment)
+XP_PER_TILE = 2
+# Re-driving an already unlocked tile (smaller credit)
+XP_PER_OLD_TILE = 1
 
 def _fmt_threshold(n: float | int) -> str:
     """Human-readable threshold for goal copy (e.g. 1,000,000 or 133.7)."""
@@ -45,6 +62,8 @@ def _unit_label(unit: str) -> str:
         return "samples"
     if unit == "starlink_networks":
         return "Starlink hotspots"
+    if unit == "flipper_networks":
+        return "Flipper Zeros"
     if unit == "segments_explored":
         return "tiles"
     return ""
@@ -55,7 +74,7 @@ def _how_for_tier(unit: str, threshold: float | int, override: str | None = None
         return override
     t = _fmt_threshold(threshold)
     if unit == "km_night_total":
-        return f"Drive {t} km between 00:00–06:00"
+        return f"Drive {t} km between 00:00-06:00"
     if unit == "km_day_best":
         return f"Drive {t} km in one calendar day"
     if unit == "networks_total":
@@ -66,6 +85,8 @@ def _how_for_tier(unit: str, threshold: float | int, override: str | None = None
         return f"Collect {t} observation points above 700 m altitude"
     if unit == "starlink_networks":
         return f"Detect {t} distinct Starlink hotspots"
+    if unit == "flipper_networks":
+        return f"Spot {t} distinct Flipper Zero{'s' if float(threshold) != 1 else ''}"
     if unit == "segments_explored":
         return f"Unlock {t} road tiles across your levels"
     return f"Reach {t}"
@@ -108,7 +129,7 @@ CATALOG: list[dict[str, Any]] = [
         "id": "memelord",
         "title": "Memelord",
         "description": "Drive a meme distance in a single calendar day.",
-        "flavour": "42 → 67 → 133.7. Respect the lore.",
+        "flavour": "42 -> 67 -> 133.7. Respect the lore.",
         "tiers": [
             _tier(1, 42.0, "km_day_best", "Memelord", 500),
             _tier(2, 67.0, "km_day_best", "Memelord II", 1500),
@@ -173,7 +194,7 @@ CATALOG: list[dict[str, Any]] = [
     {
         "id": "transmitting_to_space",
         "title": "Transmitting to space",
-        "description": "Detect distinct Starlink user Wi‑Fi hotspots (default STARLINK SSID).",
+        "description": "Detect distinct Starlink user Wi-Fi hotspots (default STARLINK SSID).",
         "flavour": "Low Earth orbit, high RSSI envy.",
         "tiers": [
             _tier(1, 10, "starlink_networks", "Transmitting to space", 500),
@@ -181,6 +202,19 @@ CATALOG: list[dict[str, Any]] = [
             _tier(3, 100, "starlink_networks", "Transmitting to space III", 4000),
             _tier(4, 250, "starlink_networks", "Transmitting to space IV", 8000),
             _tier(5, 500, "starlink_networks", "Transmitting to space Mastered", 15000, master=True),
+        ],
+    },
+    {
+        "id": "wall_of_flippers",
+        "title": "Wall of Flippers",
+        "description": "Spot distinct Flipper Zero devices (BLE MAC OUI or Flipper name).",
+        "flavour": "80:E1:26 walking by. Don't pet the dolphin.",
+        "tiers": [
+            _tier(1, 1, "flipper_networks", "Wall of Flippers", 200),
+            _tier(2, 3, "flipper_networks", "Wall of Flippers II", 500),
+            _tier(3, 5, "flipper_networks", "Wall of Flippers III", 1000),
+            _tier(4, 10, "flipper_networks", "Wall of Flippers IV", 2000),
+            _tier(5, 20, "flipper_networks", "Wall of Flippers Mastered", 4000, master=True),
         ],
     },
 ]
@@ -194,6 +228,18 @@ def _tz() -> ZoneInfo:
 
 
 def ensure_achievements_schema() -> None:
+    """Idempotent DDL; runs once per process (hot paths call this every tick)."""
+    global _schema_ready
+    if _schema_ready:
+        return
+    with _schema_lock:
+        if _schema_ready:
+            return
+        _create_achievements_schema()
+        _schema_ready = True
+
+
+def _create_achievements_schema() -> None:
     conn = connect()
     try:
         with conn.cursor() as cur:
@@ -228,7 +274,71 @@ def ensure_achievements_schema() -> None:
                 ON user_achievements(user_id)
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_activity_counters (
+                    user_id INTEGER NOT NULL PRIMARY KEY
+                      REFERENCES users(id) ON DELETE CASCADE,
+                    tiles_revisited INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            # Existing unlocks count as already shown; new rows start NULL so
+            # the Drive HUD can toast unlocks made by background collectors.
+            cur.execute(
+                """
+                ALTER TABLE user_achievements
+                ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ DEFAULT NOW()
+                """
+            )
+            cur.execute(
+                "ALTER TABLE user_achievements ALTER COLUMN notified_at DROP DEFAULT"
+            )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def record_tile_revisits(user_id: int, count: int) -> int:
+    """Credit re-drives of already unlocked fog tiles. Returns new total."""
+    n = max(0, int(count or 0))
+    if n <= 0:
+        return 0
+    ensure_achievements_schema()
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_activity_counters (user_id, tiles_revisited)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                  tiles_revisited = user_activity_counters.tiles_revisited
+                    + EXCLUDED.tiles_revisited,
+                  updated_at = NOW()
+                RETURNING tiles_revisited
+                """,
+                (user_id, n),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return int(row[0] if row else 0)
+    finally:
+        conn.close()
+
+
+def tiles_revisited_count(user_id: int) -> int:
+    ensure_achievements_schema()
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT tiles_revisited FROM user_activity_counters WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            return int(row[0] if row else 0)
     finally:
         conn.close()
 
@@ -242,38 +352,61 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
+def _km_since_anchor(
+    user_id: int,
+    lat: float,
+    lon: float,
+    now_ts: float,
+    speed_mps: float | None,
+) -> float:
+    """Distance moved since the last credited point; 0 while parked/jittering."""
+    with _km_anchor_lock:
+        anchor = _km_anchor.get(user_id)
+        if (
+            anchor is None
+            or not (0 <= now_ts - anchor[2] <= _MAX_GAP_S)
+            or (speed_mps is not None and speed_mps < _MIN_SPEED_MPS)
+        ):
+            _km_anchor[user_id] = (lat, lon, now_ts)
+            return 0.0
+        step_m = _haversine_m(anchor[0], anchor[1], lat, lon)
+        if step_m < _MIN_STEP_M:
+            return 0.0
+        _km_anchor[user_id] = (lat, lon, now_ts)
+        if step_m > _MAX_STEP_M:
+            return 0.0
+        return step_m / 1000.0
+
+
 def record_drive_step(
     user_id: int,
     *,
     lat: float,
     lon: float,
-    prev_lat: float | None,
-    prev_lon: float | None,
-    prev_ts: float | None,
     now_ts: float | None = None,
     explored_km_delta: float = 0.0,
+    speed_mps: float | None = None,
 ) -> dict[str, Any]:
     """
-    Credit distance between consecutive fixes. Returns day counters + any new unlocks.
+    Credit distance moved (anchor-based, see _km_since_anchor) and fog km.
+    Achievement evaluation is throttled; unlocks are toasted via pop_unnotified.
     """
     ensure_achievements_schema()
     tz = _tz()
-    now = datetime.fromtimestamp(now_ts or datetime.now(tz=tz).timestamp(), tz=tz)
+    ts = float(now_ts) if now_ts is not None else time.time()
+    now = datetime.fromtimestamp(ts, tz=tz)
     day = now.date()
     hour = now.hour
     is_night = 0 <= hour < 6
 
-    added_km = 0.0
-    if (
-        prev_lat is not None
-        and prev_lon is not None
-        and prev_ts is not None
-        and now_ts is not None
-        and 0 < (now_ts - prev_ts) <= _MAX_GAP_S
-    ):
-        step_m = _haversine_m(prev_lat, prev_lon, lat, lon)
-        if step_m <= _MAX_STEP_M:
-            added_km = step_m / 1000.0
+    added_km = _km_since_anchor(user_id, lat, lon, ts, speed_mps)
+    explored_km = max(0.0, float(explored_km_delta or 0))
+    if added_km <= 0 and explored_km <= 0:
+        return {
+            "added_km": 0.0,
+            "day": day.isoformat(),
+            "newly_unlocked": maybe_evaluate_achievements(user_id),
+        }
 
     conn = connect()
     try:
@@ -294,7 +427,7 @@ def record_drive_step(
                     day,
                     added_km,
                     added_km if is_night else 0.0,
-                    max(0.0, float(explored_km_delta or 0)),
+                    explored_km,
                 ),
             )
             row = cur.fetchone()
@@ -302,7 +435,7 @@ def record_drive_step(
     finally:
         conn.close()
 
-    newly = evaluate_achievements(user_id)
+    newly = maybe_evaluate_achievements(user_id)
     return {
         "added_km": added_km,
         "day": day.isoformat(),
@@ -343,13 +476,26 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
                 SELECT
                   COUNT(*)::int AS n,
                   COUNT(*) FILTER (
-                    WHERE upper(coalesce(network_type, '')) IN ('WIFI', 'W', 'WLAN', '802.11')
+                    WHERE upper(coalesce(network_type, '')) IN (
+                      'WIFI', 'W', 'WLAN', '802.11', 'IEEE802.11', 'WI-FI'
+                    )
+                    OR upper(coalesce(network_type, '')) LIKE '%%WIFI%%'
+                    OR upper(coalesce(network_type, '')) LIKE '%%802.11%%'
                   )::int AS wifi,
                   COUNT(*) FILTER (
-                    WHERE upper(coalesce(network_type, '')) IN ('BT', 'BLUETOOTH', 'BR/EDR')
+                    WHERE upper(coalesce(network_type, '')) IN (
+                      'BT', 'BLUETOOTH', 'BR/EDR'
+                    )
+                    OR (
+                      upper(coalesce(network_type, '')) LIKE '%%BT%%'
+                      AND upper(coalesce(network_type, '')) NOT LIKE '%%BLE%%'
+                      AND upper(coalesce(network_type, '')) NOT LIKE '%%BTLE%%'
+                    )
                   )::int AS bt,
                   COUNT(*) FILTER (
                     WHERE upper(coalesce(network_type, '')) IN ('BLE', 'BTLE')
+                    OR upper(coalesce(network_type, '')) LIKE '%%BLE%%'
+                    OR upper(coalesce(network_type, '')) LIKE '%%BTLE%%'
                   )::int AS ble
                 FROM networks WHERE user_id = %s
                 """,
@@ -360,6 +506,10 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
             networks_wifi = int(net_row.get("wifi") or 0)
             networks_bt = int(net_row.get("bt") or 0)
             networks_ble = int(net_row.get("ble") or 0)
+            # Mistyped / unknown radios still pay - treat leftovers as Wi-Fi
+            typed = networks_wifi + networks_bt + networks_ble
+            if networks_total > typed:
+                networks_wifi += networks_total - typed
             cur.execute(
                 """
                 SELECT COALESCE(SUM(km_total), 0)::float AS km_driven_total,
@@ -371,6 +521,24 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
             km_row = cur.fetchone() or {}
             km_driven_total = float(km_row.get("km_driven_total") or 0)
             km_explored_total = float(km_row.get("km_explored_total") or 0)
+            # Fog metres from the map itself (survives missed explored_km_delta credits)
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(rs.length_m), 0)::float AS m,
+                       COUNT(*)::int AS n
+                FROM road_segments rs
+                JOIN levels l ON l.id = rs.level_id
+                WHERE l.user_id = %s
+                  AND rs.is_explored = TRUE
+                """,
+                (user_id,),
+            )
+            road_row = cur.fetchone() or {}
+            road_explored_m = float(road_row.get("m") or 0.0)
+            segments_explored = int(road_row.get("n") or 0)
+            km_explored_total = max(
+                km_explored_total, road_explored_m / 1000.0
+            )
             cur.execute(
                 """
                 SELECT COUNT(*)::int AS n
@@ -403,27 +571,30 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
             unlocked_rows = cur.fetchall()
             cur.execute(
                 """
-                SELECT COUNT(*)::int AS n
-                FROM road_segments rs
-                JOIN levels l ON l.id = rs.level_id
-                WHERE l.user_id = %s
-                  AND rs.is_explored = TRUE
+                SELECT tiles_revisited FROM user_activity_counters WHERE user_id = %s
                 """,
                 (user_id,),
             )
-            segments_explored = int((cur.fetchone() or {}).get("n") or 0)
+            tiles_revisited = int((cur.fetchone() or {}).get("tiles_revisited") or 0)
     finally:
         conn.close()
 
-    # Starlink progress only when special detections are enabled
+    # Special-device progress only when anomaly alerts are enabled
     starlink_networks = 0
+    flipper_networks = 0
     try:
-        from anomalies import anomaly_alerts_enabled, count_starlink_networks
+        from anomalies import (
+            anomaly_alerts_enabled,
+            count_flipper_networks,
+            count_starlink_networks,
+        )
 
         if anomaly_alerts_enabled(user_id):
             starlink_networks = count_starlink_networks(user_id)
+            flipper_networks = count_flipper_networks(user_id)
     except Exception:
         starlink_networks = 0
+        flipper_networks = 0
 
     unlocked = {(r["achievement_id"], int(r["tier"])): r for r in unlocked_rows}
     return {
@@ -440,45 +611,107 @@ def _progress_snapshot(user_id: int) -> dict[str, Any]:
         "samples_below_sea": samples_below_sea,
         "samples_mountain": samples_mountain,
         "starlink_networks": starlink_networks,
+        "flipper_networks": flipper_networks,
         "segments_explored": segments_explored,
+        "tiles_revisited": tiles_revisited,
         "unlocked": unlocked,
         "today": today.isoformat(),
     }
 
 
-def activity_xp_breakdown(snap: dict[str, Any]) -> dict[str, Any]:
-    """XP from discovered networks + driven / newly unlocked roads."""
+def activity_xp_breakdown(
+    snap: dict[str, Any],
+    *,
+    achievements_xp: int = 0,
+) -> dict[str, Any]:
+    """XP from networks, new/old fog tiles, and (optionally) achievements."""
     wifi = int(snap.get("networks_wifi") or 0)
     bt = int(snap.get("networks_bt") or 0)
     ble = int(snap.get("networks_ble") or 0)
-    meters = float(snap.get("km_driven_total") or 0) * 1000.0
-    new_m = float(snap.get("km_explored_total") or 0) * 1000.0
-    new_m = max(0.0, min(new_m, meters))
+    tiles_new = int(snap.get("segments_explored") or 0)
+    tiles_old = int(snap.get("tiles_revisited") or 0)
+    ach = max(0, int(achievements_xp or 0))
     from_wifi = wifi * XP_PER_WIFI_NET
     from_bt = bt * XP_PER_BT_NET
     from_ble = ble * XP_PER_BLE_NET
-    from_drive = int(meters * XP_PER_DRIVEN_M)
-    from_new = int(new_m * XP_PER_NEW_ROAD_M)
+    from_tiles_new = tiles_new * XP_PER_TILE
+    from_tiles_old = tiles_old * XP_PER_OLD_TILE
+    activity_total = from_wifi + from_bt + from_ble + from_tiles_new + from_tiles_old
+    breakdown = [
+        {
+            "id": "tiles_new",
+            "label": "New tiles",
+            "xp": from_tiles_new,
+            "count": tiles_new,
+            "rate": XP_PER_TILE,
+        },
+        {
+            "id": "tiles_old",
+            "label": "Old tiles",
+            "xp": from_tiles_old,
+            "count": tiles_old,
+            "rate": XP_PER_OLD_TILE,
+        },
+        {
+            "id": "wifi",
+            "label": "Wi-Fi",
+            "xp": from_wifi,
+            "count": wifi,
+            "rate": XP_PER_WIFI_NET,
+        },
+        {
+            "id": "bt",
+            "label": "Bluetooth",
+            "xp": from_bt,
+            "count": bt,
+            "rate": XP_PER_BT_NET,
+        },
+        {
+            "id": "ble",
+            "label": "BLE",
+            "xp": from_ble,
+            "count": ble,
+            "rate": XP_PER_BLE_NET,
+        },
+        {
+            "id": "achievements",
+            "label": "Achievements",
+            "xp": ach,
+            "count": None,
+            "rate": None,
+        },
+    ]
     return {
         "wifi": from_wifi,
         "bt": from_bt,
         "ble": from_ble,
-        "driven": from_drive,
-        "new_road": from_new,
-        "total": from_wifi + from_bt + from_ble + from_drive + from_new,
+        "tiles": from_tiles_new,
+        "tiles_new": from_tiles_new,
+        "tiles_old": from_tiles_old,
+        "achievements": ach,
+        # Legacy keys
+        "driven": 0,
+        "new_road": from_tiles_new,
+        "total": activity_total,
+        "grand_total": activity_total + ach,
+        "breakdown": breakdown,
         "counts": {
             "wifi": wifi,
             "bt": bt,
             "ble": ble,
-            "km": round(meters / 1000.0, 3),
-            "km_new": round(new_m / 1000.0, 3),
+            "tiles": tiles_new,
+            "tiles_new": tiles_new,
+            "tiles_old": tiles_old,
+            "km": round(float(snap.get("km_driven_total") or 0), 3),
+            "km_new": round(float(snap.get("km_explored_total") or 0), 3),
         },
         "rates": {
             "wifi": XP_PER_WIFI_NET,
             "bt": XP_PER_BT_NET,
             "ble": XP_PER_BLE_NET,
-            "driven_m_per_xp": round(1.0 / XP_PER_DRIVEN_M),
-            "new_road_m_per_xp": round(1.0 / XP_PER_NEW_ROAD_M),
+            "tiles": XP_PER_TILE,
+            "tiles_new": XP_PER_TILE,
+            "tiles_old": XP_PER_OLD_TILE,
         },
     }
 
@@ -507,6 +740,8 @@ def _metric_value(snap: dict[str, Any], unit: str) -> float:
         return float(snap["samples_mountain"])
     if unit == "starlink_networks":
         return float(snap.get("starlink_networks") or 0)
+    if unit == "flipper_networks":
+        return float(snap.get("flipper_networks") or 0)
     if unit == "segments_explored":
         return float(snap.get("segments_explored") or 0)
     return 0.0
@@ -524,9 +759,9 @@ def evaluate_achievements(user_id: int) -> list[dict[str, Any]]:
                     key = (ach["id"], int(tier["tier"]))
                     if key in snap["unlocked"]:
                         continue
-                    # Gate Starlink unlocks when special detections are off
-                    if tier["unit"] == "starlink_networks" and not snap.get(
-                        "starlink_networks"
+                    # Gate special-device unlocks when anomaly alerts are off
+                    if tier["unit"] in {"starlink_networks", "flipper_networks"} and not snap.get(
+                        tier["unit"]
                     ):
                         continue
                     val = _metric_value(snap, tier["unit"])
@@ -564,6 +799,66 @@ def evaluate_achievements(user_id: int) -> list[dict[str, Any]]:
     finally:
         conn.close()
     return newly
+
+
+def maybe_evaluate_achievements(
+    user_id: int, min_interval_s: float | None = None
+) -> list[dict[str, Any]]:
+    """evaluate_achievements at most once per interval per user (hot paths)."""
+    interval = ACH_EVAL_MIN_INTERVAL_S if min_interval_s is None else min_interval_s
+    now = time.monotonic()
+    with _eval_lock:
+        if now - _last_eval_at.get(user_id, -1e9) < interval:
+            return []
+        _last_eval_at[user_id] = now
+    return evaluate_achievements(user_id)
+
+
+def _toast_payload(achievement_id: str, tier_n: int) -> dict[str, Any] | None:
+    for ach in CATALOG:
+        if ach["id"] != achievement_id:
+            continue
+        for tier in ach["tiers"]:
+            if int(tier["tier"]) != tier_n:
+                continue
+            is_master = bool(tier.get("master")) or tier_n >= len(ach["tiers"])
+            return {
+                "id": ach["id"],
+                "tier": tier_n,
+                "title": tier.get("title") or ach["title"],
+                "description": ach["description"],
+                "flavour": ach.get("flavour"),
+                "xp": int(tier.get("xp") or 0),
+                "mastered": is_master,
+                "status_label": "Mastered" if is_master else "Unlocked",
+            }
+    return None
+
+
+def pop_unnotified(user_id: int) -> list[dict[str, Any]]:
+    """Unlocks not yet shown to the user (from any thread); marks them shown."""
+    ensure_achievements_schema()
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE user_achievements SET notified_at = NOW()
+                WHERE user_id = %s AND notified_at IS NULL
+                RETURNING achievement_id, tier
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall() or []
+        conn.commit()
+    finally:
+        conn.close()
+    out = []
+    for achievement_id, tier_n in sorted(rows, key=lambda r: (r[0], int(r[1]))):
+        payload = _toast_payload(achievement_id, int(tier_n))
+        if payload:
+            out.append(payload)
+    return out
 
 
 def list_achievements(user_id: int) -> dict[str, Any]:
@@ -624,11 +919,12 @@ def list_achievements(user_id: int) -> dict[str, Any]:
                 "mastered": bool(tiers_out and tiers_out[-1].get("mastered")),
             }
         )
-    activity = activity_xp_breakdown(snap)
-    xp_total = xp_earned + int(activity["total"])
+    activity = activity_xp_breakdown(snap, achievements_xp=xp_earned)
+    xp_total = int(activity["grand_total"])
     progress = explorer_progress_from_xp(xp_total)
     progress["xp_achievements"] = xp_earned
     progress["xp_activity"] = activity
+    progress["breakdown"] = activity["breakdown"]
     return {
         "timezone": ACHIEVEMENTS_TZ,
         "xp_earned": xp_earned,
@@ -636,6 +932,7 @@ def list_achievements(user_id: int) -> dict[str, Any]:
         "xp_total": xp_total,
         "xp_available": xp_available,
         "explorer": progress,
+        "breakdown": activity["breakdown"],
         "snapshot": {
             "km_night_total": snap["km_night_total"],
             "km_day_best": snap["km_day_best"],
@@ -648,7 +945,9 @@ def list_achievements(user_id: int) -> dict[str, Any]:
             "samples_below_sea": snap["samples_below_sea"],
             "samples_mountain": snap["samples_mountain"],
             "starlink_networks": snap.get("starlink_networks") or 0,
+            "flipper_networks": snap.get("flipper_networks") or 0,
             "segments_explored": snap.get("segments_explored") or 0,
+            "tiles_revisited": snap.get("tiles_revisited") or 0,
             "today": snap["today"],
         },
         "achievements": out,
@@ -698,13 +997,14 @@ def explorer_progress_from_xp(xp: int) -> dict[str, Any]:
 def explorer_progress(user_id: int) -> dict[str, Any]:
     """
     Explorer level from achievement unlocks + activity XP
-    (Wi‑Fi / BT / BLE finds and a little from driven metres).
+    (Wi-Fi / BT / BLE finds, new/old fog tiles).
     """
     ensure_achievements_schema()
     snap = _progress_snapshot(user_id)
     ach_xp = _achievement_xp_earned(snap)
-    activity = activity_xp_breakdown(snap)
-    prog = explorer_progress_from_xp(ach_xp + int(activity["total"]))
+    activity = activity_xp_breakdown(snap, achievements_xp=ach_xp)
+    prog = explorer_progress_from_xp(int(activity["grand_total"]))
     prog["xp_achievements"] = ach_xp
     prog["xp_activity"] = activity
+    prog["breakdown"] = activity["breakdown"]
     return prog

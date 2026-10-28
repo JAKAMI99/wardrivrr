@@ -12,8 +12,10 @@ services:
       POSTGRES_DB: ${DB_NAME:-wardriving}
       POSTGRES_USER: ${DB_USER:-explorer}
       POSTGRES_PASSWORD: ${DB_PASS:-secure_password_here}
+    # Localhost only (the car API uses host networking). DB_BIND=0.0.0.0 to
+    # reach it from the LAN — then set a real DB_PASS first.
     ports:
-      - "5432:5432"
+      - "${DB_BIND:-127.0.0.1}:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgis/init:/docker-entrypoint-initdb.d
@@ -25,14 +27,14 @@ services:
       retries: 30
       start_period: 90s
 
-  # Tiles from data/valhalla/active.osm.pbf (seeded/clipped by ./run.sh or API prepare).
-  # Regional packs live in data/pbf/; do not bind-mount a missing single file.
+  # Tiles from data/valhalla/active.osm.pbf (city/district clip from level prepare).
+  # Regional packs stay in data/pbf/; Valhalla only starts after a level is ready.
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
     container_name: wardrivrr_valhalla
     restart: unless-stopped
     ports:
-      - "8002:8002"
+      - "${VALHALLA_BIND:-127.0.0.1}:8002:8002"
     environment:
       tile_urls: ${VALHALLA_TILE_URL:-}
       use_tiles_ignore_pbf: "False"

@@ -13,7 +13,7 @@
     />
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=8"></script>
+    <script src="/static/theme.js?v=11"></script>
   </head>
   <body class="discover-body">
     <div class="page-glow" aria-hidden="true"></div>
@@ -24,7 +24,7 @@
           <a href="/">Home</a>
           <a href="/database">Database</a>
           <a href="/stats">Stats</a>
-          <a href="/levels">Levels</a>
+          <a href="/regions">Regions</a>
           <a class="active" href="/discover">Discover</a>
           <a href="/navigate">Navigate</a>
           <a href="/api">API</a>
@@ -37,16 +37,16 @@
         <header class="discover-bar">
           <div>
             <h1 id="discoverTitle">Discover</h1>
-            <p class="muted" id="discoverSub">Road grid — locked vs driven (not turn-by-turn)</p>
+            <p class="muted" id="discoverSub">Road grid - locked vs driven (not turn-by-turn)</p>
           </div>
           <div class="discover-legend" aria-label="Legend">
             <span class="legend-item"><i class="swatch locked"></i> Locked</span>
             <span class="legend-item"><i class="swatch explored"></i> Explored</span>
           </div>
-          <a class="btn" href="/levels">Back to levels</a>
+          <a class="btn" href="/regions">Back to regions</a>
         </header>
         <div id="discoverMap" class="discover-map" role="img" aria-label="Level road map"></div>
-        <p class="muted discover-status" id="discoverStatus">Loading…</p>
+        <p class="muted discover-status" id="discoverStatus">Loading...</p>
       </main>
     </div>
     <script
@@ -55,7 +55,7 @@
       crossorigin=""
     ></script>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
+    <script src="/static/nav.js?v=8"></script>
     <script src="/static/discover.js"></script>
   </body>
 </html>

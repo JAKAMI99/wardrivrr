@@ -68,7 +68,7 @@ services:
     depends_on:
       postgis:
         condition: service_healthy
-      # Valhalla is optional until a regional pack seeds data/valhalla/active.osm.pbf.
+      # Valhalla is optional until a level clips data/valhalla/active.osm.pbf.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
       interval: 20s

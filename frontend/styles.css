@@ -91,11 +91,11 @@ select {
   min-height: 100dvh;
 }
 
-/* —— Site nav —— */
+/* -- Site nav -- */
 .site-nav {
   position: sticky;
   top: 0;
-  /* Above Leaflet map panes (~200–700) so account dropdown stays clickable */
+  /* Above Leaflet map panes (~200-700) so account dropdown stays clickable */
   z-index: 1100;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -188,7 +188,7 @@ select {
   color: var(--accent);
 }
 
-/* —— Home —— */
+/* -- Home -- */
 .home-main {
   flex: 1;
   width: min(1100px, 100%);
@@ -444,6 +444,49 @@ a.module:hover {
   min-height: 160px;
 }
 
+.status-card-wide {
+  grid-column: 1 / -1;
+}
+
+.host-meters {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0 0 12px;
+}
+
+.host-meter-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.host-meter-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.host-meter-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: #3dffa8;
+  transition: width 0.35s ease, background 0.2s ease;
+}
+
+.host-meter-fill.is-warm {
+  background: #e6b84d;
+}
+
+.host-meter-fill.is-hot {
+  background: #e85d5d;
+}
+
 .status-card-top {
   display: flex;
   justify-content: space-between;
@@ -464,6 +507,28 @@ a.module:hover {
   color: var(--muted);
   font-size: 0.92rem;
   line-height: 1.4;
+}
+
+.status-webui-btn {
+  display: inline-flex;
+  margin-top: 12px;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.75rem;
+  text-decoration: none;
+}
+
+.status-webui-btn.is-down {
+  background: #2a2e36;
+  border-color: #3a404c;
+  color: #8b929e;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.status-webui-btn.is-down:hover {
+  transform: none;
+  border-color: #3a404c;
+  filter: none;
 }
 
 .status-dl {
@@ -787,7 +852,7 @@ a.module:hover {
   box-shadow: none;
 }
 
-/* —— Stats (gamified) —— */
+/* -- Stats (gamified) -- */
 .stats-kicker {
   margin: 0 0 8px;
   color: var(--accent);
@@ -925,13 +990,160 @@ a.module:hover {
   animation: rise 0.55s var(--ease) 0.18s both;
 }
 
+/* -- Explorer hub -- */
+.explorer-hero {
+  margin-bottom: 28px;
+}
+
+.explorer-level-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.explorer-level-num {
+  font-family: var(--font-display);
+  font-size: clamp(4.5rem, 14vw, 7rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.explorer-level-meta h1 {
+  margin: 0 0 6px;
+}
+
+.explorer-xp-total {
+  margin: 8px 0 0;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.explorer-meter {
+  max-width: 28rem;
+}
+
+.hub-section-title {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.hub-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+
+.hub-section-head .hub-section-title {
+  margin: 0;
+}
+
+.xp-breakdown {
+  margin-bottom: 28px;
+  animation: rise 0.55s var(--ease) 0.08s both;
+}
+
+.xp-breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.xp-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.xp-row-label {
+  font-weight: 600;
+  flex: 1;
+}
+
+.xp-row-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.xp-row-xp {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.xp-row-meter {
+  height: 8px;
+}
+
+.xp-breakdown-total {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+}
+
+.stats-grid-tight {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stats-grid-tight .stats-card {
+  min-height: 0;
+}
+
+.stats-subhead {
+  margin-top: 16px !important;
+  font-size: 1rem !important;
+}
+
+.hub-achievements {
+  margin: 8px 0 32px;
+  animation: rise 0.55s var(--ease) 0.14s both;
+}
+
+.radio-capture-strip {
+  padding: 16px 18px;
+  margin-bottom: 40px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  animation: rise 0.55s var(--ease) 0.16s both;
+}
+
+.radio-strip-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.radio-strip-dl dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.radio-strip-dl dd {
+  margin: 0;
+  font-weight: 600;
+}
+
 @media (max-width: 900px) {
   .stats-hero-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stats-grid {
+  .stats-grid,
+  .stats-grid-tight {
     grid-template-columns: 1fr;
+  }
+
+  .explorer-level-row {
+    align-items: center;
   }
 }
 
@@ -1030,7 +1242,7 @@ a.module:hover {
   }
 }
 
-/* —— Database / map tool —— */
+/* -- Database / map tool -- */
 .db-shell {
   flex: 1;
   display: flex;
@@ -1838,7 +2050,7 @@ a.module:hover {
   vertical-align: middle;
 }
 
-/* Routing profile icons — classic: sleek thin stroke */
+/* Routing profile icons - classic: sleek thin stroke */
 .profile-icon {
   display: inline-flex;
   align-items: center;
@@ -2043,6 +2255,100 @@ a.module:hover {
   font-size: 0.85rem;
 }
 
+.progress-bar {
+  align-items: flex-start;
+}
+
+.progress-heading {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.progress-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.progress-complete-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #0b2a1c;
+  background: #3dffa8;
+}
+
+.progress-pct-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.35rem;
+}
+
+.progress-pct-item {
+  color: var(--muted, #8e95a0);
+}
+
+.progress-pct-item.is-active {
+  color: var(--text, #e8ecf2);
+  font-weight: 600;
+}
+
+.progress-pct-sep {
+  color: var(--line, #2a3140);
+  margin: 0 0.1rem;
+}
+
+.progress-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.progress-mode-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  min-width: 5.5rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line, #2a3140);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text, #e8ecf2);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.progress-mode-btn:hover {
+  border-color: rgba(61, 255, 168, 0.45);
+}
+
+.progress-mode-btn.is-active {
+  border-color: #3dffa8;
+  background: rgba(61, 255, 168, 0.12);
+}
+
+.progress-mode-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.progress-mode-pct {
+  font-size: 0.72rem;
+  color: var(--muted, #8e95a0);
+}
+
+.progress-mode-btn.is-active .progress-mode-pct {
+  color: #3dffa8;
+}
+
 .discover-legend {
   display: flex;
   gap: 1rem;
@@ -2074,14 +2380,10 @@ a.module:hover {
   flex: 1;
   min-height: 60vh;
   width: 100%;
-  background: #0a0c0f;
+  background: #e8eef2;
 }
 
-/* Progress fog map: darken OSM (no CARTO API key) */
-.progress-basemap {
-  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95);
-  -webkit-filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95);
-}
+/* Progress fog map uses plain OSM (no invert) */
 
 .discover-status {
   margin: 0;
@@ -2099,7 +2401,7 @@ a.btn.is-disabled {
   font-size: 1.05rem;
 }
 
-/* —— Slim nav + account menu —— */
+/* -- Slim nav + account menu -- */
 .site-nav-tail {
   grid-column: 3;
   justify-self: end;
@@ -2110,7 +2412,7 @@ a.btn.is-disabled {
   min-width: 0;
 }
 
-/* Global appearance (theme) — next to profile */
+/* Global appearance (theme) - next to profile */
 .nav-theme-menu {
   position: relative;
 }
@@ -2227,7 +2529,7 @@ a.btn.is-disabled {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
-/* Drive is always a distinct CTA — not the same “active pill” as other tabs */
+/* Drive is always a distinct CTA - not the same "active pill" as other tabs */
 .site-links a.nav-drive {
   color: var(--accent);
   font-weight: 700;
@@ -2423,7 +2725,7 @@ a.btn.is-disabled {
   }
 }
 
-/* —— Home drive spotlight —— */
+/* -- Home drive spotlight -- */
 .home-kicker {
   margin: 0 0 0.35rem;
   font-size: 0.75rem;
@@ -2431,46 +2733,6 @@ a.btn.is-disabled {
   text-transform: uppercase;
   color: var(--accent);
   font-weight: 700;
-}
-
-.drive-spotlight {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 0 0 clamp(20px, 4vw, 28px);
-  padding: clamp(1.1rem, 3vw, 1.6rem);
-  border-radius: calc(var(--radius) + 4px);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
-  background:
-    radial-gradient(ellipse 70% 120% at 100% 0%, var(--accent-dim), transparent 55%),
-    var(--panel);
-  box-shadow: var(--shadow);
-  transition: border-color 0.15s ease, transform 0.15s ease;
-}
-
-.drive-spotlight:hover {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.drive-spotlight h2 {
-  margin: 0.2rem 0 0.35rem;
-  font-family: var(--font-display);
-  font-size: clamp(1.4rem, 3vw, 1.85rem);
-}
-
-.drive-spotlight p {
-  margin: 0;
-  color: var(--muted);
-  max-width: 36rem;
-}
-
-.drive-spotlight-cta {
-  flex: 0 0 auto;
-  font-weight: 700;
-  color: var(--accent);
-  white-space: nowrap;
 }
 
 .module-featured {
@@ -2485,7 +2747,7 @@ a.btn.is-disabled {
   }
 }
 
-/* —— Achievements —— */
+/* -- Achievements -- */
 .ach-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

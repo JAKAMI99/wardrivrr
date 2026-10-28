@@ -59,10 +59,11 @@ BEGIN
         ALTER TABLE networks ADD CONSTRAINT networks_user_network_pkey PRIMARY KEY (user_id, network_id);
     END IF;
 EXCEPTION WHEN others THEN
-    -- user_id may still be null on first pass before bootstrap; unique index fallback
-    CREATE UNIQUE INDEX IF NOT EXISTS networks_user_network_uidx
-        ON networks (COALESCE(user_id, 0), network_id);
+    -- user_id may still be null on first pass before bootstrap
+    NULL;
 END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS networks_user_network_uidx
+    ON networks (COALESCE(user_id, 0), network_id);
 
 CREATE TABLE IF NOT EXISTS levels (
     id SERIAL PRIMARY KEY,

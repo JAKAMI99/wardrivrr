@@ -16,7 +16,7 @@
     />
     <link rel="stylesheet" href="/static/styles.css?v=6" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=8"></script>
+    <script src="/static/theme.js?v=11"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -27,7 +27,7 @@
           <a href="/">Home</a>
           <a class="active" href="/database">Database</a>
           <a href="/stats">Stats</a>
-          <a href="/levels">Levels</a>
+          <a href="/regions">Regions</a>
           <a href="/discover">Discover</a>
           <a href="/navigate">Navigate</a>
           
@@ -41,7 +41,7 @@
         <header class="tool-bar">
           <div class="brand-line">
             <strong>Database</strong>
-            <span id="status">starting…</span>
+            <span id="status">starting...</span>
             <span id="locMode" class="mode-pill">2d</span>
           </div>
           <div class="top-actions">
@@ -78,7 +78,13 @@
           </label>
           <label>
             BSSID / MAC
-            <input name="network_id" type="search" placeholder="aa:bb:cc:…" autocomplete="off" />
+            <input name="network_id" type="search" placeholder="aa:bb:cc:..." autocomplete="off" />
+          </label>
+          <label class="vendor-filter">
+            Vendor
+            <select name="vendor" id="vendorFilter">
+              <option value="">All vendors</option>
+            </select>
           </label>
           <label>
             From
@@ -110,7 +116,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
-    <script src="/static/database.js?v=4"></script>
+    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/database.js?v=8"></script>
   </body>
 </html>

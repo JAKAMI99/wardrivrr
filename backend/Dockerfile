@@ -22,6 +22,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
              | tar -xz --strip-components=1 -C /usr/local/bin docker/docker ;; \
          *) echo "WARN: no static docker CLI for $DOCKER_ARCH — Valhalla restart from API disabled" ;; \
        esac \
+    && mkdir -p /usr/local/lib/docker/cli-plugins \
+    && case "$DOCKER_ARCH" in \
+         x86_64) COMPOSE_ARCH=x86_64 ;; \
+         aarch64) COMPOSE_ARCH=aarch64 ;; \
+         armhf) COMPOSE_ARCH=armv7 ;; \
+         *) COMPOSE_ARCH="" ;; \
+       esac \
+    && if [ -n "$COMPOSE_ARCH" ]; then \
+         curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-${COMPOSE_ARCH}" \
+           -o /usr/local/lib/docker/cli-plugins/docker-compose \
+         && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose ; \
+       fi \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

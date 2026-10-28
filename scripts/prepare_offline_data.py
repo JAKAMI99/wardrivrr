@@ -8,6 +8,7 @@ PostGIS, routing, or Kismet — those stay in their own containers.
 What this prepares:
   data/cities/cities.sqlite       — worldwide city search (GeoNames)
   data/geocode/postal.sqlite        — postal / reverse locality (GeoNames)
+  data/oui/oui.sqlite             — IEEE MAC / OUI vendor prefixes
   data/geofabrik-index-v1.json    — which OSM extract covers a city
 
 Usage (repo root):
@@ -52,7 +53,13 @@ def main() -> int:
     n = ensure_index()
     print(f"[prepare] geofabrik extracts={n}")
 
-    print("[prepare] done — see thanks.md for attribution")
+    print("[prepare] IEEE OUI / MAC vendor database…")
+    from oui import build_oui_db, db_available as oui_available
+
+    build_oui_db(force=args.force)
+    print(f"[prepare] oui ok={oui_available()}")
+
+    print("[prepare] done — see CREDITS.md for attribution")
     return 0
 
 

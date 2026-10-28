@@ -11,7 +11,8 @@
       "priority": 100,
       "network_types": ["BT", "BLE"],
       "mac_prefixes": ["80:e1:26", "80:e1:27", "0c:fa:22"],
-      "name_prefixes": ["flipper"]
+      "name_prefixes": ["flipper"],
+      "counts_for": "flipper_networks"
     },
     {
       "id": "pwnagotchi",

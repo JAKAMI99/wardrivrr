@@ -233,7 +233,9 @@ def _token_from_request(
     return token or None
 
 
-async def get_current_user(
+# Sync on purpose: FastAPI runs sync dependencies in its threadpool, so the
+# psycopg2 lookups below never block the event loop.
+def get_current_user(
     request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     api_key: str | None = Security(api_key_header),
@@ -261,13 +263,13 @@ async def get_current_user(
     return user
 
 
-async def get_optional_user(
+def get_optional_user(
     request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     api_key: str | None = Security(api_key_header),
 ) -> dict | None:
     try:
-        return await get_current_user(request, creds, api_key)
+        return get_current_user(request, creds, api_key)
     except HTTPException:
         return None
 

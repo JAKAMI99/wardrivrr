@@ -1,7 +1,7 @@
 const toast = document.getElementById("toast");
 
 function fmt(n) {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return "-";
   return new Intl.NumberFormat().format(n);
 }
 
@@ -26,6 +26,13 @@ async function loadSettings() {
       data.achievement_sounds !== false && data.achievement_sounds !== "false";
   }
   document.getElementById("units").value = data.units === "imperial" ? "imperial" : "metric";
+  const mapDark = document.getElementById("mapDarkMode");
+  if (mapDark) {
+    const mode = String(data.map_dark_mode || "auto").toLowerCase();
+    mapDark.value = ["auto", "bright", "dark", "system"].includes(mode)
+      ? mode
+      : "auto";
+  }
   if (data.theme && window.WardTheme) {
     WardTheme.apply(data.theme, { persist: true, broadcast: true });
   }
@@ -43,7 +50,7 @@ async function loadExplorerXp() {
     const pts = document.getElementById("settingsXpPoints");
     const fill = document.getElementById("settingsXpFill");
     const blurb = document.getElementById("settingsXpBlurb");
-    if (lvl) lvl.textContent = `Explorer level ${prog.level}`;
+    if (lvl) lvl.textContent = `Level ${prog.level}`;
     if (pts) pts.textContent = `${fmt(prog.xp)} XP`;
     if (fill) fill.style.width = `${Math.min(100, Number(prog.progress_pct) || 0)}%`;
     if (blurb) {
@@ -52,6 +59,15 @@ async function loadExplorerXp() {
   } catch {
     /* optional */
   }
+}
+
+function escHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function loadKeys() {
@@ -66,7 +82,7 @@ async function loadKeys() {
     .map(
       (k) => `
     <div class="key-row">
-      <span>${k.name} · <code>${k.key_prefix}…</code>
+      <span>${escHtml(k.name)} · <code>${escHtml(k.key_prefix)}...</code>
         ${k.revoked_at ? " (revoked)" : ""}</span>
       ${
         k.revoked_at
@@ -149,6 +165,7 @@ document.getElementById("settingsForm").addEventListener("submit", async (event)
       anomaly_alerts: document.getElementById("anomalyAlerts").checked,
       achievement_sounds: document.getElementById("achievementSounds")?.checked ?? true,
       units: document.getElementById("units").value,
+      map_dark_mode: document.getElementById("mapDarkMode")?.value || "auto",
       theme,
     }),
   });
@@ -205,7 +222,7 @@ document.getElementById("recompute3d")?.addEventListener("click", async () => {
   );
   if (!ok) return;
   btn.disabled = true;
-  showToast("3D recalculation running…");
+  showToast("3D recalculation running...");
   try {
     const res = await WardAuth.apiFetch("/api/localize/recompute", {
       method: "POST",
@@ -304,12 +321,12 @@ document.getElementById("uploadBtn").addEventListener("click", async () => {
   const progress = document.getElementById("uploadProgress");
   const bar = document.getElementById("uploadProgressBar");
   const text = document.getElementById("uploadProgressText");
-  setBusy(btn, progress, bar, text, true, "Uploading & ingesting…");
+  setBusy(btn, progress, bar, text, true, "Uploading & ingesting...");
   const pulse = pulseProgress(bar, text, [
-    "Uploading…",
-    "Detecting format…",
-    "Writing samples…",
-    "Localizing networks…",
+    "Uploading...",
+    "Detecting format...",
+    "Writing samples...",
+    "Localizing networks...",
   ]);
   const fd = new FormData();
   fd.append("file", file);
@@ -330,7 +347,7 @@ document.getElementById("uploadBtn").addEventListener("click", async () => {
       `Done · ${fmt(body.samples_submitted)} samples`
     );
     showToast(
-      `Ingested ${body.format}: ${fmt(body.samples_submitted)} samples → ${fmt(body.networks_updated)} networks`
+      `Ingested ${body.format}: ${fmt(body.samples_submitted)} samples -> ${fmt(body.networks_updated)} networks`
     );
   } catch (err) {
     clearInterval(pulse);
@@ -345,12 +362,12 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
   const progress = document.getElementById("exportProgress");
   const bar = document.getElementById("exportProgressBar");
   const text = document.getElementById("exportProgressText");
-  setBusy(btn, progress, bar, text, true, "Collecting your data…");
+  setBusy(btn, progress, bar, text, true, "Collecting your data...");
   const pulse = pulseProgress(bar, text, [
-    "Collecting samples…",
-    "Packing networks…",
-    "Building archive…",
-    "Almost ready…",
+    "Collecting samples...",
+    "Packing networks...",
+    "Building archive...",
+    "Almost ready...",
   ]);
   try {
     const res = await WardAuth.apiFetch("/api/backup/export", {
@@ -365,7 +382,7 @@ document.getElementById("exportBtn").addEventListener("click", async () => {
       showToast(body.detail || "Export failed", true);
       return;
     }
-    if (text) text.textContent = "Downloading…";
+    if (text) text.textContent = "Downloading...";
     if (bar) bar.style.width = "92%";
     const blob = await res.blob();
     const a = document.createElement("a");
@@ -396,12 +413,12 @@ document.getElementById("importBtn").addEventListener("click", async () => {
   const progress = document.getElementById("importProgress");
   const bar = document.getElementById("importProgressBar");
   const text = document.getElementById("importProgressText");
-  setBusy(btn, progress, bar, text, true, "Reading backup…");
+  setBusy(btn, progress, bar, text, true, "Reading backup...");
   const pulse = pulseProgress(bar, text, [
-    "Reading archive…",
-    "Merging samples…",
-    "Restoring networks…",
-    "Finishing up…",
+    "Reading archive...",
+    "Merging samples...",
+    "Restoring networks...",
+    "Finishing up...",
   ]);
   const fd = new FormData();
   fd.append("file", file);

@@ -204,12 +204,22 @@ def _aggregate(rows: list, mode: str, precision: str, user_id: int | None) -> di
                 last_seen = seen
             if latest_ts is None or seen >= latest_ts:
                 latest_ts = seen
-                name = row[1]
+                try:
+                    from wigle import sanitize_network_name
+
+                    name = sanitize_network_name(row[1], row[0])
+                except Exception:
+                    name = row[1]
                 encryption = row[2]
                 network_type = row[3] or "WIFI"
                 channel = row[4]
         elif name is None:
-            name = row[1]
+            try:
+                from wigle import sanitize_network_name
+
+                name = sanitize_network_name(row[1], row[0])
+            except Exception:
+                name = row[1]
             encryption = row[2]
             network_type = row[3] or "WIFI"
             channel = row[4]
@@ -229,9 +239,18 @@ def _aggregate(rows: list, mode: str, precision: str, user_id: int | None) -> di
         var_acc += w * (d * d + acc_m * acc_m)
     location_accuracy_m = math.sqrt(var_acc / sum_w) if sum_w > 0 else None
 
+    network_id = rows[0][0]
+    vendor = None
+    try:
+        from oui import lookup_vendor
+
+        vendor = lookup_vendor(network_id)
+    except Exception:
+        vendor = None
+
     return {
         "user_id": sample_user_id,
-        "network_id": rows[0][0],
+        "network_id": network_id,
         "name": name,
         "encryption": encryption,
         "network_type": network_type,
@@ -251,6 +270,7 @@ def _aggregate(rows: list, mode: str, precision: str, user_id: int | None) -> di
         "postcode": None,
         "country": None,
         "country_code": None,
+        "vendor": vendor,
     }
 
 
@@ -276,17 +296,16 @@ INSERT INTO networks (
     user_id, network_id, name, encryption, network_type, channel, sample_count,
     lat, lon, altitude, avg_signal, first_seen, last_seen, localization_mode,
     address, city, postcode, country, country_code,
-    location_accuracy_m, avg_gps_accuracy_m, computed_at
+    location_accuracy_m, avg_gps_accuracy_m, vendor, computed_at
 ) VALUES (
     %(user_id)s, %(network_id)s, %(name)s, %(encryption)s, %(network_type)s, %(channel)s, %(sample_count)s,
     %(lat)s, %(lon)s, %(altitude)s, %(avg_signal)s, %(first_seen)s, %(last_seen)s,
     %(localization_mode)s,
     %(address)s, %(city)s, %(postcode)s, %(country)s, %(country_code)s,
-    %(location_accuracy_m)s, %(avg_gps_accuracy_m)s, NOW()
+    %(location_accuracy_m)s, %(avg_gps_accuracy_m)s, %(vendor)s, NOW()
 )
-ON CONFLICT ((COALESCE(user_id, 0)), network_id) DO UPDATE SET
-    user_id = EXCLUDED.user_id,
-    name = EXCLUDED.name,
+ON CONFLICT (user_id, network_id) DO UPDATE SET
+    name = COALESCE(EXCLUDED.name, networks.name),
     encryption = EXCLUDED.encryption,
     network_type = EXCLUDED.network_type,
     channel = EXCLUDED.channel,
@@ -304,13 +323,14 @@ ON CONFLICT ((COALESCE(user_id, 0)), network_id) DO UPDATE SET
         EXCLUDED.last_seen
     ),
     localization_mode = EXCLUDED.localization_mode,
-    address = EXCLUDED.address,
-    city = EXCLUDED.city,
-    postcode = EXCLUDED.postcode,
-    country = EXCLUDED.country,
-    country_code = EXCLUDED.country_code,
+    address = COALESCE(EXCLUDED.address, networks.address),
+    city = COALESCE(EXCLUDED.city, networks.city),
+    postcode = COALESCE(EXCLUDED.postcode, networks.postcode),
+    country = COALESCE(EXCLUDED.country, networks.country),
+    country_code = COALESCE(EXCLUDED.country_code, networks.country_code),
     location_accuracy_m = EXCLUDED.location_accuracy_m,
     avg_gps_accuracy_m = EXCLUDED.avg_gps_accuracy_m,
+    vendor = COALESCE(EXCLUDED.vendor, networks.vendor),
     computed_at = NOW()
 """
 

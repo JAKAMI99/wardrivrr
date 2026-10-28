@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0e11" />
     <title>Status · wardrivrr</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=15" />
     <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=8"></script>
+    <script src="/static/theme.js?v=11"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -18,7 +18,7 @@
           <a href="/">Home</a>
           <a href="/database">Database</a>
           <a href="/stats">Stats</a>
-          <a href="/levels">Levels</a>
+          <a href="/regions">Regions</a>
           <a href="/discover">Discover</a>
           <a href="/navigate">Navigate</a>
           
@@ -33,14 +33,14 @@
           <h1>Status</h1>
           <p>
             Live services, storage, and data counts.
-            <span id="deployModeLabel">Mode …</span>
+            <span id="deployModeLabel">Mode ...</span>
           </p>
         </header>
 
         <div class="section-head">
           <div>
             <h2>Live services</h2>
-            <p>Refreshes every few seconds · <span id="statusUpdated">—</span></p>
+            <p>Refreshes every few seconds · <span id="statusUpdated">-</span></p>
           </div>
           <button class="btn btn-ghost" type="button" id="refreshStatus">Refresh now</button>
         </div>
@@ -49,94 +49,133 @@
           <article class="status-card" id="cardGps">
             <div class="status-card-top">
               <span class="module-kicker">GPS · gpsd</span>
-              <span class="badge" id="gpsBadge">…</span>
+              <span class="badge" id="gpsBadge">...</span>
             </div>
             <h3 id="gpsTitle">GPS</h3>
-            <p id="gpsDetail">Checking…</p>
+            <p id="gpsDetail">Checking...</p>
             <dl class="status-dl" id="gpsMeta"></dl>
           </article>
 
           <article class="status-card" id="cardKismet">
             <div class="status-card-top">
               <span class="module-kicker">Capture</span>
-              <span class="badge" id="kismetBadge">…</span>
+              <span class="badge" id="kismetBadge">...</span>
             </div>
             <h3 id="kismetTitle">Kismet</h3>
-            <p id="kismetDetail">Checking…</p>
+            <p id="kismetDetail">Checking...</p>
             <dl class="status-dl" id="kismetMeta"></dl>
+            <a
+              class="btn status-webui-btn"
+              id="kismetWebui"
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+              >Open WebUI</a
+            >
           </article>
 
           <article class="status-card" id="cardValhalla">
             <div class="status-card-top">
               <span class="module-kicker">Routing</span>
-              <span class="badge" id="valhallaBadge">…</span>
+              <span class="badge" id="valhallaBadge">...</span>
             </div>
             <h3 id="valhallaTitle">Valhalla</h3>
-            <p id="valhallaDetail">Checking…</p>
+            <p id="valhallaDetail">Checking...</p>
             <dl class="status-dl" id="valhallaMeta"></dl>
           </article>
 
           <article class="status-card" id="cardDb">
             <div class="status-card-top">
               <span class="module-kicker">PostGIS</span>
-              <span class="badge" id="dbBadge">…</span>
+              <span class="badge" id="dbBadge">...</span>
             </div>
             <h3 id="dbTitle">Database</h3>
-            <p id="dbDetail">Checking…</p>
+            <p id="dbDetail">Checking...</p>
             <dl class="status-dl" id="dbMeta"></dl>
           </article>
 
           <article class="status-card" id="cardStorage">
             <div class="status-card-top">
               <span class="module-kicker">Disk</span>
-              <span class="badge" id="storageBadge">…</span>
+              <span class="badge" id="storageBadge">...</span>
             </div>
             <h3 id="storageTitle">Storage</h3>
-            <p id="storageDetail">Checking…</p>
+            <p id="storageDetail">Checking...</p>
             <dl class="status-dl" id="storageMeta"></dl>
+          </article>
+
+          <article class="status-card status-card-wide" id="cardHost">
+            <div class="status-card-top">
+              <span class="module-kicker">Machine</span>
+              <span class="badge" id="hostBadge">...</span>
+            </div>
+            <h3 id="hostTitle">Host</h3>
+            <p id="hostDetail">Checking...</p>
+            <div class="host-meters" aria-label="CPU and memory use">
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>CPU</span>
+                  <span id="hostCpuPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostCpuMeter">
+                  <div class="host-meter-fill" id="hostCpuFill"></div>
+                </div>
+              </div>
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>RAM</span>
+                  <span id="hostRamPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostRamMeter">
+                  <div class="host-meter-fill" id="hostRamFill"></div>
+                </div>
+              </div>
+            </div>
+            <dl class="status-dl" id="hostMeta"></dl>
           </article>
         </section>
 
         <div class="section-head">
           <div>
             <h2>Data stats</h2>
-            <p>What’s in PostGIS right now.</p>
+            <p>What's in PostGIS right now.</p>
           </div>
         </div>
         <section class="stat-strip" aria-label="Database stats">
           <div class="stat">
             <span class="label">Networks</span>
-            <div class="value" id="statNetworks">—</div>
+            <div class="value" id="statNetworks">-</div>
           </div>
           <div class="stat">
-            <span class="label">Wi‑Fi</span>
-            <div class="value" id="statWifi">—</div>
+            <span class="label">Wi-Fi</span>
+            <div class="value" id="statWifi">-</div>
           </div>
           <div class="stat">
             <span class="label">Bluetooth</span>
-            <div class="value" id="statBt">—</div>
+            <div class="value" id="statBt">-</div>
           </div>
           <div class="stat">
             <span class="label">BLE</span>
-            <div class="value" id="statBle">—</div>
+            <div class="value" id="statBle">-</div>
           </div>
           <div class="stat">
             <span class="label">Samples</span>
-            <div class="value" id="statSamples">—</div>
+            <div class="value" id="statSamples">-</div>
           </div>
           <div class="stat">
             <span class="label">From Kismet</span>
-            <div class="value" id="statKismetSamples">—</div>
+            <div class="value" id="statKismetSamples">-</div>
           </div>
           <div class="stat">
             <span class="label">From WiGLE</span>
-            <div class="value" id="statWigleSamples">—</div>
+            <div class="value" id="statWigleSamples">-</div>
           </div>
         </section>
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=4"></script>
-    <script src="/static/status.js"></script>
+    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/status.js?v=4"></script>
   </body>
 </html>

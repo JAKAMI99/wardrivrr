@@ -1,4 +1,4 @@
-/* Navigate HUD — colors follow site theme (html[data-theme]) */
+/* Navigate HUD - colors follow site theme (html[data-theme]) */
 .nav-body {
   --nav-bg: var(--bg);
   --nav-panel: color-mix(in srgb, var(--panel) 88%, transparent);
@@ -45,7 +45,7 @@
   inset: 0;
 }
 
-/* Left TBT — 20% from top; janky driver-scale arrow + distance */
+/* Left TBT - 20% from top; janky driver-scale arrow + distance */
 .nav-hud-side {
   position: absolute;
   top: 16%;
@@ -103,7 +103,7 @@ html[data-theme="crt"] .nav-maneuver {
   filter: drop-shadow(0 0 10px color-mix(in srgb, var(--nav-cyan) 45%, transparent));
 }
 
-/* Mapbox Directions SVGs — keep square, never stretch */
+/* Mapbox Directions SVGs - keep square, never stretch */
 .nav-turn-arrow .nav-turn-img {
   width: 88%;
   height: 88%;
@@ -120,7 +120,7 @@ html[data-theme="crt"] .nav-maneuver {
   transform: scaleX(-1);
 }
 
-/* Icons are white fills — invert on light HUD themes */
+/* Icons are white fills - invert on light HUD themes */
 html[data-theme="kidcore"] .nav-turn-arrow .nav-turn-img,
 html[data-theme="kawaii"] .nav-turn-arrow .nav-turn-img {
   filter: invert(1) brightness(0.2);
@@ -289,6 +289,15 @@ html[data-theme="crt"] .nav-maneuver-dist {
   flex: 1.55 1 0;
   min-width: 5.5rem;
   pointer-events: auto;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nav-hud-stats a.nav-stat-xp:hover,
+.nav-hud-stats a.nav-stat-xp:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nav-cyan) 45%, transparent);
 }
 
 .nav-xp-top {
@@ -348,6 +357,17 @@ html[data-theme="crt"] .nav-maneuver-dist {
   line-height: 1.1;
 }
 
+.nav-hud-stats .nav-stat-radio .nav-stat-new::before {
+  content: "new ";
+  font-size: 0.55em;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.9;
+  vertical-align: middle;
+  margin-right: 0.12em;
+}
+
 .nav-hud-stats .nav-stat-radio .nav-stat-seen {
   display: block;
   font-size: 0.78rem;
@@ -397,7 +417,7 @@ html[data-theme="crt"] .nav-maneuver-dist {
   text-overflow: ellipsis;
 }
 
-/* Compact control stack — play + vehicle + settings */
+/* Compact control stack - play + vehicle + settings */
 .nav-toolbar {
   --nav-tap: 3.6rem;
   --nav-tap-gap: 0.75rem;
@@ -547,7 +567,7 @@ html[data-theme="crt"] .nav-maneuver-dist {
   border: 1px solid rgba(142, 149, 160, 0.25);
 }
 
-/* Production icon-only chrome — large hit areas, centered glyphs */
+/* Production icon-only chrome - large hit areas, centered glyphs */
 .nav-toolbar-icons {
   width: auto;
   gap: var(--nav-tap-gap);
@@ -588,7 +608,7 @@ html[data-theme="crt"] .nav-maneuver-dist {
   height: 100%;
 }
 
-/* Primary play/stop — slightly larger */
+/* Primary play/stop - slightly larger */
 .nav-icon-btn-lg {
   width: calc(var(--nav-tap) + 0.35rem);
   height: calc(var(--nav-tap) + 0.35rem);
@@ -987,7 +1007,7 @@ html[data-theme="crt"] .nav-maneuver-dist {
   opacity: 0.9;
 }
 
-/* Turn-by-turn chevron — same shape every theme, fill from theme color */
+/* Turn-by-turn chevron - same shape every theme, fill from theme color */
 .nav-map-marker {
   width: 40px;
   height: 46px;
@@ -1140,7 +1160,7 @@ html[data-theme="crt"] .nav-ach-toast.is-mastered .nav-ach-status {
   font-size: 10px;
 }
 
-/* Pinch/scroll zoom only — no tiny +/- chrome */
+/* Pinch/scroll zoom only - no tiny +/- chrome */
 .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
   display: none !important;
 }
