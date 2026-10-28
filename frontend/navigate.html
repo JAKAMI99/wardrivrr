@@ -3,18 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0c0e11" />
-    <title>Navigate · wardrivrr</title>
+    <meta name="theme-color" content="#0c0d0f" />
+    <title>Drive · wardrivrr</title>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-    <link rel="stylesheet" href="/static/styles.css" />
-    <link rel="stylesheet" href="/static/themes.css?v=5" />
+    <link rel="stylesheet" href="/static/styles.css?v=21" />
+    <link rel="stylesheet" href="/static/themes.css?v=7" />
     <script src="/static/theme.js?v=13"></script>
-    <link rel="stylesheet" href="/static/navigate.css?v=50" />
+    <link rel="stylesheet" href="/static/navigate.css?v=51" />
   </head>
   <body class="nav-body" data-nav-night="0">
     <div class="app-shell nav-shell">
       <nav class="site-nav nav-site-nav" aria-label="Primary">
-        <a class="site-brand" href="/">wardrivrr <span>drive</span></a>
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
         <div class="site-links"></div>
       </nav>
 
@@ -171,9 +171,7 @@
             </p>
             <p class="muted nav-mode-blurb" id="navModeBlurb">-</p>
             <p class="muted nav-mode-hint">
-              Pick how Valhalla should route this drive. Fog roads come from the
-              active region - Drive usually switches by location; preload another
-              under Regions if you want one ready ahead of time.
+              Changes routing and which roads count as explored. Manage maps under Regions.
             </p>
             <ul class="nav-mode-presets" id="navModePresets"></ul>
             <a class="btn btn-primary nav-mode-levels" href="/regions">View regions</a>
@@ -210,7 +208,7 @@
 
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/nav.js?v=9"></script>
     <script src="/static/navigate.js?v=68"></script>
   </body>
 </html>

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0c0e11" />
+    <meta name="theme-color" content="#0c0d0f" />
     <title>Regions · wardrivrr</title>
     <link
       rel="stylesheet"
@@ -11,50 +11,35 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="/static/styles.css?v=20" />
-    <link rel="stylesheet" href="/static/themes.css?v=6" />
-    <script src="/static/theme.js?v=13"></script>
+    <link rel="stylesheet" href="/static/styles.css?v=22" />
+    <link rel="stylesheet" href="/static/themes.css?v=7" />
+    <script src="/static/theme.js?v=14"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
     <div class="app-shell">
       <nav class="site-nav" aria-label="Primary">
-        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
-        <div class="site-links">
-          <a href="/">Home</a>
-          <a href="/database">Database</a>
-          <a href="/stats">Stats</a>
-          <a href="/api">API</a>
-          <a class="active" href="/regions">Regions</a>
-          <a href="/discover">Discover</a>
-          <a href="/navigate">Navigate</a>
-          <a href="/status">Status</a>
-          <a href="/settings">Settings</a>
-        </div>
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links"></div>
       </nav>
 
       <main class="home-main settings-main">
         <header class="home-hero settings-hero">
           <h1>Regions</h1>
-          <p>
-            Preload a whole city or a sub-region. Matching sub-regions stay grouped under
-            their city. Drive can also pick one from your location.
-          </p>
+          <p>Preload a city or district. Drive can also pick one from your location.</p>
         </header>
 
-        <section class="tools-panel wizard-panel" aria-label="Preload region wizard">
+        <section class="tools-panel wizard-panel" aria-label="Preload region">
           <div class="wizard-steps" id="wizardSteps" aria-hidden="true">
             <span data-step="1" class="active">Place</span>
             <span data-step="2">Area</span>
-            <span data-step="3">Name</span>
-            <span data-step="4">Confirm</span>
-            <span data-step="5">Build</span>
+            <span data-step="3">Confirm</span>
+            <span data-step="4">Build</span>
           </div>
 
-          <!-- Step 1: Search -->
           <div class="wizard-pane" id="step1">
-            <h2>Where do you want to play?</h2>
-            <p class="muted">Cities and towns only - e.g. <em>Berlin, Germany</em> (not streets or neighbourhoods)</p>
+            <h2>Find a place</h2>
+            <p class="muted">City or town — e.g. Berlin, Germany</p>
             <form id="searchForm" class="settings-form">
               <label>
                 Place
@@ -67,14 +52,13 @@
             <div id="placeResults" class="levels-search-results"></div>
           </div>
 
-          <!-- Step 2: Download outlines + choose city / district -->
           <div class="wizard-pane" id="step2" hidden>
-            <h2 id="previewTitle">Choose your area</h2>
-            <p class="muted" id="previewSub">Preparing map data...</p>
+            <h2 id="previewTitle">Choose area</h2>
+            <p class="muted" id="previewSub">Preparing map data…</p>
             <div class="level-preview-wrap" id="previewWrap">
               <div id="previewMap" class="level-preview-map is-loading" role="img" aria-label="Area preview"></div>
               <div class="level-preview-overlay" id="previewOverlay" hidden>
-                <p id="prepareStatus">Downloading regional map data...</p>
+                <p id="prepareStatus">Downloading map pack…</p>
                 <div class="level-progress">
                   <div class="level-progress-track">
                     <div class="level-progress-fill" id="prepareFill"></div>
@@ -95,57 +79,27 @@
             </div>
           </div>
 
-          <!-- Step 3: Confirm level name (vehicle mode is chosen in Navigate) -->
           <div class="wizard-pane" id="step3" hidden>
-            <h2>One map for this place</h2>
-            <p class="muted">
-              Roads for every vehicle mode are imported once. Pick Car / Car B-road+ / Bike / Foot
-              later in <strong>Drive</strong> - never preload a second region for the same area.
-              Parking lots stay out.
-            </p>
-            <p class="muted rebuild-hint">
-              Already have an older pack of this place? Rebuild once to get the full street graph,
-              then switch mode in Drive.
-            </p>
-            <form class="settings-form" id="setupForm">
-              <p class="level-name-fixed">
-                Region name
-                <strong id="levelNameDisplay">-</strong>
-              </p>
-              <input type="hidden" id="levelName" />
-            </form>
-            <div class="tools-row wizard-nav">
-              <button class="btn" type="button" data-back="2">Back</button>
-              <button class="btn btn-primary" type="button" data-next="4">Next</button>
-            </div>
-          </div>
-
-          <!-- Step 4: Confirm download -->
-          <div class="wizard-pane" id="step4" hidden>
-            <h2>Ready to preload</h2>
+            <h2>Confirm</h2>
             <div class="confirm-card" id="confirmCard">
               <p id="confirmPlace"></p>
               <p class="confirm-size" id="confirmSize"></p>
-              <p class="muted" id="confirmHint">
-                The regional map pack is kept on disk and reused. Roads are clipped to this boundary -
-                the full playable graph (every vehicle mode). Switch Car / Car B-road+ / Bike / Foot
-                in Drive.
-              </p>
+              <p class="muted" id="confirmHint">Roads are clipped to this outline. Vehicle mode is chosen in Drive.</p>
               <details class="confirm-details">
-                <summary>Technical details</summary>
+                <summary>Pack details</summary>
                 <p id="confirmTech" class="muted"></p>
               </details>
             </div>
+            <input type="hidden" id="levelName" />
             <div class="tools-row wizard-nav">
-              <button class="btn" type="button" data-back="3">Back</button>
-              <button class="btn btn-primary" type="button" id="generateBtn">Preload region</button>
+              <button class="btn" type="button" data-back="2">Back</button>
+              <button class="btn btn-primary" type="button" id="generateBtn">Preload</button>
             </div>
           </div>
 
-          <!-- Step 5: Progress -->
-          <div class="wizard-pane" id="step5" hidden>
-            <h2 id="progressTitle">Building your region...</h2>
-            <p class="muted" id="progressMessage">Starting...</p>
+          <div class="wizard-pane" id="step4" hidden>
+            <h2 id="progressTitle">Building…</h2>
+            <p class="muted" id="progressMessage">Starting…</p>
             <div class="level-progress">
               <div class="level-progress-track">
                 <div class="level-progress-fill" id="progressFill"></div>
@@ -157,15 +111,14 @@
             </div>
             <ul class="level-stage-list" id="stageList">
               <li data-stage="extract">Find roads</li>
-              <li data-stage="roads">Build playable segments</li>
-              <li data-stage="finish">Finish up</li>
+              <li data-stage="roads">Build segments</li>
+              <li data-stage="finish">Finish</li>
             </ul>
           </div>
 
-          <!-- Done -->
           <div class="wizard-pane wizard-done" id="stepDone" hidden>
             <div class="done-burst" aria-hidden="true"></div>
-            <h2>You're set</h2>
+            <h2>Ready</h2>
             <p id="doneText" class="muted">Region ready.</p>
             <div class="tools-row">
               <button class="btn btn-primary" type="button" id="doneLoad">View regions</button>
@@ -178,7 +131,7 @@
 
         <section class="tools-panel" aria-label="Your regions" id="regionsListSection">
           <h2>Your regions</h2>
-          <div id="levelsList" class="levels-list">Loading...</div>
+          <div id="levelsList" class="levels-list">Loading…</div>
         </section>
       </main>
     </div>
@@ -188,7 +141,7 @@
       crossorigin=""
     ></script>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=8"></script>
-    <script src="/static/regions.js?v=15"></script>
+    <script src="/static/nav.js?v=9"></script>
+    <script src="/static/regions.js?v=16"></script>
   </body>
 </html>

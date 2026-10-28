@@ -13,17 +13,14 @@
     <div class="page-glow" aria-hidden="true"></div>
     <div class="app-shell">
       <nav class="site-nav" aria-label="Primary">
-        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
         <div class="site-links"></div>
       </nav>
 
       <main class="home-main settings-main">
         <header class="home-hero settings-hero">
           <h1>Settings</h1>
-          <p>
-            Account, localization, and data. Change appearance from your profile menu.
-            Live health lives on <a href="/status">Status</a>.
-          </p>
+          <p>Account, preferences, and data. Themes live in your profile menu.</p>
           <p class="muted" id="whoami"></p>
         </header>
 
@@ -54,7 +51,7 @@
               aria-label="Account"
             >
               <h2>Account</h2>
-              <p class="muted">Change how you sign in - display name and password.</p>
+              <p class="muted">Username and password.</p>
 
               <div class="xp-strip settings-xp" id="settingsXp" hidden>
                 <div class="xp-strip-meta">
@@ -64,7 +61,7 @@
                 <div class="xp-bar" aria-hidden="true">
                   <div class="xp-bar-fill" id="settingsXpFill" style="width:0%"></div>
                 </div>
-                <p class="muted settings-hint" id="settingsXpBlurb">XP and level from driving, finds, and achievements.</p>
+                <p class="muted settings-hint" id="settingsXpBlurb">From driving, finds, and badges.</p>
               </div>
 
               <form id="usernameForm" class="settings-form">
@@ -168,12 +165,11 @@
                 <label class="checkbox-row">
                   <input type="checkbox" id="anomalyAlerts" checked />
                   Special detections
-                  <span class="muted"> - Flipper, Starlink, trains... toasts &amp; Flipper/Starlink XP</span>
+                  <span class="muted"> — Flipper, Starlink, trains</span>
                 </label>
                 <label class="checkbox-row">
                   <input type="checkbox" id="achievementSounds" checked />
-                  Achievement &amp; detection sounds
-                  <span class="muted"> - short Web Audio cues (mute anytime)</span>
+                  Achievement sounds
                 </label>
                 <label>
                   Units
@@ -191,9 +187,7 @@
                     <option value="system">System</option>
                   </select>
                 </label>
-                <p class="muted settings-hint">
-                  Controls the Drive basemap: follow the sun at your GPS, force day/night, or match the OS light/dark preference.
-                </p>
+                <p class="muted settings-hint">Drive basemap day/night.</p>
                 <div class="tools-row">
                   <button class="btn btn-primary" type="submit">Save preferences</button>
                   <button class="btn" type="button" id="recomputeNow">Run full calculation now</button>
@@ -209,7 +203,7 @@
               hidden
             >
               <h2>Import capture file</h2>
-              <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV - same pipeline as the ingest API.</p>
+              <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV.</p>
               <input type="file" id="uploadFile" accept=".kismet,.csv,.wiglecsv,.db" />
               <div class="tools-row">
                 <button class="btn btn-primary btn-busyable" type="button" id="uploadBtn">
@@ -272,9 +266,8 @@
               hidden
             >
               <h2>Advanced</h2>
-              <p>
-                Ingest always uses fast 2D localization. Start a full 3D recalculation only when you can
-                wait - altitude stays stored either way.
+              <p class="muted">
+                Ingest uses fast 2D. Run 3D recalculation when you can wait — altitude is kept either way.
               </p>
               <div class="tools-row">
                 <span class="mode-pill" id="locMode">2d</span>

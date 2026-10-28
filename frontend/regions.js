@@ -252,12 +252,12 @@ function jobProgressText(job) {
     const ahead = Number(job.queue_ahead);
     if (Number.isFinite(ahead) && ahead > 0) {
       return ahead === 1
-        ? "Waiting for 1 other job to finish..."
-        : `Waiting for ${ahead} other jobs to finish...`;
+        ? "Waiting for 1 job…"
+        : `Waiting for ${ahead} jobs…`;
     }
-    return "Starting...";
+    return "Starting…";
   }
-  return "Working...";
+  return "Working…";
 }
 
 function placeButtonHtml(p, i) {
@@ -460,7 +460,7 @@ async function selectAreaOption(index) {
     ? selectedPlace.boundary?.type
       ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
       : "Loading sub-region boundary..."
-    : "Whole-city boundary - this will be your playable region";
+    : "Whole city";
   fillConfirm();
   setAreaNextEnabled(false);
   ensurePreviewMap();
@@ -537,35 +537,33 @@ async function searchPlaces(e) {
 }
 
 function setFixedLevelName(label) {
-  const name = label || "-";
-  document.getElementById("levelName").value = name === "-" ? "" : name;
-  const el = document.getElementById("levelNameDisplay");
-  if (el) el.textContent = name;
+  const name = label || "";
+  const el = document.getElementById("levelName");
+  if (el) el.value = name === "-" ? "" : name;
 }
 
 function fillConfirm() {
   if (!selectedPlace) return;
   const pack = selectedPlace.map_pack || prepareMeta?.map_pack || {};
-  const area = selectedPlace.area_km2 != null ? ` (${fmtArea(selectedPlace.area_km2)})` : "";
-  document.getElementById("confirmPlace").textContent =
-    `Preload region: ${selectedPlace.label}${area}`;
+  const area = selectedPlace.area_km2 != null ? ` · ${fmtArea(selectedPlace.area_km2)}` : "";
+  document.getElementById("confirmPlace").textContent = `${selectedPlace.label}${area}`;
   const packId = pack.id || prepareMeta?.extract_id || "";
-  const packName = pack.name || packId.split("/").pop() || "regional pack";
+  const packName = pack.name || packId.split("/").pop() || "map pack";
   const size = pack.size_bytes != null ? fmtBytes(pack.size_bytes) : null;
   const usedBy = prepareMeta?.pack_levels_count;
-  let sizeLine = `Map data comes from ${packName}`;
-  if (size) sizeLine += ` (${size})`;
+  const bits = [packName];
+  if (size) bits.push(size);
   if (usedBy != null) {
-    sizeLine +=
+    bits.push(
       usedBy === 0
-        ? " - not used by any of your regions yet"
-        : ` - already used by ${usedBy} of your region${usedBy === 1 ? "" : "s"}`;
+        ? "not used yet"
+        : `shared with ${usedBy} region${usedBy === 1 ? "" : "s"}`
+    );
   }
-  sizeLine += ".";
-  document.getElementById("confirmSize").textContent = sizeLine;
+  document.getElementById("confirmSize").textContent = bits.join(" · ");
   document.getElementById("confirmTech").textContent = packId
-    ? `Geofabrik extract: ${packId}`
-    : "Map pack resolved automatically.";
+    ? `Extract: ${packId}`
+    : "Pack chosen automatically.";
 }
 
 async function refreshExistingLevels() {
@@ -619,8 +617,8 @@ async function pollJob() {
     clearInterval(pollTimer);
     pollTimer = null;
     document.getElementById("progressFill").style.width = "100%";
-    document.getElementById("doneText").textContent =
-      `${document.getElementById("levelName").value} is ready.`;
+    const readyName = document.getElementById("levelName")?.value || selectedPlace?.label || "Region";
+    document.getElementById("doneText").textContent = `${readyName} is ready.`;
     goStep("done");
     document.getElementById("stepDone").classList.add("celebrate");
     await loadLevels();
@@ -630,7 +628,7 @@ async function pollJob() {
     clearInterval(pollTimer);
     pollTimer = null;
     showToast(job.error || "Build failed", true);
-    goStep(4);
+    goStep(3);
   }
 }
 
@@ -641,15 +639,14 @@ async function generateLevel() {
   }
   const name = selectedPlace.label;
   setFixedLevelName(name);
-  goStep(5);
-  document.getElementById("progressTitle").textContent = `Building ${name}...`;
+  goStep(4);
+  document.getElementById("progressTitle").textContent = `Building ${name}…`;
   document.getElementById("progressFill").style.width = "2%";
   setStage("extract");
 
   const payload = {
     name,
     place_query: selectedPlace.place_query || selectedPlace.label,
-    // Default Navigate mode only - map imports the full playable graph
     profile: "small_car",
     geofabrik_id: selectedPlace.map_pack.id,
     place_bbox: selectedPlace.bbox,
@@ -671,7 +668,7 @@ async function generateLevel() {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     showToast(body.detail || "Could not start", true);
-    goStep(4);
+    goStep(3);
     return;
   }
   createdLevelId = body.level?.id;
@@ -855,7 +852,7 @@ async function loadLevels() {
       return;
     }
     if (!Array.isArray(data) || !data.length) {
-      el.innerHTML = `<p class="muted">No regions yet - preload a place above, or let Drive offer one by location.</p>`;
+      el.innerHTML = `<p class="muted">No regions yet. Preload one above, or let Drive pick from your location.</p>`;
       return;
     }
     let activeId = null;
@@ -915,7 +912,7 @@ async function loadLevels() {
           ${
             city
               ? ""
-              : `<p class="muted level-group-note">Whole-city pack not preloaded — sub-regions below</p>`
+              : `<p class="muted level-group-note">City pack not loaded — sub-regions only</p>`
           }
           <div class="level-group-summary-tally" data-sub-tally>
             ${subTallyHtml(counts.complete, counts.progressing, counts.unloaded)}
@@ -1023,9 +1020,10 @@ document.querySelectorAll("[data-next]").forEach((btn) => {
   btn.addEventListener("click", () => {
     if (btn.disabled) return;
     if (Number(btn.dataset.next) === 3 && !selectedPlace?.boundary) {
-      showToast("Pick an area and wait for the boundary first", true);
+      showToast("Wait for the boundary to load", true);
       return;
     }
+    if (Number(btn.dataset.next) === 3) fillConfirm();
     goStep(Number(btn.dataset.next));
   });
 });

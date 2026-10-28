@@ -1,4 +1,4 @@
-/* Shared site nav - Drive + links, burger on mobile, account (+ theme) */
+/* Shared site nav - Drive + links, burger + bottom tabs on mobile, account (+ theme) */
 (function () {
   const PRIMARY = [
     { href: "/navigate", label: "Drive", match: ["/navigate"], drive: true },
@@ -6,6 +6,34 @@
     { href: "/progress", label: "Progress", match: ["/progress", "/discover"] },
     { href: "/database", label: "Database", match: ["/database"] },
     { href: "/status", label: "Status", match: ["/status"] },
+  ];
+
+  const BOTTOM = [
+    {
+      href: "/",
+      label: "Home",
+      match: ["/"],
+      exact: true,
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.2 3 11h2.5v8.5h5V14h3v5.5h5V11H21L12 3.2z"/></svg>`,
+    },
+    {
+      href: "/navigate",
+      label: "Drive",
+      match: ["/navigate"],
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C8.2 2 5.3 4.6 5 8.2L4 19h3.2l.6-3h8.4l.6 3H20L19 8.2C18.7 4.6 15.8 2 12 2zm-3.2 11.5.5-2.5h5.4l.5 2.5H8.8zM12 4.5c1.9 0 3.4 1.2 3.8 2.8H8.2C8.6 5.7 10.1 4.5 12 4.5z"/></svg>`,
+    },
+    {
+      href: "/regions",
+      label: "Regions",
+      match: ["/regions", "/levels"],
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2C8.1 2 5 5.1 5 9c0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>`,
+    },
+    {
+      href: "/progress",
+      label: "Progress",
+      match: ["/progress", "/discover"],
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 19h16v2H4v-2zm2.5-3.5 3.2-8.2 3.1 5.4 2.2-3.4L19 15.5h-2.2l-2.1-3.2-2.7 4.2-3.2-5.5L7.3 15.5H6.5z"/></svg>`,
+    },
   ];
 
   const ACCOUNT = [
@@ -18,7 +46,8 @@
     <path fill="currentColor" d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/>
   </svg>`;
 
-  function pathActive(path, match) {
+  function pathActive(path, match, exact) {
+    if (exact) return match.some((m) => path === m);
     return match.some((m) => path === m || path.startsWith(m + "/"));
   }
 
@@ -122,7 +151,7 @@
     const a = document.createElement("a");
     a.href = item.href;
     a.textContent = item.label;
-    const on = pathActive(path, item.match);
+    const on = pathActive(path, item.match, item.exact);
     if (item.drive) {
       a.className = "nav-drive";
       if (on) {
@@ -134,6 +163,23 @@
       a.setAttribute("aria-current", "page");
     }
     return a;
+  }
+
+  function buildBottomNav(path) {
+    const bar = document.createElement("nav");
+    bar.className = "site-bottom-nav";
+    bar.setAttribute("aria-label", "Primary");
+    for (const item of BOTTOM) {
+      const a = document.createElement("a");
+      a.href = item.href;
+      a.innerHTML = `${item.icon}<span>${item.label}</span>`;
+      if (pathActive(path, item.match, item.exact)) {
+        a.classList.add("is-current");
+        a.setAttribute("aria-current", "page");
+      }
+      bar.appendChild(a);
+    }
+    return bar;
   }
 
   async function resolveUser() {
@@ -227,6 +273,12 @@
       if (!isLogin) tail.appendChild(buildGuestLink());
     }
     nav.appendChild(tail);
+
+    if (!isLogin) {
+      document.querySelector(".site-bottom-nav")?.remove();
+      const shell = nav.closest(".app-shell") || document.body;
+      shell.appendChild(buildBottomNav(path));
+    }
 
     if (!document.body.dataset.navClickBound) {
       document.body.dataset.navClickBound = "1";

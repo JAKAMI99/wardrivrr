@@ -107,7 +107,7 @@ PARKING_SERVICE_TAGS = frozenset(
 PROFILE_META: dict[str, dict[str, Any]] = {
     "big_car": {
         "label": "Car B-road+",
-        "blurb": "Bigger & medium roads only — fewer turns, no cul-de-sacs or driveways.",
+        "blurb": "Main and medium roads. Skips cul-de-sacs and driveways.",
         "costing": "auto",
         "dead_end_min_m": 70.0,
         "exclude_all_dead_ends": True,
@@ -122,7 +122,7 @@ PROFILE_META: dict[str, dict[str, Any]] = {
     },
     "small_car": {
         "label": "Car",
-        "blurb": "Full street grid for completionists. Dead ends only if ≥ 100 m. No driveways.",
+        "blurb": "Full street grid. Dead ends ≥ 100 m. No driveways.",
         "costing": "auto",
         "dead_end_min_m": 100.0,
         "exclude_all_dead_ends": False,
@@ -134,7 +134,7 @@ PROFILE_META: dict[str, dict[str, Any]] = {
     },
     "bicycle": {
         "label": "Bike",
-        "blurb": "Cycleways & streets. Every dead end is fair game.",
+        "blurb": "Cycleways and streets. Includes dead ends.",
         "costing": "bicycle",
         "dead_end_min_m": 0.0,
         "exclude_all_dead_ends": False,
@@ -145,7 +145,7 @@ PROFILE_META: dict[str, dict[str, Any]] = {
     },
     "foot": {
         "label": "On foot",
-        "blurb": "Paths, tracks, gravel & grass-friendly ways. Every dead end.",
+        "blurb": "Paths and tracks. Includes dead ends.",
         "costing": "pedestrian",
         "dead_end_min_m": 0.0,
         "exclude_all_dead_ends": False,

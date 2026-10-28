@@ -3,41 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0c0e11" />
+    <meta name="theme-color" content="#0c0d0f" />
     <title>wardrivrr</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-    <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=13"></script>
+    <link rel="stylesheet" href="/static/styles.css?v=22" />
+    <link rel="stylesheet" href="/static/themes.css?v=7" />
+    <script src="/static/theme.js?v=14"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
     <div class="app-shell">
       <nav class="site-nav" aria-label="Primary">
-        <a class="site-brand" href="/">wardrivrr <span>local explorer</span></a>
-        <div class="site-links">
-          <a class="active" href="/">Home</a>
-          <a href="/database">Database</a>
-          <a href="/stats">Stats</a>
-          <a href="/regions">Regions</a>
-          <a href="/discover">Discover</a>
-          <a href="/navigate">Navigate</a>
-          <a href="/api">API</a>
-          <a href="/status">Status</a>
-          <a href="/settings">Settings</a>
-        </div>
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links"></div>
       </nav>
 
       <main class="home-main">
         <header class="home-hero">
-          <p class="home-kicker">Main feature</p>
-          <h1>Go collect signals<em>.</em></h1>
-          <p>
-            Drive, explore unread streets, and gather Wi-Fi and Bluetooth as you go -
-            guided routes on a pitched map, one corridor at a time.
-          </p>
+          <p class="home-kicker">wardrivrr</p>
+          <h1>Unread streets<em>.</em></h1>
+          <p>Drive guided routes and pick up Wi‑Fi and Bluetooth along the way.</p>
           <div class="hero-actions">
-            <a class="btn btn-primary btn-lg" href="/navigate">Start driving</a>
-            <a class="btn btn-ghost" href="/regions">View regions</a>
+            <a class="btn btn-primary btn-lg" href="/navigate">Drive</a>
+            <a class="btn btn-ghost" href="/regions">Regions</a>
           </div>
         </header>
 
@@ -84,8 +71,8 @@
 
         <div class="section-head" id="modules">
           <div>
-            <h2>Modules</h2>
-            <p>What you can open today - and what's next.</p>
+            <h2>Open</h2>
+            <p>Where to go next.</p>
           </div>
         </div>
 
@@ -93,53 +80,46 @@
           <a class="module module-featured" href="/navigate">
             <div class="module-top">
               <span class="module-kicker">Drive</span>
-              <span class="badge live">Main</span>
             </div>
             <h3>Drive</h3>
-            <p>
-              Go out, explore, and collect signals - turn-by-turn into streets you haven't covered yet.
-            </p>
-            <span class="module-foot">Open drive -></span>
+            <p>Live navigation into uncovered streets.</p>
+            <span class="module-foot">Open</span>
           </a>
 
           <a class="module" href="/regions">
             <div class="module-top">
               <span class="module-kicker">Map</span>
-              <span class="badge live">Live</span>
             </div>
             <h3>Regions</h3>
-            <p>Preload a city or district when you want a pack ready - Drive also picks by location.</p>
-            <span class="module-foot">View regions -></span>
+            <p>Download city and district maps.</p>
+            <span class="module-foot">Open</span>
           </a>
 
           <a class="module" href="/progress">
             <div class="module-top">
               <span class="module-kicker">Map</span>
-              <span class="badge live">Live</span>
             </div>
             <h3>Progress</h3>
-            <p>Fog of war - driven roads bright, untouched streets dark.</p>
-            <span class="module-foot">Open progress -></span>
+            <p>See which roads you’ve covered.</p>
+            <span class="module-foot">Open</span>
           </a>
 
           <a class="module" href="/database">
             <div class="module-top">
               <span class="module-kicker">Signals</span>
-              <span class="badge live">Live</span>
             </div>
             <h3>Database</h3>
-            <p>Search Wi-Fi, Bluetooth and BLE on the map - filters, time, encryption.</p>
-            <span class="module-foot">Open explorer -></span>
+            <p>Browse Wi‑Fi and Bluetooth finds.</p>
+            <span class="module-foot">Open</span>
           </a>
 
           <a class="module" href="/stats">
             <div class="module-top">
-              <span class="module-kicker">Progress</span>
-              <span class="badge live">Live</span>
+              <span class="module-kicker">You</span>
             </div>
             <h3>Stats</h3>
-            <p>Level, XP breakdown, session stats, and achievements - one hangout page.</p>
-            <span class="module-foot">Open stats -></span>
+            <p>XP, sessions, and badges.</p>
+            <span class="module-foot">Open</span>
           </a>
         </section>
 
@@ -147,7 +127,7 @@
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/nav.js?v=9"></script>
     <script src="/static/home.js?v=3"></script>
   </body>
 </html>
