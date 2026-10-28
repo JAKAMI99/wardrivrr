@@ -78,9 +78,12 @@ def prepare_place_options(
             "name": city_name,
             "population": population,
             "place_type": "city",
+            "place_kind": "city",
             "place_query": city_name,
             "country_code": country_code,
-            "parent_label": city_name,
+            # Do not set parent_label on the city itself — that made the UI treat
+            # it like a sub-region in some older checks.
+            "parent_label": None,
             "osm_relation_id": city["osm_id"],
             "osm_admin_level": city["admin_level"],
             "map_pack": prep["map_pack"],
@@ -90,23 +93,25 @@ def prepare_place_options(
     districts = []
     for d in opts.get("districts") or []:
         level_name = fixed_level_name(city_name, d["name"])
+        has_boundary = bool(d.get("boundary") and d["boundary"].get("type"))
         districts.append(
             {
                 "label": level_name,
-                "display_name": f"District · {city_name}",
+                "display_name": f"Sub-region · {city_name}",
                 "lat": d["lat"],
                 "lon": d["lon"],
                 "bbox": d["bbox"],
-                "boundary": None,
-                "boundary_approximate": True,
+                "boundary": d.get("boundary"),
+                "boundary_approximate": not has_boundary,
                 "area_km2": d.get("area_km2"),
                 "geoname_id": None,
                 "name": d["name"],
                 "population": None,
                 "place_type": "district",
+                "place_kind": "district",
                 "place_query": level_name,
                 "country_code": country_code,
-                "part_label": "District",
+                "part_label": "Sub-region",
                 "parent_label": city_name,
                 "parent_geoname_id": geoname_id,
                 "osm_relation_id": d["osm_id"],

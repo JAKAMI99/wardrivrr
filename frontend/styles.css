@@ -1566,27 +1566,28 @@ a.module:hover {
   border-color: rgba(120, 220, 160, 0.35);
 }
 
-.level-group-toggle {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.75rem;
-  text-align: left;
-  background: transparent;
+.level-group.is-complete {
+  border-color: rgba(61, 214, 140, 0.28);
+}
+
+.level-group-root {
   border: 0;
-  color: inherit;
-  padding: 0.85rem 1rem;
-  cursor: pointer;
+  border-radius: 0;
+  background: transparent;
 }
 
-.level-group-toggle::before {
+.level-group-summary-tally {
+  width: 100%;
+  margin-top: 0.45rem;
+}
+
+.level-group-fold .level-group-chevron::before {
   content: "▸";
-  margin-right: 0.45rem;
-  opacity: 0.7;
+  margin-left: 0.25rem;
+  opacity: 0.75;
 }
 
-.level-group.open .level-group-toggle::before {
+.level-group.open .level-group-fold .level-group-chevron::before {
   content: "▾";
 }
 
@@ -1613,8 +1614,79 @@ a.module:hover {
 }
 
 .level-card.is-part {
-  margin-left: 0.35rem;
+  margin-left: 0.85rem;
   border-left: 2px solid rgba(120, 190, 255, 0.3);
+}
+
+.level-sub-tally {
+  margin: 0;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--muted, #8e95a0);
+  line-height: 1.35;
+}
+
+.level-sub-tally .tally-done,
+.level-sub-tally .tally-open,
+.level-sub-tally .tally-miss {
+  font-weight: 700;
+}
+
+.level-sub-tally .tally-done {
+  color: #3dd68c;
+}
+
+.level-sub-tally .tally-open {
+  color: #ff6b6b;
+}
+
+.level-sub-tally .tally-miss {
+  color: #9aa3ad;
+}
+
+.level-mode-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.65rem 0 0.35rem;
+}
+
+.level-mode-bar-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted, #8e95a0);
+  margin-bottom: 0.18rem;
+}
+
+.level-mode-bar-label {
+  font-weight: 500;
+  color: inherit;
+}
+
+.level-mode-bar-pct {
+  font-variant-numeric: tabular-nums;
+}
+
+.level-mode-bar-track {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.level-mode-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #3a8fd6, #7ef0ff);
+  transition: width 0.25s ease;
+}
+
+.level-mode-bar.is-complete .level-mode-bar-fill {
+  background: linear-gradient(90deg, #2f9e6a, #7dffb5);
 }
 
 .level-card .place-kind {
@@ -1686,11 +1758,6 @@ a.module:hover {
 
 .level-card-name {
   min-width: 0;
-}
-
-.level-mode-line {
-  margin: 0.35rem 0 0;
-  font-size: 0.85rem;
 }
 
 .level-place-hint {

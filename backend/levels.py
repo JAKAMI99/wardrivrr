@@ -6,7 +6,7 @@ import os
 import time
 import urllib.parse
 import urllib.request
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -229,8 +229,12 @@ def _chunked(items: list, n_chunks: int) -> list[list]:
 
 
 def _executor(workers: int):
-    """Process pool for multi-core; threads if processes can't start (e.g. frozen)."""
+    """Process pool for multi-core; threads if processes can't start (e.g. frozen / shutdown)."""
     try:
+        # Lazy: importing ProcessPoolExecutor registers an atexit hook; that fails
+        # if first import happens on a worker thread after interpreter shutdown began.
+        from concurrent.futures import ProcessPoolExecutor
+
         return ProcessPoolExecutor(max_workers=workers)
     except Exception:
         return ThreadPoolExecutor(max_workers=workers)
@@ -393,6 +397,19 @@ _LEVEL_SELECT = """
            CASE WHEN bbox IS NOT NULL THEN ST_AsGeoJSON(bbox)::json END AS boundary
 """
 
+# Regions list must stay light — full boundary GeoJSON freezes the page on load.
+_LEVEL_SELECT_LIST = """
+    SELECT id, name, place_query, geofabrik_id, geofabrik_name, profile,
+           status, road_km, disk_bytes, networks_count, networks_wifi,
+           networks_bt, networks_ble, explored_km, explored_pct,
+           place_kind, geoname_id, parent_geoname_id, parent_label, part_label,
+           osm_relation_id, osm_admin_level,
+           error, created_at, updated_at, pbf_url,
+           CASE WHEN bbox IS NOT NULL THEN
+             ARRAY[ST_XMin(bbox), ST_YMin(bbox), ST_XMax(bbox), ST_YMax(bbox)]
+           END AS bbox
+"""
+
 
 def count_levels_for_extract(user_id: int, geofabrik_id: str) -> int:
     """How many of this user's levels already use the same regional map pack."""
@@ -432,7 +449,11 @@ def _short_pack_name(
 
 
 def _enrich_levels_pack_meta(levels: list[dict]) -> list[dict]:
-    """Attach pack display name, size, and how many sibling levels share the extract."""
+    """Attach pack display name, size, and how many sibling levels share the extract.
+
+    Keep this cheap — Regions list calls it on every page load. Do not hit
+    Geofabrik resolve/network here; disk_bytes / geofabrik_name on the row are enough.
+    """
     if not levels:
         return levels
     from collections import Counter
@@ -443,23 +464,11 @@ def _enrich_levels_pack_meta(levels: list[dict]) -> list[dict]:
         if gid and lv.get("status") != "error":
             counts[gid] += 1
 
-    feat_cache: dict[str, dict] = {}
     for lv in levels:
         gid = lv.get("geofabrik_id") or ""
-        if gid and gid not in feat_cache:
-            feat = resolve_feature(gid)
-            if feat:
-                from geofabrik import feature_summary
-
-                feat_cache[gid] = feature_summary(feat)
-            else:
-                feat_cache[gid] = {}
-        summary = feat_cache.get(gid) or {}
         n = int(counts.get(gid, 0)) if gid else 0
-        lv["pack_name"] = _short_pack_name(
-            gid, lv.get("geofabrik_name"), summary.get("name")
-        )
-        lv["pack_size_bytes"] = summary.get("size_bytes") or lv.get("disk_bytes")
+        lv["pack_name"] = _short_pack_name(gid, lv.get("geofabrik_name"), None)
+        lv["pack_size_bytes"] = lv.get("disk_bytes")
         lv["pack_levels_count"] = n
         lv["pack_other_levels"] = max(0, n - 1) if gid else 0
         lv["profile_norm"] = normalize_profile(lv.get("profile"))
@@ -657,18 +666,61 @@ def create_level(
         conn.close()
 
 
+def _attach_by_profile(levels: list[dict]) -> list[dict]:
+    """Batch per-mode explored % for Regions cards (one query for all ready levels)."""
+    if not levels:
+        return levels
+    ready_ids = [
+        int(lv["id"])
+        for lv in levels
+        if lv.get("id") is not None and lv.get("status") == "ready"
+    ]
+    by_level: dict[int, list[dict]] = {lid: [] for lid in ready_ids}
+    if ready_ids:
+        conn = connect_dict()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                      level_id,
+                      highway,
+                      is_explored,
+                      COALESCE(SUM(length_m), 0)::float AS length_m
+                    FROM road_segments
+                    WHERE level_id = ANY(%s)
+                    GROUP BY level_id, highway, is_explored
+                    """,
+                    (ready_ids,),
+                )
+                for row in cur.fetchall():
+                    lid = int(row["level_id"])
+                    if lid in by_level:
+                        by_level[lid].append(row)
+        finally:
+            conn.close()
+    for lv in levels:
+        lid = lv.get("id")
+        if lid is not None and int(lid) in by_level:
+            lv["by_profile"] = _profile_progress_from_highway_rows(by_level[int(lid)])
+        else:
+            lv["by_profile"] = _profile_progress_from_highway_rows([])
+    return levels
+
+
 def list_levels(user_id: int) -> list[dict]:
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                _LEVEL_SELECT + " FROM levels WHERE user_id = %s ORDER BY id DESC",
+                _LEVEL_SELECT_LIST
+                + " FROM levels WHERE user_id = %s ORDER BY id DESC",
                 (user_id,),
             )
             rows = cur.fetchall()
     finally:
         conn.close()
-    return _enrich_levels_pack_meta(rows)
+    return _attach_by_profile(_enrich_levels_pack_meta(rows))
 
 
 def get_level(user_id: int, level_id: int) -> dict | None:

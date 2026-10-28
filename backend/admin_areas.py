@@ -236,6 +236,7 @@ def place_options_for_city(
                     "lat": full["lat"],
                     "lon": full["lon"],
                     "area_km2": geom_area_km2(geom),
+                    "boundary": geom,
                     "place_type": "district",
                     "part_label": "District",
                 }

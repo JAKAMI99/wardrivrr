@@ -125,13 +125,7 @@ def resolve_city_parts(
     Polygons are read on select via resolve_relation_boundary.
     """
     _ = country_code, geoname_id
-    if not city_may_have_parts(population=population, bbox=bbox):
-        return {
-            "parts": [],
-            "skipped_reason": "city_too_small",
-            "parent_admin_level": None,
-            "child_admin_level": None,
-        }
+    # Resolve the city first so size can use its real bbox (callers often omit bbox).
     city = admin_areas.find_city(lat, lon, name)
     if not city and geofabrik_id:
         if admin_areas.ensure_extract_indexed(geofabrik_id):
@@ -140,6 +134,16 @@ def resolve_city_parts(
         return {
             "parts": [],
             "skipped_reason": "not_indexed",
+            "parent_admin_level": None,
+            "child_admin_level": None,
+        }
+    if not city_may_have_parts(
+        population=population,
+        bbox=bbox or city.get("bbox"),
+    ):
+        return {
+            "parts": [],
+            "skipped_reason": "city_too_small",
             "parent_admin_level": None,
             "child_admin_level": None,
         }

@@ -13,6 +13,9 @@ let userUnits = "metric";
 let placeResults = [];
 let prepareMeta = null; // last prepare job result (pack reuse info)
 let existingOsmIds = new Set();
+let areaSelectSeq = 0;
+let preparePollInFlight = false;
+let areaChoicesGen = 0;
 
 function fmt(n) {
   if (n == null || Number.isNaN(Number(n))) return "-";
@@ -21,9 +24,87 @@ function fmt(n) {
 
 const COMPLETE_PCT = 90;
 
+const MODE_PRESETS = [
+  { id: "big_car", label: "Car B-road+" },
+  { id: "small_car", label: "Car" },
+  { id: "bicycle", label: "Bike" },
+  { id: "foot", label: "On foot" },
+];
+
 function isLevelComplete(lv) {
+  const car = lv?.by_profile?.small_car;
+  if (car && typeof car.complete === "boolean") return car.complete;
   if (lv && typeof lv.complete === "boolean") return lv.complete;
   return Number(lv?.explored_pct || 0) >= COMPLETE_PCT;
+}
+
+function levelByProfile(lv) {
+  return lv?.by_profile && typeof lv.by_profile === "object" ? lv.by_profile : {};
+}
+
+function aggregateByProfile(levels) {
+  const ready = (levels || []).filter((lv) => lv && lv.status === "ready");
+  const out = {};
+  for (const mode of MODE_PRESETS) {
+    const rows = ready
+      .map((lv) => levelByProfile(lv)[mode.id])
+      .filter(Boolean);
+    if (!rows.length) {
+      out[mode.id] = { explored_pct: 0, complete: false, label: mode.label };
+      continue;
+    }
+    const pct =
+      rows.reduce((a, r) => a + (Number(r.explored_pct) || 0), 0) / rows.length;
+    out[mode.id] = {
+      explored_pct: pct,
+      complete: pct >= COMPLETE_PCT,
+      label: mode.label,
+    };
+  }
+  return out;
+}
+
+function modeBarsHtml(byProfile) {
+  const by = byProfile || {};
+  return `<div class="level-mode-bars" aria-label="Explored by drive mode">
+    ${MODE_PRESETS.map((mode) => {
+      const row = by[mode.id] || {};
+      const pct = Math.max(0, Math.min(100, Number(row.explored_pct) || 0));
+      const done = !!(row.complete || pct >= COMPLETE_PCT);
+      return `<div class="level-mode-bar${done ? " is-complete" : ""}">
+        <div class="level-mode-bar-meta">
+          <span class="level-mode-bar-label">${escapeHtml(mode.label)}</span>
+          <span class="level-mode-bar-pct">${fmtPct(pct)}</span>
+        </div>
+        <div class="level-mode-bar-track" role="progressbar" aria-valuenow="${pct.toFixed(0)}" aria-valuemin="0" aria-valuemax="100" aria-label="${escapeHtml(mode.label)} explored">
+          <div class="level-mode-bar-fill" style="width:${pct}%"></div>
+        </div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function subTallyHtml(complete, progressing, unloaded) {
+  const unload =
+    unloaded == null || Number.isNaN(Number(unloaded))
+      ? "—"
+      : String(unloaded);
+  return `<p class="level-sub-tally" title="Completed / progressing / unloaded sub-regions">
+    <span class="tally-done">${complete}</span> completed,
+    <span class="tally-open">${progressing}</span> progressing,
+    <span class="tally-miss">${escapeHtml(unload)}</span> unloaded
+  </p>`;
+}
+
+function levelCenter(lv) {
+  const bbox = lv?.bbox;
+  if (Array.isArray(bbox) && bbox.length >= 4) {
+    const [w, s, e, n] = bbox.map(Number);
+    if ([w, s, e, n].every((x) => Number.isFinite(x))) {
+      return { lat: (s + n) / 2, lon: (w + e) / 2 };
+    }
+  }
+  return null;
 }
 
 function fmtBytes(n) {
@@ -253,42 +334,53 @@ async function beginPrepare(city) {
 }
 
 async function pollPrepareJob() {
-  if (!prepareJobId) return;
-  const res = await WardAuth.apiFetch(`/api/jobs/${prepareJobId}`);
-  const job = await res.json().catch(() => ({}));
-  if (!res.ok) return;
-  const result = job.result || {};
-  const progress = Math.max(0, Math.min(1, Number(job.progress) || 0));
-  const pct = Math.round(progress * 100);
-  document.getElementById("prepareFill").style.width = `${pct}%`;
-  document.getElementById("preparePct").textContent = `${pct}%`;
-  document.getElementById("prepareStatus").textContent = jobProgressText(job);
-  document.getElementById("prepareEta").textContent = fmtEta(result.eta_seconds);
+  if (!prepareJobId || preparePollInFlight) return;
+  preparePollInFlight = true;
+  const jobId = prepareJobId;
+  try {
+    const res = await WardAuth.apiFetch(`/api/jobs/${jobId}`);
+    const job = await res.json().catch(() => ({}));
+    if (!res.ok) return;
+    // Stale poll after a newer prepare started
+    if (prepareJobId !== jobId) return;
+    const result = job.result || {};
+    const progress = Math.max(0, Math.min(1, Number(job.progress) || 0));
+    const pct = Math.round(progress * 100);
+    document.getElementById("prepareFill").style.width = `${pct}%`;
+    document.getElementById("preparePct").textContent = `${pct}%`;
+    document.getElementById("prepareStatus").textContent = jobProgressText(job);
+    document.getElementById("prepareEta").textContent = fmtEta(result.eta_seconds);
 
-  if (job.status === "done") {
-    clearInterval(prepareTimer);
-    prepareTimer = null;
-    prepareJobId = null;
-    document.getElementById("prepareFill").style.width = "100%";
-    document.getElementById("preparePct").textContent = "100%";
-    await showAreaChoices(result);
-    return;
-  }
-  if (job.status === "error") {
-    clearInterval(prepareTimer);
-    prepareTimer = null;
-    prepareJobId = null;
-    setMapLoading(false);
-    document.getElementById("previewSub").textContent =
-      job.error || "Prepare failed";
-    showToast(job.error || "Prepare failed", true);
+    if (job.status === "done") {
+      clearInterval(prepareTimer);
+      prepareTimer = null;
+      prepareJobId = null;
+      document.getElementById("prepareFill").style.width = "100%";
+      document.getElementById("preparePct").textContent = "100%";
+      await showAreaChoices(result);
+      return;
+    }
+    if (job.status === "error") {
+      clearInterval(prepareTimer);
+      prepareTimer = null;
+      prepareJobId = null;
+      setMapLoading(false);
+      document.getElementById("previewSub").textContent =
+        job.error || "Prepare failed";
+      showToast(job.error || "Prepare failed", true);
+    }
+  } finally {
+    preparePollInFlight = false;
   }
 }
 
 async function showAreaChoices(result) {
+  const gen = ++areaChoicesGen;
   setMapLoading(false);
   prepareMeta = result;
   await refreshExistingLevels();
+  // A newer prepare finished while we were refreshing — drop this paint
+  if (gen !== areaChoicesGen) return;
   const city = result.city;
   const districts = result.districts || [];
   areaOptions = [];
@@ -324,7 +416,8 @@ async function showAreaChoices(result) {
       selectAreaOption(Number(btn.dataset.areaI));
     });
   });
-  // Pre-select first available (not already owned)
+  // Pre-select first available (not already owned). Prefer leaving a user
+  // pick alone if showAreaChoices races with itself.
   const firstFree = areaOptions.findIndex(
     (p) => p.osm_relation_id == null || !existingOsmIds.has(String(p.osm_relation_id))
   );
@@ -351,14 +444,22 @@ function areaChoiceHtml(p, i) {
 async function selectAreaOption(index) {
   const place = areaOptions[index];
   if (!place) return;
-  selectedPlace = { ...place };
+  const seq = ++areaSelectSeq;
+  // Deep-enough copy so later stale fetches cannot leak into areaOptions
+  selectedPlace = {
+    ...place,
+    boundary: place.boundary || null,
+    map_pack: place.map_pack ? { ...place.map_pack } : place.map_pack,
+  };
   document.querySelectorAll(".area-choice-btn").forEach((btn) => {
     btn.classList.toggle("is-selected", Number(btn.dataset.areaI) === index);
   });
   setFixedLevelName(selectedPlace.label);
   document.getElementById("previewTitle").textContent = selectedPlace.label;
   document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-    ? "Loading sub-region boundary..."
+    ? selectedPlace.boundary?.type
+      ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
+      : "Loading sub-region boundary..."
     : "Whole-city boundary - this will be your playable region";
   fillConfirm();
   setAreaNextEnabled(false);
@@ -366,7 +467,7 @@ async function selectAreaOption(index) {
 
   if (selectedPlace.boundary && selectedPlace.boundary.type) {
     selectedPlace.boundary_approximate = false;
-    paintPreview();
+    paintPreview(selectedPlace);
     document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
       ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
       : `City boundary · ${fmtArea(selectedPlace.area_km2)}`;
@@ -374,7 +475,7 @@ async function selectAreaOption(index) {
     return;
   }
 
-  paintPreview();
+  paintPreview(selectedPlace);
   try {
     const params = new URLSearchParams();
     if (selectedPlace.osm_relation_id != null) {
@@ -387,14 +488,19 @@ async function selectAreaOption(index) {
     }
     const bRes = await WardAuth.apiFetch(`/api/levels/places/boundary?${params}`);
     const bData = await bRes.json().catch(() => ({}));
+    // User picked another area while this request was in flight
+    if (seq !== areaSelectSeq) return;
     if (bRes.ok && bData.boundary) {
-      selectedPlace.boundary = bData.boundary;
-      selectedPlace.boundary_approximate = false;
-      if (bData.bbox) selectedPlace.bbox = bData.bbox;
+      selectedPlace = {
+        ...selectedPlace,
+        boundary: bData.boundary,
+        boundary_approximate: false,
+        bbox: bData.bbox || selectedPlace.bbox,
+      };
       document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
         ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
         : `City boundary · ${fmtArea(selectedPlace.area_km2)}`;
-      paintPreview();
+      paintPreview(selectedPlace);
       setAreaNextEnabled(true);
     } else {
       document.getElementById("previewSub").textContent =
@@ -402,6 +508,7 @@ async function selectAreaOption(index) {
       showToast(bData.detail || "Boundary missing", true);
     }
   } catch {
+    if (seq !== areaSelectSeq) return;
     document.getElementById("previewSub").textContent = "Could not load boundary";
   }
 }
@@ -516,7 +623,7 @@ async function pollJob() {
       `${document.getElementById("levelName").value} is ready.`;
     goStep("done");
     document.getElementById("stepDone").classList.add("celebrate");
-    loadLevels();
+    await loadLevels();
     return;
   }
   if (job.status === "error") {
@@ -602,6 +709,7 @@ function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
     !under && lv.place_query && lv.place_query !== title
       ? `<p class="muted level-place-hint">${escapeHtml(lv.place_query)}</p>`
       : "";
+  const by = levelByProfile(lv);
   return `
     <article class="level-card ${isActive ? "active" : ""} ${sub ? "is-part" : ""} ${done ? "is-complete" : ""}">
       <header>
@@ -609,14 +717,13 @@ function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
           <span class="level-card-name">${kind}${escapeHtml(title)}</span>
         </h3>
         <span class="level-status-stack">
-          ${done ? `<span class="level-complete-badge" title="≥ ${COMPLETE_PCT}% roads unlocked">Complete</span>` : ""}
+          ${done ? `<span class="level-complete-badge" title="≥ ${COMPLETE_PCT}% Car roads unlocked">Complete</span>` : ""}
           <span class="level-status status-${lv.status}">${lv.status}</span>
         </span>
       </header>
-      <p class="muted level-mode-line">Vehicle mode -> Drive</p>
       ${under}${placeHint}
+      ${modeBarsHtml(by)}
       <ul class="level-stats">
-        <li>${fmtPct(lv.explored_pct)} explored${done ? " · done" : ""}</li>
         <li>${fmt(lv.road_km?.toFixed?.(1) ?? lv.road_km)} km roads</li>
         ${pack ? `<li>${pack}</li>` : ""}
         <li>${fmt(lv.networks_count)} networks</li>
@@ -632,6 +739,25 @@ function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
         <button class="btn" data-del="${lv.id}">Delete</button>
       </div>
     </article>`;
+}
+
+function groupSummaryBars(g) {
+  if (g.city && g.city.status === "ready") return levelByProfile(g.city);
+  return aggregateByProfile(g.parts);
+}
+
+function groupSubCounts(g, availableTotal) {
+  const parts = (g.parts || []).filter((p) => p.status !== "error");
+  const complete = parts.filter(
+    (p) => p.status === "ready" && isLevelComplete(p)
+  ).length;
+  const progressing = Math.max(0, parts.length - complete);
+  let unloaded = null;
+  if (availableTotal != null && Number.isFinite(Number(availableTotal))) {
+    // Catalog total minus anything already downloaded (complete or in progress).
+    unloaded = Math.max(0, Number(availableTotal) - complete - progressing);
+  }
+  return { complete, progressing, unloaded, downloaded: parts.length };
 }
 
 function groupLevels(levels) {
@@ -719,68 +845,157 @@ function bindLevelActions(el) {
 }
 
 async function loadLevels() {
-  const res = await WardAuth.apiFetch("/api/levels");
-  const data = await res.json().catch(() => []);
   const el = document.getElementById("levelsList");
-  if (!res.ok) {
-    el.textContent = data.detail || "Failed to load regions";
-    return;
-  }
-  if (!data.length) {
-    el.innerHTML = `<p class="muted">No regions yet - preload a place above, or let Drive offer one by location.</p>`;
-    return;
-  }
-  const settings = await WardAuth.apiFetch("/api/settings").then((r) => r.json());
-  const activeId = settings.active_level_id ? String(settings.active_level_id) : null;
-  const { menus, flat } = groupLevels(data);
+  if (!el) return;
+  try {
+    const res = await WardAuth.apiFetch("/api/levels");
+    const data = await res.json().catch(() => []);
+    if (!res.ok) {
+      el.textContent = data.detail || "Failed to load regions";
+      return;
+    }
+    if (!Array.isArray(data) || !data.length) {
+      el.innerHTML = `<p class="muted">No regions yet - preload a place above, or let Drive offer one by location.</p>`;
+      return;
+    }
+    let activeId = null;
+    try {
+      const settings = await WardAuth.apiFetch("/api/settings").then((r) => r.json());
+      activeId = settings.active_level_id ? String(settings.active_level_id) : null;
+    } catch {
+      /* list can render without active highlight */
+    }
+    const { menus, flat } = groupLevels(data);
 
-  const menuHtml = menus
-    .map((g) => {
-      const cityPct = g.city?.explored_pct;
-      const partPcts = g.parts.map((p) => Number(p.explored_pct) || 0);
-      const summaryPct =
-        cityPct != null
-          ? fmtPct(cityPct)
-          : partPcts.length
-            ? fmtPct(partPcts.reduce((a, b) => a + b, 0) / partPcts.length)
-            : "-";
-      const districtsDone = g.parts.filter((p) => isLevelComplete(p)).length;
-      const districtsTotal = g.parts.length;
-      const districtLine =
-        districtsTotal > 0
-          ? `${districtsDone}/${districtsTotal} sub-region${districtsTotal === 1 ? "" : "s"} complete`
-          : "";
-      const cityDone = g.city && isLevelComplete(g.city);
-      const hasActive =
-        (g.city && activeId && String(g.city.id) === activeId) ||
-        g.parts.some((p) => activeId && String(p.id) === activeId);
-      return `
-      <section class="level-group ${hasActive ? "has-active" : ""} ${cityDone || (districtsTotal && districtsDone === districtsTotal) ? "is-complete" : ""} open">
-        <button type="button" class="level-group-toggle" data-toggle-group aria-expanded="true">
-          <span class="level-group-title">${escapeHtml(g.label)} <span class="level-group-kind">City</span>${cityDone || (districtsTotal && districtsDone === districtsTotal) ? ' <span class="level-complete-badge">Complete</span>' : ""}</span>
-          <span class="muted">${districtLine || `${g.parts.length} sub-region${g.parts.length === 1 ? "" : "s"}`} · ${summaryPct} explored</span>
+    const menuHtml = menus
+      .map((g, gi) => {
+        const city = g.city;
+        const counts = groupSubCounts(g, null);
+        const cityDone = city && isLevelComplete(city);
+        const partsAllDone =
+          counts.downloaded > 0 &&
+          counts.complete === counts.downloaded &&
+          (counts.unloaded == null || counts.unloaded === 0);
+        const groupDone = !!(cityDone || partsAllDone);
+        const isActive =
+          (city && activeId && String(city.id) === activeId) ||
+          g.parts.some((p) => activeId && String(p.id) === activeId);
+        const bars = groupSummaryBars(g);
+        const pack = city ? packLine(city) : null;
+        const cityReady = city?.status === "ready";
+        const statusLabel = city?.status || "partial";
+        const actions = city
+          ? `<div class="tools-row">
+        <a class="btn btn-primary ${cityReady ? "" : "is-disabled"}" href="${
+            cityReady ? `/progress?level=${city.id}` : "#"
+          }" ${cityReady ? "" : 'aria-disabled="true"'}>Map</a>
+        <button class="btn" data-load="${city.id}" ${cityReady ? "" : "disabled"}>Use</button>
+        <button class="btn" data-del="${city.id}">Delete</button>
+        <button type="button" class="btn level-group-fold" data-toggle-group aria-expanded="false">
+          Sub-regions <span class="level-group-chevron" aria-hidden="true"></span>
         </button>
+      </div>`
+          : `<div class="tools-row">
+        <button type="button" class="btn level-group-fold" data-toggle-group aria-expanded="false">
+          Sub-regions <span class="level-group-chevron" aria-hidden="true"></span>
+        </button>
+      </div>`;
+        return `
+      <section class="level-group ${isActive ? "has-active" : ""} ${groupDone ? "is-complete" : ""}" data-group-idx="${gi}">
+        <article class="level-card level-group-root ${city && activeId && String(city.id) === activeId ? "active" : ""} ${cityDone ? "is-complete" : ""}">
+          <header>
+            <h3 class="level-card-title">
+              <span class="level-card-name"><em class="place-kind place-kind-city">City</em>${escapeHtml(g.label)}</span>
+            </h3>
+            <span class="level-status-stack">
+              ${groupDone ? `<span class="level-complete-badge" title="≥ ${COMPLETE_PCT}% Car roads unlocked">Complete</span>` : ""}
+              <span class="level-status status-${statusLabel}">${statusLabel}</span>
+            </span>
+          </header>
+          ${
+            city
+              ? ""
+              : `<p class="muted level-group-note">Whole-city pack not preloaded — sub-regions below</p>`
+          }
+          <div class="level-group-summary-tally" data-sub-tally>
+            ${subTallyHtml(counts.complete, counts.progressing, counts.unloaded)}
+          </div>
+          ${modeBarsHtml(bars)}
+          <ul class="level-stats">
+            ${city ? `<li>${fmt(city.road_km?.toFixed?.(1) ?? city.road_km)} km roads</li>` : ""}
+            ${pack ? `<li>${pack}</li>` : ""}
+            ${city ? `<li>${fmt(city.networks_count)} networks</li>` : ""}
+          </ul>
+          ${city?.error ? `<p class="error-text">${escapeHtml(city.error)}</p>` : ""}
+          ${actions}
+        </article>
         <div class="level-group-body">
-          ${g.city ? levelCardHtml(g.city, activeId, { role: "city" }) : `<p class="muted level-group-note">Whole-city pack not preloaded — sub-regions below</p>`}
-          <p class="area-choices-heading muted">Sub-regions</p>
           ${g.parts.map((p) => levelCardHtml(p, activeId, { nested: true, role: "sub" })).join("")}
         </div>
       </section>`;
+      })
+      .join("");
+
+    const flatHtml = flat.length
+      ? `<p class="area-choices-heading muted regions-flat-heading">${menus.length ? "Other regions" : ""}</p>${flat
+          .map((lv) =>
+            levelCardHtml(lv, activeId, {
+              role: isDistrict(lv) ? "sub" : isCityLevel(lv) ? "city" : null,
+            })
+          )
+          .join("")}`
+      : "";
+
+    el.innerHTML = menuHtml + flatHtml;
+    bindLevelActions(el);
+    fillGroupAvailableCounts(el, menus);
+  } catch (err) {
+    el.textContent = `Could not load regions: ${err?.message || err}`;
+  }
+}
+
+async function fillGroupAvailableCounts(el, menus) {
+  if (!el || !menus?.length) return;
+  await Promise.all(
+    menus.map(async (g, gi) => {
+      const section = el.querySelector(`[data-group-idx="${gi}"]`);
+      const tallyHost = section?.querySelector("[data-sub-tally]");
+      if (!tallyHost) return;
+      const anchor = g.city || g.parts[0];
+      const center = levelCenter(anchor);
+      if (!center) return;
+      const params = new URLSearchParams({
+        lat: String(center.lat),
+        lon: String(center.lon),
+      });
+      if (g.label) params.set("name", g.label);
+      const gn = g.city?.geoname_id ?? g.parts[0]?.parent_geoname_id;
+      if (gn != null) params.set("geoname_id", String(gn));
+      if (g.city?.geofabrik_id) params.set("geofabrik_id", g.city.geofabrik_id);
+      else if (g.parts[0]?.geofabrik_id) params.set("geofabrik_id", g.parts[0].geofabrik_id);
+      const bbox = Array.isArray(anchor?.bbox) ? anchor.bbox : null;
+      if (bbox && bbox.length >= 4) {
+        params.set("bbox", bbox.slice(0, 4).join(","));
+      }
+      try {
+        const res = await WardAuth.apiFetch(`/api/levels/places/parts?${params}`);
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const catalog = Array.isArray(body?.parts) ? body.parts.length : null;
+        if (catalog == null) return;
+        const downloaded = g.parts.filter((p) => p.status !== "error").length;
+        const available = Math.max(catalog, downloaded);
+        const counts = groupSubCounts(g, available);
+        tallyHost.innerHTML = subTallyHtml(
+          counts.complete,
+          counts.progressing,
+          counts.unloaded
+        );
+      } catch {
+        /* keep downloaded-only tally */
+      }
     })
-    .join("");
-
-  const flatHtml = flat.length
-    ? `<p class="area-choices-heading muted regions-flat-heading">Other regions</p>${flat
-        .map((lv) =>
-          levelCardHtml(lv, activeId, {
-            role: isDistrict(lv) ? "sub" : isCityLevel(lv) ? "city" : null,
-          })
-        )
-        .join("")}`
-    : "";
-
-  el.innerHTML = menuHtml + flatHtml;
-  bindLevelActions(el);
+  );
 }
 
 function resetWizard() {
@@ -846,5 +1061,5 @@ document.getElementById("doneLoad").addEventListener("click", async () => {
     userUnits = "metric";
   }
   goStep(1);
-  loadLevels();
+  await loadLevels();
 })();

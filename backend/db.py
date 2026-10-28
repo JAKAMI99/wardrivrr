@@ -10,8 +10,13 @@ load_dotenv(ROOT / ".env")
 
 
 def db_kwargs() -> dict:
+    # Prefer 127.0.0.1 over "localhost" — on Windows, localhost can hit IPv6
+    # first and stall ~2s per new Postgres connection.
+    host = os.getenv("DB_HOST", "127.0.0.1") or "127.0.0.1"
+    if host.strip().lower() == "localhost":
+        host = "127.0.0.1"
     return {
-        "host": os.getenv("DB_HOST", "localhost"),
+        "host": host,
         "port": int(os.getenv("DB_PORT", "5432")),
         "dbname": os.getenv("DB_NAME", "wardriving"),
         "user": os.getenv("DB_USER", "explorer"),
@@ -51,11 +56,33 @@ RUNTIME_INDEXES = (
 )
 
 
+# Idempotent schema fixes for DBs created before drive-profile rename.
+_RUNTIME_SCHEMA_SQL = (
+    """
+    ALTER TABLE road_segments
+      ADD COLUMN IF NOT EXISTS last_driven_at TIMESTAMPTZ
+    """,
+    """
+    ALTER TABLE levels DROP CONSTRAINT IF EXISTS levels_profile_check
+    """,
+    """
+    ALTER TABLE levels
+      ADD CONSTRAINT levels_profile_check
+      CHECK (profile IN ('foot', 'bicycle', 'car', 'big_car', 'small_car'))
+    """,
+)
+
+
 def ensure_runtime_indexes() -> None:
     conn = connect()
     try:
         conn.autocommit = True
         with conn.cursor() as cur:
+            for sql in _RUNTIME_SCHEMA_SQL:
+                try:
+                    cur.execute(sql)
+                except psycopg2.Error as exc:
+                    print(f"[db] schema skipped: {exc}".strip(), flush=True)
             for sql in RUNTIME_INDEXES:
                 try:
                     cur.execute(sql)

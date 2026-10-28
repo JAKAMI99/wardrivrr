@@ -1414,6 +1414,10 @@ def levels_place_parts(
     population: int | None = Query(default=None),
     parent_label: str | None = Query(default=None),
     geofabrik_id: str | None = Query(default=None),
+    bbox: str | None = Query(
+        default=None,
+        description="west,south,east,north — helps size heuristic when population unknown",
+    ),
     user: dict = Depends(get_current_user),
 ):
     """
@@ -1424,6 +1428,15 @@ def levels_place_parts(
     _ = user
     from level_places import city_parts_as_places
     from geofabrik import resolve_feature
+
+    bbox_list = None
+    if bbox:
+        try:
+            parts = [float(x.strip()) for x in str(bbox).split(",")]
+            if len(parts) == 4:
+                bbox_list = parts
+        except (TypeError, ValueError):
+            bbox_list = None
 
     map_pack = None
     if geofabrik_id:
@@ -1446,6 +1459,7 @@ def levels_place_parts(
             population=population,
             parent_label=parent_label,
             map_pack=map_pack,
+            bbox=bbox_list,
         )
     except Exception as exc:
         raise HTTPException(502, f"District lookup failed: {exc}") from exc
