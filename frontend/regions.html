@@ -11,9 +11,9 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-    <link rel="stylesheet" href="/static/styles.css?v=6" />
-    <link rel="stylesheet" href="/static/themes.css?v=5" />
-    <script src="/static/theme.js?v=11"></script>
+    <link rel="stylesheet" href="/static/styles.css?v=17" />
+    <link rel="stylesheet" href="/static/themes.css?v=6" />
+    <script src="/static/theme.js?v=13"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -37,8 +37,8 @@
         <header class="home-hero settings-hero">
           <h1>Regions</h1>
           <p>
-            Drive usually picks a region from your location. Preload one here if you want
-            a pack ready ahead of time.
+            Preload a whole city or a sub-region. Matching sub-regions stay grouped under
+            their city. Drive can also pick one from your location.
           </p>
         </header>
 
@@ -99,7 +99,7 @@
           <div class="wizard-pane" id="step3" hidden>
             <h2>One map for this place</h2>
             <p class="muted">
-              Roads for every vehicle mode are imported once. Pick Big car / Small car / Bike / Foot
+              Roads for every vehicle mode are imported once. Pick Car / Car B-road+ / Bike / Foot
               later in <strong>Drive</strong> - never preload a second region for the same area.
               Parking lots stay out.
             </p>
@@ -128,7 +128,7 @@
               <p class="confirm-size" id="confirmSize"></p>
               <p class="muted" id="confirmHint">
                 The regional map pack is kept on disk and reused. Roads are clipped to this boundary -
-                the full playable graph (every vehicle mode). Switch Big car / Small car / Bike / Foot
+                the full playable graph (every vehicle mode). Switch Car / Car B-road+ / Bike / Foot
                 in Drive.
               </p>
               <details class="confirm-details">
@@ -189,6 +189,6 @@
     ></script>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=8"></script>
-    <script src="/static/regions.js?v=7"></script>
+    <script src="/static/regions.js?v=9"></script>
   </body>
 </html>

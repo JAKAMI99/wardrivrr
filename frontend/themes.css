@@ -129,6 +129,38 @@ html[data-theme="kawaii"] .site-nav {
   -webkit-backdrop-filter: none;
 }
 
+/* Progress / Discover chrome — keep bright over the light OSM map */
+html[data-theme="kidcore"] .discover-bar,
+html[data-theme="kawaii"] .discover-bar,
+html[data-theme="kidcore"] .progress-bar,
+html[data-theme="kawaii"] .progress-bar {
+  background: linear-gradient(90deg, #ffe6f3 0%, #e8f9ff 55%, #fff4b8 100%);
+  border-bottom: 4px solid #5b2b6b;
+  color: #5b2b6b;
+}
+
+html[data-theme="kidcore"] .discover-bar .muted,
+html[data-theme="kawaii"] .discover-bar .muted,
+html[data-theme="kidcore"] .progress-bar .muted,
+html[data-theme="kawaii"] .progress-bar .muted {
+  color: #9b4d8a;
+}
+
+html[data-theme="kidcore"] .progress-body .legend-item .swatch.locked,
+html[data-theme="kawaii"] .progress-body .legend-item .swatch.locked {
+  background: #b39bc9;
+}
+
+html[data-theme="kidcore"] .progress-body .legend-item .swatch.explored,
+html[data-theme="kawaii"] .progress-body .legend-item .swatch.explored {
+  background: #ff2d95;
+}
+
+html[data-theme="kidcore"] .progress-mode-btn.is-active .progress-mode-pct,
+html[data-theme="kawaii"] .progress-mode-btn.is-active .progress-mode-pct {
+  color: #ff2d95;
+}
+
 html[data-theme="kidcore"] .site-brand,
 html[data-theme="kawaii"] .site-brand {
   font-family: var(--font-display);

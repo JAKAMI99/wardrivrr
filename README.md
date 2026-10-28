@@ -49,7 +49,7 @@ You don’t hand-seed Valhalla.
 1. In the UI, create a **Level** (city or district) — one map per place.
 2. The API downloads a regional Geofabrik pack into `data/pbf/` and imports the **full playable road graph** (every vehicle mode).
 3. When the level is ready, Valhalla gets a **clip of that place only**, builds tiles for it, and starts on `:8002`.
-4. In **Navigate**, pick Big car / Small car / Bike / Foot — that filters fog, explore targets, and dead-end policy. Do not create a second level for the same area.
+4. In **Navigate**, pick Car / Car B-road+ / Bike / Foot — that filters fog, explore targets, and dead-end policy. Do not create a second level for the same area.
 
 The regional pack stays in `data/pbf/` for indexing and future levels. It is **not** what Valhalla tiles — that was making builds crawl.
 

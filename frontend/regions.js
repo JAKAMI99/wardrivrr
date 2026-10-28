@@ -147,13 +147,36 @@ function paintPreview(place = selectedPlace) {
   setTimeout(() => previewMap.invalidateSize(), 50);
 }
 
+function isCityLevel(p) {
+  return p?.place_kind === "city" || p?.place_type === "city";
+}
+
 function isDistrict(p) {
+  if (!p || isCityLevel(p)) return false;
   return (
-    p?.place_type === "district" ||
-    p?.place_type === "city_part" ||
-    p?.place_kind === "district" ||
-    p?.place_kind === "city_part"
+    p.place_type === "district" ||
+    p.place_type === "city_part" ||
+    p.place_kind === "district" ||
+    p.place_kind === "city_part" ||
+    // Legacy rows: parent link means this is a sub-region of a city
+    p.parent_geoname_id != null ||
+    (!!p.parent_label && p.place_kind !== "city")
   );
+}
+
+function jobProgressText(job) {
+  const result = job?.result || {};
+  if (result.message) return result.message;
+  if (job?.status === "queued") {
+    const ahead = Number(job.queue_ahead);
+    if (Number.isFinite(ahead) && ahead > 0) {
+      return ahead === 1
+        ? "Waiting for 1 other job to finish..."
+        : `Waiting for ${ahead} other jobs to finish...`;
+    }
+    return "Starting...";
+  }
+  return "Working...";
 }
 
 function placeButtonHtml(p, i) {
@@ -239,8 +262,7 @@ async function pollPrepareJob() {
   const pct = Math.round(progress * 100);
   document.getElementById("prepareFill").style.width = `${pct}%`;
   document.getElementById("preparePct").textContent = `${pct}%`;
-  document.getElementById("prepareStatus").textContent =
-    result.message || (job.status === "queued" ? "Waiting in queue..." : "Working...");
+  document.getElementById("prepareStatus").textContent = jobProgressText(job);
   document.getElementById("prepareEta").textContent = fmtEta(result.eta_seconds);
 
   if (job.status === "done") {
@@ -287,7 +309,7 @@ async function showAreaChoices(result) {
     html += areaChoiceHtml(city, 0);
   }
   if (districts.length) {
-    html += `<p class="area-choices-heading muted">Districts</p>`;
+    html += `<p class="area-choices-heading muted">Sub-regions</p>`;
     districts.forEach((d, i) => {
       html += areaChoiceHtml(d, (city ? 1 : 0) + i);
     });
@@ -295,7 +317,7 @@ async function showAreaChoices(result) {
   box.innerHTML = html;
   box.hidden = false;
   document.getElementById("previewSub").textContent =
-    "Pick the whole city or a district - boundary shows on the map first";
+    "Pick the whole city or a sub-region - boundary shows on the map first";
   box.querySelectorAll("[data-area-i]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.disabled) return;
@@ -310,7 +332,7 @@ async function showAreaChoices(result) {
 }
 
 function areaChoiceHtml(p, i) {
-  const kind = isDistrict(p) ? "District" : "Whole city";
+  const kind = isDistrict(p) ? "Sub-region" : "Whole city";
   const owned =
     p.osm_relation_id != null && existingOsmIds.has(String(p.osm_relation_id));
   return `
@@ -336,7 +358,7 @@ async function selectAreaOption(index) {
   setFixedLevelName(selectedPlace.label);
   document.getElementById("previewTitle").textContent = selectedPlace.label;
   document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-    ? "Loading district boundary..."
+    ? "Loading sub-region boundary..."
     : "Whole-city boundary - this will be your playable region";
   fillConfirm();
   setAreaNextEnabled(false);
@@ -346,7 +368,7 @@ async function selectAreaOption(index) {
     selectedPlace.boundary_approximate = false;
     paintPreview();
     document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-      ? `District boundary · ${fmtArea(selectedPlace.area_km2)}`
+      ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
       : `City boundary · ${fmtArea(selectedPlace.area_km2)}`;
     setAreaNextEnabled(true);
     return;
@@ -370,7 +392,7 @@ async function selectAreaOption(index) {
       selectedPlace.boundary_approximate = false;
       if (bData.bbox) selectedPlace.bbox = bData.bbox;
       document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-        ? `District boundary · ${fmtArea(selectedPlace.area_km2)}`
+        ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
         : `City boundary · ${fmtArea(selectedPlace.area_km2)}`;
       paintPreview();
       setAreaNextEnabled(true);
@@ -482,8 +504,7 @@ async function pollJob() {
   const pct = Math.round(progress * 100);
   document.getElementById("progressFill").style.width = `${pct}%`;
   document.getElementById("progressPct").textContent = `${pct}%`;
-  document.getElementById("progressMessage").textContent =
-    result.message || (job.status === "queued" ? "Waiting in queue..." : "Working...");
+  document.getElementById("progressMessage").textContent = jobProgressText(job);
   document.getElementById("progressEta").textContent = fmtEta(result.eta_seconds);
   if (result.stage) setStage(result.stage);
 
@@ -561,20 +582,28 @@ function fmtPct(n) {
   return `${Number(n).toFixed(1)}%`;
 }
 
-function levelCardHtml(lv, activeId, { nested = false } = {}) {
+function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
   const isActive = activeId && String(lv.id) === activeId;
   const title = lv.name || lv.place_query;
-  const kind = isDistrict(lv)
-    ? `<em class="place-kind">District</em>`
-    : "";
+  const sub = role === "sub" || (nested && isDistrict(lv));
+  const city = role === "city" || (!nested && isCityLevel(lv));
+  const kind = sub
+    ? `<em class="place-kind place-kind-sub">Sub-region</em>`
+    : city
+      ? `<em class="place-kind place-kind-city">Whole city</em>`
+      : "";
   const pack = packLine(lv);
   const done = isLevelComplete(lv);
+  const under =
+    sub && lv.parent_label
+      ? `<p class="muted level-place-hint">Under ${escapeHtml(lv.parent_label)}</p>`
+      : "";
   const placeHint =
-    lv.place_query && lv.place_query !== title
+    !under && lv.place_query && lv.place_query !== title
       ? `<p class="muted level-place-hint">${escapeHtml(lv.place_query)}</p>`
       : "";
   return `
-    <article class="level-card ${isActive ? "active" : ""} ${nested ? "is-part" : ""} ${done ? "is-complete" : ""}">
+    <article class="level-card ${isActive ? "active" : ""} ${sub ? "is-part" : ""} ${done ? "is-complete" : ""}">
       <header>
         <h3 class="level-card-title">
           <span class="level-card-name">${kind}${escapeHtml(title)}</span>
@@ -585,7 +614,7 @@ function levelCardHtml(lv, activeId, { nested = false } = {}) {
         </span>
       </header>
       <p class="muted level-mode-line">Vehicle mode -> Drive</p>
-      ${placeHint}
+      ${under}${placeHint}
       <ul class="level-stats">
         <li>${fmtPct(lv.explored_pct)} explored${done ? " · done" : ""}</li>
         <li>${fmt(lv.road_km?.toFixed?.(1) ?? lv.road_km)} km roads</li>
@@ -637,20 +666,22 @@ function groupLevels(levels) {
     if (isPart) g.parts.push(lv);
     else g.city = lv;
     if (!isPart && (lv.name || lv.place_query)) g.label = lv.name || lv.place_query;
+    else if (isPart && lv.parent_label) g.label = lv.parent_label;
   }
 
-  // Only treat as a menu when there is a city + parts, or multiple parts
+  // Always group sub-regions under their root city (even a single sub).
   const menus = [];
   const flat = [...ungrouped];
   for (const g of groups.values()) {
-    if (g.city && g.parts.length) {
+    g.parts.sort((a, b) =>
+      String(a.name || a.place_query || "").localeCompare(
+        String(b.name || b.place_query || "")
+      )
+    );
+    if (g.parts.length) {
       menus.push(g);
-    } else if (!g.city && g.parts.length > 1) {
-      menus.push(g);
-    } else if (g.city && !g.parts.length) {
+    } else if (g.city) {
       flat.push(g.city);
-    } else if (g.parts.length === 1) {
-      flat.push(g.parts[0]);
     }
   }
   menus.sort((a, b) => String(a.label).localeCompare(String(b.label)));
@@ -717,28 +748,38 @@ async function loadLevels() {
       const districtsTotal = g.parts.length;
       const districtLine =
         districtsTotal > 0
-          ? `${districtsDone}/${districtsTotal} district${districtsTotal === 1 ? "" : "s"} complete`
+          ? `${districtsDone}/${districtsTotal} sub-region${districtsTotal === 1 ? "" : "s"} complete`
           : "";
       const cityDone = g.city && isLevelComplete(g.city);
       const hasActive =
         (g.city && activeId && String(g.city.id) === activeId) ||
         g.parts.some((p) => activeId && String(p.id) === activeId);
       return `
-      <section class="level-group ${hasActive ? "has-active" : ""} ${cityDone || districtsDone === districtsTotal ? "is-complete" : ""} open">
+      <section class="level-group ${hasActive ? "has-active" : ""} ${cityDone || (districtsTotal && districtsDone === districtsTotal) ? "is-complete" : ""} open">
         <button type="button" class="level-group-toggle" data-toggle-group aria-expanded="true">
-          <span class="level-group-title">${escapeHtml(g.label)}${cityDone || (districtsTotal && districtsDone === districtsTotal) ? ' <span class="level-complete-badge">Complete</span>' : ""}</span>
-          <span class="muted">${districtLine || `${g.parts.length} part${g.parts.length === 1 ? "" : "s"}`} · ${summaryPct} explored</span>
+          <span class="level-group-title">${escapeHtml(g.label)} <span class="level-group-kind">City</span>${cityDone || (districtsTotal && districtsDone === districtsTotal) ? ' <span class="level-complete-badge">Complete</span>' : ""}</span>
+          <span class="muted">${districtLine || `${g.parts.length} sub-region${g.parts.length === 1 ? "" : "s"}`} · ${summaryPct} explored</span>
         </button>
         <div class="level-group-body">
-          ${g.city ? levelCardHtml(g.city, activeId) : ""}
-          ${g.parts.map((p) => levelCardHtml(p, activeId, { nested: true })).join("")}
+          ${g.city ? levelCardHtml(g.city, activeId, { role: "city" }) : `<p class="muted level-group-note">Whole-city pack not preloaded — sub-regions below</p>`}
+          <p class="area-choices-heading muted">Sub-regions</p>
+          ${g.parts.map((p) => levelCardHtml(p, activeId, { nested: true, role: "sub" })).join("")}
         </div>
       </section>`;
     })
     .join("");
 
-  el.innerHTML =
-    menuHtml + flat.map((lv) => levelCardHtml(lv, activeId)).join("");
+  const flatHtml = flat.length
+    ? `<p class="area-choices-heading muted regions-flat-heading">Other regions</p>${flat
+        .map((lv) =>
+          levelCardHtml(lv, activeId, {
+            role: isDistrict(lv) ? "sub" : isCityLevel(lv) ? "city" : null,
+          })
+        )
+        .join("")}`
+    : "";
+
+  el.innerHTML = menuHtml + flatHtml;
   bindLevelActions(el);
 }
 

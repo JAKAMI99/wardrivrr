@@ -1618,8 +1618,49 @@ a.module:hover {
 }
 
 .level-card .place-kind {
-  display: inline;
-  margin-right: 0.4rem;
+  display: inline-block;
+  margin-right: 0.45rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.level-card .place-kind-sub {
+  background: rgba(120, 190, 255, 0.16);
+  color: #9ec9ff;
+  opacity: 1;
+}
+
+.level-card .place-kind-city {
+  background: rgba(61, 214, 140, 0.14);
+  color: #7dffb5;
+  opacity: 1;
+}
+
+.level-group-kind {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted, #8e95a0);
+  vertical-align: middle;
+}
+
+.level-group-note {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+}
+
+.regions-flat-heading {
+  margin-top: 0.35rem;
 }
 
 .level-card.active {
@@ -2369,11 +2410,11 @@ a.module:hover {
 }
 
 .legend-item .swatch.locked {
-  background: var(--fog-locked, #12161e);
+  background: var(--progress-fog-locked, var(--fog-locked, #8a93a0));
 }
 
 .legend-item .swatch.explored {
-  background: var(--fog-explored, #3dffa8);
+  background: var(--progress-fog-explored, var(--fog-explored, #1a9b6c));
 }
 
 .discover-map {
@@ -2383,7 +2424,17 @@ a.module:hover {
   background: #e8eef2;
 }
 
-/* Progress fog map uses plain OSM (no invert) */
+/* Progress fog map uses plain OSM (no invert). Keep tiles bright under kidcore sky. */
+.progress-body .discover-map,
+.progress-body .discover-map .leaflet-container,
+.progress-body .discover-map .leaflet-tile-pane {
+  filter: none !important;
+  background: #e8eef2;
+}
+
+.progress-body .discover-map .leaflet-container {
+  isolation: isolate;
+}
 
 .discover-status {
   margin: 0;

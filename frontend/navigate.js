@@ -86,7 +86,7 @@ const state = {
   levelBoundary: null,
   levelProfile: "small_car",
   driveModePick: null,
-  levelProfileLabel: "Small car",
+  levelProfileLabel: "Car",
   levelTilesExplored: null,
   levelTilesTotal: null,
   spawned: false,
@@ -1733,13 +1733,13 @@ const VEHICLE_ICON_SVG = {
 const DRIVE_MODE_PRESETS = [
   {
     id: "big_car",
-    label: "Big car",
+    label: "Car B-road+",
     blurb: "Main & medium roads. Fewer turns, skip cul-de-sacs.",
   },
   {
     id: "small_car",
-    label: "Small car",
-    blurb: "Full street grid. Cul-de-sacs only if ≥ 100 m.",
+    label: "Car",
+    blurb: "Full street grid. Cul-de-sacs only if ≥ 100 m. No driveways.",
   },
   {
     id: "bicycle",

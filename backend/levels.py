@@ -138,12 +138,30 @@ def _clip_ways_chunk(
     ]
 
 
-def _segmentize_ways_chunk(ways_chunk: list, level_id: int) -> tuple[list[tuple], float]:
+def _seg_inside_boundary(
+    seg: list[tuple[float, float]], boundary: dict | None
+) -> bool:
+    """Keep a segment only if its midpoint (or any vertex) lies in the level polygon."""
+    if not boundary:
+        return True
+    mid = seg[len(seg) // 2]
+    if point_in_boundary(float(mid[0]), float(mid[1]), boundary):
+        return True
+    return any(point_in_boundary(float(lon), float(lat), boundary) for lon, lat in seg)
+
+
+def _segmentize_ways_chunk(
+    ways_chunk: list,
+    level_id: int,
+    boundary: dict | None = None,
+) -> tuple[list[tuple], float]:
     """Build insert rows for a chunk of ways (CPU work; DB write stays single-threaded)."""
     batch: list[tuple] = []
     total_m = 0.0
     for osm_id, hw, name, coords in ways_chunk:
         for seg in segmentize_coords(coords):
+            if not _seg_inside_boundary(seg, boundary):
+                continue
             length = _line_length_m(seg)
             if length < 1:
                 continue
@@ -151,6 +169,55 @@ def _segmentize_ways_chunk(ways_chunk: list, level_id: int) -> tuple[list[tuple]
             wkt = "LINESTRING(" + ", ".join(f"{lon} {lat}" for lon, lat in seg) + ")"
             batch.append((level_id, osm_id, hw, name, wkt, length))
     return batch, total_m
+
+
+def clip_road_segments_to_boundary(level_id: int) -> dict:
+    """
+    Drop road_segments whose midpoint falls outside the level polygon.
+    Fixes legacy builds that kept whole OSM ways after a touch-test only.
+    """
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM road_segments r
+                USING levels l
+                WHERE r.level_id = l.id
+                  AND l.id = %s
+                  AND l.bbox IS NOT NULL
+                  AND NOT ST_Intersects(
+                    ST_LineInterpolatePoint(r.geom, 0.5),
+                    l.bbox
+                  )
+                """,
+                (level_id,),
+            )
+            deleted = cur.rowcount
+            cur.execute(
+                """
+                UPDATE levels SET
+                  road_km = sub.km,
+                  updated_at = NOW()
+                FROM (
+                  SELECT COALESCE(SUM(length_m), 0) / 1000.0 AS km
+                  FROM road_segments
+                  WHERE level_id = %s
+                ) sub
+                WHERE levels.id = %s
+                RETURNING road_km
+                """,
+                (level_id, level_id),
+            )
+            row = cur.fetchone()
+            _update_level_explored_stats(cur, level_id)
+        conn.commit()
+        return {
+            "deleted": int(deleted or 0),
+            "road_km": float(row[0] or 0) if row else None,
+        }
+    finally:
+        conn.close()
 
 
 def _chunked(items: list, n_chunks: int) -> list[list]:
@@ -765,7 +832,7 @@ def _read_level_explored_stats(cur, level_id: int):
 
 
 def _update_level_explored_stats(cur, level_id: int):
-    # Completion % is Small-car highways only (90% → region unlocked).
+    # Completion % is Car (small_car) highways only (90% → region unlocked).
     # levels.road_km stays the full imported graph for size display.
     highways = sorted(profile_highways("small_car"))
     cur.execute(
@@ -1350,7 +1417,8 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
         try:
             with _executor(workers) as pool:
                 futures = [
-                    pool.submit(_segmentize_ways_chunk, ch, level_id) for ch in chunks
+                    pool.submit(_segmentize_ways_chunk, ch, level_id, boundary)
+                    for ch in chunks
                 ]
                 for fut in as_completed(futures):
                     rows, meters = fut.result()
@@ -1364,7 +1432,7 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
                         None,
                     )
         except Exception:
-            rows, meters = _segmentize_ways_chunk(ways, level_id)
+            rows, meters = _segmentize_ways_chunk(ways, level_id, boundary)
             all_rows = rows
             total_m = meters
 
@@ -1400,6 +1468,11 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
         conn.commit()
     finally:
         conn.close()
+
+    # Belt-and-suspenders: drop any leftover midpoints outside the polygon
+    if boundary:
+        report(0.94, "roads", "Clipping roads to level border…", 5)
+        clip_road_segments_to_boundary(level_id)
 
     # Addresses are NOT on the critical path — enqueue after roads are ready so
     # Navigate / Valhalla can start immediately. Geocode fills in later too.
@@ -1556,6 +1629,7 @@ def set_level_default_profile(user_id: int, level_id: int, profile: str | None) 
 # every locked segment against signal_samples, so run it at most this often.
 _OBSERVATION_REFRESH_S = 60.0
 _observation_refresh_at: dict[tuple[int, int], float] = {}
+_boundary_clip_done: set[int] = set()
 
 
 def _coerce_multilinestring(geom: Any) -> dict[str, Any]:
@@ -1609,13 +1683,21 @@ def get_level_road_map(
     Discover view payload: locked vs explored road grids as MultiLineString GeoJSON.
     Optional profile filters to that mode's highways (Navigate / Progress).
     Explored flags stay shared; % is scoped to the filtered set when profile is set.
-    Always includes by_profile stats for all modes; completion = Small car ≥ 90%.
+    Always includes by_profile stats for all modes; completion = Car (small_car) ≥ 90%.
     """
     level = get_level(user_id, level_id)
     if not level:
         return None
 
     if level.get("status") == "ready":
+        # One-shot repair for legacy builds that kept whole OSM ways past the border
+        if level_id not in _boundary_clip_done:
+            try:
+                clip_road_segments_to_boundary(level_id)
+            except Exception:
+                pass
+            _boundary_clip_done.add(level_id)
+            level = get_level(user_id, level_id) or level
         now = time.monotonic()
         key = (user_id, level_id)
         if now - _observation_refresh_at.get(key, -1e9) >= _OBSERVATION_REFRESH_S:
@@ -1712,7 +1794,7 @@ def get_level_road_map(
             round(100.0 * explored_m / total_m, 2) if total_m > 0 else 0.0
         )
     else:
-        # No filter: region completion % (Small car), not full-graph fraction
+        # No filter: region completion % (Car / small_car), not full-graph fraction
         explored_pct = completion_pct
 
     bbox = level.get("bbox")

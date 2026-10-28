@@ -6,8 +6,8 @@ bicycle / foot) filters fog candidates, progress display, Valhalla costing, and
 dead-end policy while routing — never a second map for the same place.
 
 Presets:
-  big_car   — arterials & collectors only; few turns; skip cul-de-sacs
-  small_car — full street grid; cul-de-sacs only if ≥ 100 m
+  big_car   — "Car B-road+" arterials & collectors; few turns; skip cul-de-sacs
+  small_car — "Car" full street grid; cul-de-sacs only if ≥ 100 m; no driveways
   bicycle   — bike-friendly net; every dead end
   foot      — paths, tracks, gravel/mud-friendly; every dead end
 
@@ -93,20 +93,21 @@ PROFILE_HIGHWAYS: dict[str, set[str]] = {
     },
 }
 
-# service=* values that mean parking lot / aisle — never enter the playable net
+# service=* values that mean parking / private access — never enter the playable net
 PARKING_SERVICE_TAGS = frozenset(
     {
         "parking_aisle",
         "parking",
         "drive-through",
         "drive_through",
+        "driveway",
     }
 )
 
 PROFILE_META: dict[str, dict[str, Any]] = {
     "big_car": {
-        "label": "Big car",
-        "blurb": "Bigger & medium roads only — fewer turns, no cul-de-sacs.",
+        "label": "Car B-road+",
+        "blurb": "Bigger & medium roads only — fewer turns, no cul-de-sacs or driveways.",
         "costing": "auto",
         "dead_end_min_m": 70.0,
         "exclude_all_dead_ends": True,
@@ -116,17 +117,19 @@ PROFILE_META: dict[str, dict[str, Any]] = {
             "use_highways": 1.0,
             "use_living_streets": 0.05,
             "service_factor": 10.0,
+            "exclude_driveways": True,
         },
     },
     "small_car": {
-        "label": "Small car",
-        "blurb": "Full street grid for completionists. Dead ends only if ≥ 100 m.",
+        "label": "Car",
+        "blurb": "Full street grid for completionists. Dead ends only if ≥ 100 m. No driveways.",
         "costing": "auto",
         "dead_end_min_m": 100.0,
         "exclude_all_dead_ends": False,
         "costing_options": {
             "maneuver_penalty": 5.0,
             "use_living_streets": 0.5,
+            "exclude_driveways": True,
         },
     },
     "bicycle": {

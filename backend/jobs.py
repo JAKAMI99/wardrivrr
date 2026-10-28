@@ -74,7 +74,30 @@ def get_job(job_id: int, user_id: int | None = None) -> dict | None:
                     "SELECT * FROM jobs WHERE id = %s AND user_id = %s",
                     (job_id, user_id),
                 )
-            return cur.fetchone()
+            job = cur.fetchone()
+            if not job:
+                return None
+            # How many jobs are ahead (running, or queued with a lower id).
+            # UI uses this so a lone job never reads as "waiting in queue".
+            if job.get("status") == "queued":
+                cur.execute(
+                    """
+                    SELECT COUNT(*)::int AS n FROM jobs
+                    WHERE id <> %s
+                      AND (
+                        status = 'running'
+                        OR (status = 'queued' AND id < %s)
+                      )
+                    """,
+                    (job_id, job_id),
+                )
+                row = cur.fetchone() or {}
+                job["queue_ahead"] = int(row.get("n") or 0)
+                # Make sure the worker is alive so a lone job does not sit forever
+                ensure_worker()
+            else:
+                job["queue_ahead"] = 0
+            return job
     finally:
         conn.close()
 

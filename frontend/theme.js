@@ -8,15 +8,6 @@
   const IDS = ["classic", "kidcore", "crt"];
   const ORIG_KEY = "__kidcoreOrig";
 
-  const PACIFIER_CURSOR = encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-      <circle cx="16" cy="11" r="7" fill="#ff5cab" stroke="#fff" stroke-width="2"/>
-      <circle cx="16" cy="11" r="3.2" fill="#7ee8ff"/>
-      <path d="M8 18c2 6 14 6 16 0" fill="#ffe566" stroke="#ff9f1c" stroke-width="1.5"/>
-      <ellipse cx="16" cy="20" rx="5" ry="3.5" fill="#ff9f1c"/>
-    </svg>`
-  );
-
   /** Floating sticker / phrase pool (picked at random each mount) */
   const PHRASE_POOL = [
     "don't grow up",
@@ -156,7 +147,7 @@
     [/Uploading.../g, "Sending..."],
   ];
 
-  const FLOAT_EMOJI = ["🍼", "🎒", "🧸", "⭐", "🖍️", "🌈", "🐸", "🎮", "🦕", "🦖", "💫", "🎀"];
+  const FLOAT_EMOJI = ["🎒", "🧸", "⭐", "🖍️", "🌈", "🐸", "🎮", "🦕", "🦖", "💫", "🎀"];
 
   const META = {
     classic: {
@@ -509,6 +500,7 @@
     let layer = document.getElementById("kidcoreDecor");
     if (theme !== "kidcore") {
       if (layer) layer.remove();
+      // Clear leftover custom cursor from older kidcore builds
       document.documentElement.style.removeProperty("cursor");
       setKidcorePaused(false);
       stopSpeechObserver();
@@ -525,7 +517,6 @@
     }
     bindKidcoreVisibility();
     setKidcorePaused(document.hidden);
-    document.documentElement.style.cursor = `url("data:image/svg+xml,${PACIFIER_CURSOR}") 8 4, auto`;
     if (!layer) {
       layer = document.createElement("div");
       layer.id = "kidcoreDecor";

@@ -3,8 +3,8 @@ const params = new URLSearchParams(window.location.search);
 const VEHICLE_KEY = "wardrivrr_nav_vehicle";
 
 const MODE_PRESETS = [
-  { id: "big_car", label: "Big car" },
-  { id: "small_car", label: "Small car" },
+  { id: "big_car", label: "Car B-road+" },
+  { id: "small_car", label: "Car" },
   { id: "bicycle", label: "Bike" },
   { id: "foot", label: "On foot" },
 ];
@@ -19,12 +19,53 @@ let lastByProfile = null;
 let fitOnce = true;
 
 function fogColors() {
-  // Progress uses a light OSM basemap - keep road strokes readable on it
-  // (Drive theme fog packs are tuned for dark MapLibre styles).
+  // Progress uses a light OSM basemap - separate from Drive fog packs
+  // (those are tuned for dark MapLibre styles).
+  const theme =
+    (document.documentElement.getAttribute("data-theme") || "classic").toLowerCase();
+  if (theme === "kidcore" || theme === "kawaii") {
+    // Bright map: driven = candy pink, never-driven = soft lilac (not near-black)
+    return { explored: "#ff2d95", locked: "#b39bc9" };
+  }
+  if (theme === "crt") {
+    return { explored: "#00ff66", locked: "#4a6b4a" };
+  }
+  return { explored: "#1a9b6c", locked: "#8a93a0" };
+}
+
+function fogBoundaryStyle() {
+  const theme =
+    (document.documentElement.getAttribute("data-theme") || "classic").toLowerCase();
+  if (theme === "kidcore" || theme === "kawaii") {
+    return {
+      color: "#5b2b6b",
+      weight: 2,
+      opacity: 0.75,
+      fill: false,
+      dashArray: "6 8",
+    };
+  }
+  if (theme === "crt") {
+    return {
+      color: "rgba(0,255,102,0.55)",
+      weight: 1.5,
+      fill: false,
+      dashArray: "4 6",
+    };
+  }
   return {
-    explored: "#1a9b6c",
-    locked: "#5a6570",
+    color: "rgba(20,28,40,0.45)",
+    weight: 1.5,
+    fill: false,
+    dashArray: "4 6",
   };
+}
+
+function syncLegendSwatches(colors) {
+  const root = document.documentElement;
+  if (!root?.style || !colors) return;
+  root.style.setProperty("--progress-fog-explored", colors.explored);
+  root.style.setProperty("--progress-fog-locked", colors.locked);
 }
 
 function normalizeProfile(profile) {
@@ -67,15 +108,11 @@ function paintRoads(data, { refit = false } = {}) {
   if (boundaryLayer) map.removeLayer(boundaryLayer);
 
   const colors = fogColors();
+  syncLegendSwatches(colors);
 
   if (data.boundary && data.boundary.type) {
     boundaryLayer = L.geoJSON(data.boundary, {
-      style: {
-        color: "rgba(255,255,255,0.28)",
-        weight: 1.5,
-        fill: false,
-        dashArray: "4 6",
-      },
+      style: fogBoundaryStyle(),
     }).addTo(map);
   }
 
@@ -165,7 +202,7 @@ function renderPctStrip(data) {
   const done = !!(data.level?.complete ?? by.small_car?.complete);
   if (chip) {
     chip.hidden = !done;
-    chip.textContent = done ? "Unlocked (Small car ≥ 90%)" : "";
+    chip.textContent = done ? "Unlocked (Car ≥ 90%)" : "";
   }
   renderModeSwitcher();
 }
