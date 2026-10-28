@@ -1,0 +1,7 @@
+IEEE Registration Authority — OUI / MA-L, MA-M, MA-S (CSV)
+https://standards-oui.ieee.org/
+https://standards-oui.ieee.org/oui/oui.csv
+https://standards-oui.ieee.org/oui28/mam.csv
+https://standards-oui.ieee.org/oui36/oui36.csv
+Built: 2026-10-17T08:06:44Z
+Assignments: 54005

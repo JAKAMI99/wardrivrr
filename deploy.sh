@@ -117,7 +117,7 @@ fi
 mkdir -p deploy/kismet
 read -r -p "Kismet username [wardrivrr]: " KUSER
 KUSER=${KUSER:-wardrivrr}
-read -r -s -p "Kismet password (blank = random): " KPASS
+read -r -s -p "Kismet password (blank = random) needed when wanting to access kismet web interface: " KPASS
 echo
 if [[ -z "$KPASS" ]]; then
   KPASS="$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
