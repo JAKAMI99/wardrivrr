@@ -1,92 +1,10 @@
-# Vehicle host overlay (with root compose):
-#   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
-# gpsd + Kismet stay on the host; API reaches them via host-gateway.
+# Legacy overlay — prefer root docker-compose.yml (zero .env).
+#
+#   DATA_ROOT=/var/lib/wardrivrr docker compose up -d
+#
+# This file is kept only for older run.sh / deploy.sh flows. New installs
+# should not need it.
 
 services:
-  postgis:
-    # Paths relative to this file (deploy/) — root .env is one level up.
-    # CLI `--env-file .env` only interpolates ${VAR}; env_file injects into the container.
-    env_file:
-      - ../.env
-    # Conservative memory defaults
-    command: postgres -c shared_buffers=128MB -c work_mem=16MB -c maintenance_work_mem=64MB -c effective_cache_size=512MB
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 120s
-
-  valhalla:
-    env_file:
-      - ../.env
-
   api:
-    # Prefer ghcr.io/<owner>/wardrivrr:latest; digest pin optional.
-    # Default local tag matches ./deploy.sh / .env.car.example (not a fake OWNER).
-    image: ${WARDRIVRR_IMAGE:-wardrivrr-api:local}
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: wardrivrr_api
-    restart: unless-stopped
-    # Host network: API reaches gpsd+Kismet on 127.0.0.1 (Docker bridge often
-    # cannot; Status was false-negative while host curl worked).
-    network_mode: host
-    env_file:
-      - ../.env
-    environment:
-      # postgis/valhalla publish ports on the host in this mode
-      DB_HOST: 127.0.0.1
-      DB_PORT: "5432"
-      DB_NAME: ${DB_NAME:-wardriving}
-      DB_USER: ${DB_USER:-explorer}
-      DB_PASS: ${DB_PASS:-secure_password_here}
-      VALHALLA_URL: http://127.0.0.1:8002
-      GPSD_HOST: 127.0.0.1
-      GPSD_PORT: ${GPSD_PORT:-2947}
-      GPSD_ENABLED: ${GPSD_ENABLED:-1}
-      KISMET_URL: http://127.0.0.1:2501
-      KISMET_USER: ${KISMET_USER:-wardrivrr}
-      KISMET_PASSWORD: ${KISMET_PASSWORD:-changeme}
-      KISMET_LIVE: ${KISMET_LIVE:-1}
-      KISMET_LOG_DIR: /data/kismet_logs
-      # Prefer root .env via env_file; also interpolate so --env-file alone works.
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
-      WARDRIVRR_MODE: ${WARDRIVRR_MODE:-full}
-      DATA_ROOT: /app/data
-      # Absolute host paths so the API can `docker compose` against the same
-      # paths the daemon uses (docker-from-docker). Set by ./run.sh / ./deploy.sh.
-      HOST_DATA_ROOT: ${HOST_DATA_ROOT:?set HOST_DATA_ROOT in .env}
-      HOST_PROJECT: ${HOST_PROJECT:?set HOST_PROJECT in .env}
-      WARDRIVRR_COMPOSE_ROOT: ${HOST_PROJECT}
-    volumes:
-      - ./data:/app/data
-      - ./data/kismet_logs:/data/kismet_logs:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Same absolute path inside the container as on the host (required for
-      # compose volume resolution when starting Valhalla from the API).
-      - ${HOST_PROJECT}:${HOST_PROJECT}:ro
-      - ${HOST_PROJECT}:/host/project:ro
-    depends_on:
-      postgis:
-        condition: service_healthy
-      # Valhalla is optional until a level clips data/valhalla/active.osm.pbf.
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
-      interval: 20s
-      timeout: 5s
-      retries: 6
-      start_period: 45s
-
-  # Optional legacy profile — default stack uses host Kismet (./deploy.sh).
-  kismet:
-    profiles: ["kismet-docker"]
-    image: ${KISMET_DOCKER_IMAGE:-finchsec/kismet:latest}
-    container_name: wardrivrr_kismet
-    restart: unless-stopped
-    network_mode: host
-    privileged: true
-    volumes:
-      - ./deploy/kismet/kismet_site.conf:/etc/kismet/kismet_site.conf:ro
-      - ./data/kismet_logs:/home/kismet/logs
+    image: ${WARDRIVRR_IMAGE:-ghcr.io/jakami99/wardrivrr:latest}

@@ -26,45 +26,29 @@ Drop PNGs into `docs/screenshots/` (see that folder’s README). Until then the 
 
 ## Install
 
-Product version (**1.0.0**) is shown in this README header, on the home page, and via `/api/health` (`VERSION` / `APP_VERSION`). Prefer the published image tag **`:latest`** — not a pinned semver image tag.
+Product version (**1.0.0**) is shown in this README header, on the home page, and via `/api/health`. Image tag: **`:latest`**.
 
-### Docker Compose
+### Docker Compose (recommended)
 
-Recommended path. Root compose + car overlay; `./deploy.sh` / `./run.sh` write `.env` and bring the stack up on a vehicle / Linux host.
+One command. Optional: set a host data directory. No `.env` file. Wi‑Fi / Bluetooth / Kismet password are configured in the Web UI after login.
 
 ```bash
 git clone https://github.com/JAKAMI99/wardrivrr.git
 cd wardrivrr
-chmod +x deploy.sh run.sh scripts/reset-admin-password.sh
-./deploy.sh
+
+# Persist data somewhere durable (absolute path recommended on a car):
+export DATA_ROOT=/var/lib/wardrivrr
+# Or omit DATA_ROOT to use ./data next to the compose file.
+
+docker compose up -d
 ```
 
-Everyday boot (gpsd + Kismet + compose):
+Then open `http://<host-ip>:8000/`:
 
-```bash
-./run.sh
-```
-
-Open `http://<host-ip>:8000/` — first boot redirects to **Setup** (create the admin password). Then sign in as `admin`, create a **Region**, then **Drive**.
-
-Optional systemd unit (paths rewritten by `./run.sh`):
-
-```bash
-sudo cp deploy/wardrivrr-stack.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now wardrivrr-stack
-```
-
-Compose only (after `.env` exists) — same stack `./run.sh` uses:
-
-```bash
-cp .env.example .env
-# Set DB_PASS, HOST_PROJECT, HOST_DATA_ROOT (absolute clone paths), KISMET_PASSWORD, …
-# WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
-mkdir -p data/kismet_logs data/valhalla data/incoming data/pbf
-
-docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
-```
+1. **Setup** — create the admin password (no default login)
+2. **Login** — as `admin`
+3. **Machine setup** — dropdowns for Wi‑Fi, Bluetooth, optional GPS serial, Kismet password → **Apply & restart Kismet**
+4. **Regions** → **Drive**
 
 Health check:
 
@@ -73,36 +57,21 @@ curl -fsS http://127.0.0.1:8000/api/health
 # → {"ok":true,"version":"1.0.0",...}
 ```
 
-Open UI / Swagger:
+Requires Linux with Docker Compose v2 (API/Kismet use host networking for radio). Keep gpsd running on the host if you want live GPS (`127.0.0.1:2947`).
 
-- UI: `http://127.0.0.1:8000/`
-- Setup (fresh DB): `http://127.0.0.1:8000/setup`
-- Swagger: `http://127.0.0.1:8000/api/docs`
+### Docker images
 
-Verify persistence mounts (must survive recreate):
+Published on GHCR. Compose defaults to `ghcr.io/jakami99/wardrivrr:latest`. Override if needed:
 
 ```bash
-docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env config | grep -E 'data|pgdata'
-# Host: ./data → /app/data (map packs, JWT file, user data)
-# Named volume: pgdata (PostGIS)
-ls -la data/
+WARDRIVRR_IMAGE=ghcr.io/jakami99/wardrivrr:latest docker compose up -d
 ```
 
-### Docker
-
-Images are published on GHCR. Pull `:latest` and point compose at it (local `--build` is for development only).
-
-```bash
-docker pull ghcr.io/<owner>/wardrivrr:latest
-# In .env:
-# WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
-```
-
-Replace `<owner>` with the GitHub org/user that owns the package (same as this repo). After setting `WARDRIVRR_IMAGE`, use the Compose commands above — no image build required on the car.
+Local builds: `docker compose build api && docker compose up -d`.
 
 ### Manual install (bare metal)
 
-Run the API on the host with a venv; PostGIS still via compose (or your own Postgres).
+Host API + PostGIS for development:
 
 ```bash
 python -m venv venv
@@ -111,13 +80,13 @@ docker compose up -d postgis
 ./debug.sh                                         # or .\debug.bat
 ```
 
-Open `http://127.0.0.1:8000/setup` on a fresh database. GPS / Kismet / Valhalla still need to be installed and configured on the host if you want the full Drive stack outside Docker.
+Open `http://127.0.0.1:8000/setup`. Full Drive (Kismet / Valhalla / host GPS) is meant for the Compose path above.
 
 ---
 
 ## First boot
 
-On a new install there is **no** default password. The UI redirects to `/setup` until you create the admin account (password, minimum 8 characters). Username is `admin`. After that, use `/login` as usual. All other routes and APIs stay blocked until setup completes.
+On a new install there is **no** default password. The UI redirects to `/setup` until you create the admin account (password, minimum 8 characters). Username is `admin`. After login, admins are sent to **Machine setup** until Wi‑Fi / Kismet are configured.
 
 ---
 
@@ -134,7 +103,7 @@ On a new install there is **no** default password. The UI redirects to `/setup` 
 One-liner without the wrapper:
 
 ```bash
-docker compose -f docker-compose.yml -f deploy/compose.car.yml exec -T api \
+docker compose exec -T api \
   python /app/scripts/reset_admin_password.py 'YourNewPassword'
 ```
 
@@ -152,28 +121,22 @@ Omit the password argument to be prompted interactively.
 
 ## Config notes
 
-| Variable | Notes |
+| Knob | Notes |
 | --- | --- |
-| `JWT_SECRET_KEY` | Optional. If unset, the API writes a random secret to `data/.jwt_secret` (persisted via the `./data` mount). |
-| `DB_PASS` | Required for real deploys. `deploy.sh` generates a strong value on fresh installs; change the `.env.example` placeholder before shipping. |
-| `HOST_PROJECT` / `HOST_DATA_ROOT` | Absolute host paths required for the car overlay (Valhalla via docker.sock). `./run.sh` / `./deploy.sh` write these. |
-| `GPSD_*` / `KISMET_*` | Host services; car overlay uses host networking. |
-| `WARDRIVRR_IMAGE` | Published image; use `ghcr.io/<owner>/wardrivrr:latest` (always pull current). |
-| `WARDRIVRR_VERSION` | Optional product-version override; defaults to the repo `VERSION` file. |
+| `DATA_ROOT` | Host path for persistent data (map packs, Kismet conf/logs, JWT file, Valhalla). Default `./data`. Prefer an absolute path on a vehicle. |
+| `WARDRIVRR_IMAGE` | Optional image override; default `ghcr.io/jakami99/wardrivrr:latest`. |
+| Machine setup (Web UI) | Wi‑Fi / Bluetooth / Kismet password — stored under `$DATA_ROOT/machine.json` + `kismet/kismet_site.conf`. |
+| JWT | Auto-written to `$DATA_ROOT/.jwt_secret` if unset. |
 
 | Service | Port |
 | --- | --- |
 | API + UI | `8000` |
 | Valhalla | `8002` |
-| PostGIS | `5432` (default bind `127.0.0.1`) |
-| Kismet (host) | `2501` |
+| PostGIS | `5432` (bound `127.0.0.1`) |
+| Kismet | `2501` |
 | gpsd (host) | `2947` |
 
-**Maps & routing:** create a **Region** in the UI → regional Geofabrik pack cached in `data/pbf/` (~7 days) → clip + Valhalla tiles for that place only → **Drive**. Live routing uses Valhalla tiles / `data/valhalla/active.osm.pbf`, not the regional pack. Do not create a second region for the same area.
-
-Compose starts **Valhalla** only when `data/valhalla/active.osm.pbf` already exists from a prior region. Empty checkout → API + PostGIS until the first region is ready.
-
-Env templates: `.env.example`, `deploy/examples/.env.car.example`.
+**Maps & routing:** create a **Region** in the UI → regional pack cached in `$DATA_ROOT/pbf/` (~7 days) → clip + Valhalla tiles → **Drive**. Live routing uses Valhalla tiles / `active.osm.pbf`, not the regional pack.
 
 Ship checklist: [docs/SHIP_CHECKLIST.md](docs/SHIP_CHECKLIST.md).
 
@@ -183,13 +146,13 @@ Ship checklist: [docs/SHIP_CHECKLIST.md](docs/SHIP_CHECKLIST.md).
 
 | Path | Role |
 | --- | --- |
-| `deploy.sh` / `run.sh` | First-time setup / everyday boot |
-| `debug.sh` / `debug.bat` | Host API via `run_dev.py` |
+| `docker-compose.yml` | Single fire-and-forget stack |
+| `debug.sh` / `debug.bat` | Host API via `run_dev.py` (dev) |
 | `backend/` | FastAPI + `Dockerfile` |
-| `frontend/` | Web UI |
-| `deploy/` | Compose overlay, systemd, Kismet examples |
-| `scripts/` | Helpers (Docker ensure, wipe, ingest, password reset, offline data) |
-| `data/` | Map packs, Valhalla runtime, Kismet logs, `.jwt_secret` (gitignored) |
+| `frontend/` | Web UI (incl. `/machine-setup`) |
+| `deploy/kismet/` | Default Kismet site conf template |
+| `scripts/` | Helpers (wipe, ingest, password reset) |
+| `$DATA_ROOT` | Map packs, Valhalla, Kismet logs/conf, `.jwt_secret` |
 | `VERSION` | Product version (also home page / `/api/health`) |
 
 ---

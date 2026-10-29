@@ -379,8 +379,13 @@ def kismet_service_status() -> dict:
     # Prefer localhost when .env still has the old Docker-bridge hostname
     if "host.docker.internal" in base:
         base = "http://127.0.0.1:2501"
-    user = os.getenv("KISMET_USER") or ""
-    password = os.getenv("KISMET_PASSWORD") or ""
+    try:
+        from machine_setup import kismet_credentials
+
+        user, password = kismet_credentials()
+    except Exception:
+        user = os.getenv("KISMET_USER") or ""
+        password = os.getenv("KISMET_PASSWORD") or ""
     url = f"{base}/system/status.json"
     ok, detail = _http_ok(url, username=user or None, password=password)
     out = container_status(KISMET_CONTAINER)

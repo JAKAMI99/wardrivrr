@@ -122,6 +122,17 @@ async function loadOverview() {
 }
 
 (async () => {
-  await WardAuth.requireAuth();
+  const me = await WardAuth.requireAuth();
+  if (me && me.is_admin) {
+    try {
+      const ms = await WardAuth.apiFetch("/api/system/machine-setup");
+      if (ms && ms.complete === false) {
+        location.replace("/machine-setup");
+        return;
+      }
+    } catch {
+      /* Status/API down — stay on home */
+    }
+  }
   loadOverview();
 })();

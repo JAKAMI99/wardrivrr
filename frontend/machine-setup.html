@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
+    <title>Machine setup · wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css?v=28" />
+    <link rel="stylesheet" href="/static/themes.css?v=26" />
+    <script src="/static/theme.js?v=31"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links"></div>
+      </nav>
+
+      <main class="home-main settings-main">
+        <header class="home-hero settings-hero">
+          <h1>Machine setup</h1>
+          <p>
+            Pick Wi‑Fi, Bluetooth, and the Kismet password. Apply restarts the Kismet container —
+            no <code>.env</code> or bash scripts.
+          </p>
+        </header>
+
+        <section class="tools-panel settings-form-panel">
+          <form id="machineForm" class="settings-form">
+            <label>
+              Wi‑Fi capture interface
+              <select id="wifiIface" name="wifi_iface" required></select>
+            </label>
+            <p class="muted settings-hint">Prefer a monitor-capable adapter (often <code>wlan1</code>), not the uplink.</p>
+
+            <label>
+              Bluetooth adapter
+              <select id="btIface" name="bluetooth_iface"></select>
+            </label>
+
+            <label>
+              GPS serial device (optional)
+              <select id="gpsDevice" name="gps_device"></select>
+            </label>
+            <p class="muted settings-hint">gpsd still needs to be running on the host (or separately). This is a hint for Status.</p>
+
+            <label>
+              Kismet username
+              <input type="text" id="kismetUser" name="kismet_user" autocomplete="username" value="wardrivrr" required />
+            </label>
+            <label>
+              Kismet password
+              <input type="password" id="kismetPass" name="kismet_password" autocomplete="new-password" minlength="4" placeholder="unchanged if blank" />
+            </label>
+
+            <p class="muted" id="formStatus" role="status"></p>
+            <div class="tools-row">
+              <button class="btn" type="submit" id="applyBtn">Apply &amp; restart Kismet</button>
+              <a class="btn btn-ghost" href="/status">Status</a>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js"></script>
+    <script src="/static/machine-setup.js"></script>
+  </body>
+</html>

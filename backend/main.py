@@ -127,6 +127,15 @@ class ChangePasswordBody(BaseModel):
     new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
 
 
+class MachineSetupBody(BaseModel):
+    wifi_iface: str = ""
+    bluetooth_iface: str = ""
+    gps_device: str = ""
+    kismet_user: str = "wardrivrr"
+    kismet_password: str = Field(default="", max_length=128)
+    httpd_bind: str = "0.0.0.0"
+
+
 class SetupAdminBody(BaseModel):
     password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
 
@@ -1483,6 +1492,24 @@ def free_map_packs(user: dict = Depends(get_current_user)):
     return free_unused_packs()
 
 
+@app.get("/api/system/machine-setup")
+def machine_setup_get(user: dict = Depends(get_current_user)):
+    from machine_setup import setup_status_payload
+
+    return setup_status_payload()
+
+
+@app.post("/api/system/machine-setup")
+def machine_setup_post(body: MachineSetupBody, user: dict = Depends(require_admin)):
+    """Write Kismet conf + machine.json, restart wardrivrr_kismet."""
+    from machine_setup import apply_machine_setup
+
+    try:
+        return apply_machine_setup(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.post("/api/localize/recompute")
 def localize_recompute(body: RecomputeBody, user: dict = Depends(get_current_user)):
     if body.async_job and not body.network_ids:
@@ -2260,6 +2287,11 @@ def stats_page():
 @app.get("/settings")
 def settings_page():
     return FileResponse(FRONTEND / "settings.html")
+
+
+@app.get("/machine-setup")
+def machine_setup_page():
+    return FileResponse(FRONTEND / "machine-setup.html")
 
 
 @app.get("/regions")

@@ -51,8 +51,15 @@ def _env_bool(name: str, default: bool = True) -> bool:
 
 
 def _auth_header() -> str | None:
-    user = os.getenv("KISMET_USER", "").strip()
-    password = os.getenv("KISMET_PASSWORD", "").strip()
+    try:
+        from machine_setup import kismet_credentials
+
+        user, password = kismet_credentials()
+    except Exception:
+        user = os.getenv("KISMET_USER", "").strip()
+        password = os.getenv("KISMET_PASSWORD", "").strip()
+    user = (user or "").strip()
+    password = (password or "").strip()
     if not user:
         return None
     token = base64.b64encode(f"{user}:{password}".encode()).decode()

@@ -237,17 +237,50 @@ def _compose_root() -> Path:
     return ROOT
 
 
+def _discover_host_data_via_inspect() -> Path | None:
+    """Resolve host DATA_ROOT from this container's /app/data mount (docker.sock)."""
+    name = (os.getenv("HOSTNAME") or "").strip() or "wardrivrr_api"
+    for target in (name, "wardrivrr_api"):
+        try:
+            proc = subprocess.run(
+                ["docker", "inspect", "-f", "{{json .Mounts}}", target],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if proc.returncode != 0 or not proc.stdout.strip():
+            continue
+        try:
+            mounts = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(mounts, list):
+            continue
+        for m in mounts:
+            if not isinstance(m, dict):
+                continue
+            dest = str(m.get("Destination") or "")
+            src = str(m.get("Source") or "")
+            if dest.rstrip("/") == "/app/data" and src:
+                return Path(src)
+    return None
+
+
 def _host_data_root() -> Path:
     """Host path for ./data — required when docker run mounts from inside the API container."""
-    env = (os.getenv("HOST_DATA_ROOT") or "").strip()
-    if env:
+    env = (os.getenv("HOST_DATA_ROOT") or os.getenv("DATA_ROOT") or "").strip()
+    if env and env not in (".", "./data", "/app/data"):
         return Path(env)
-    # Same-path mount: HOST_PROJECT/data
+    discovered = _discover_host_data_via_inspect()
+    if discovered:
+        return discovered
+    # Same-path mount: HOST_PROJECT/data (legacy)
     host_proj = (os.getenv("HOST_PROJECT") or "").strip()
     if host_proj:
         return Path(host_proj) / "data"
     return DATA
-
 
 def _compose_available() -> bool:
     """True when `docker compose` works (plugin present — not just the docker binary)."""
@@ -452,8 +485,7 @@ def _restart_valhalla(*, wipe: bool | None = None) -> dict[str, Any]:
         raise ValhallaPrepError("active.osm.pbf missing — seed or clip first")
     if not _docker_cli_ok():
         raise ValhallaPrepError(
-            "Docker CLI unavailable inside API — mount /var/run/docker.sock "
-            "and set HOST_PROJECT to the host checkout path"
+            "Docker CLI unavailable inside API — mount /var/run/docker.sock"
         )
 
     do_wipe = os.getenv("VALHALLA_WIPE_ON_LEVEL", "1") != "0" if wipe is None else wipe

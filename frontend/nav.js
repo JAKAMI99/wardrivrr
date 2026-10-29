@@ -40,6 +40,7 @@
     { href: "/stats", label: "Stats" },
     { href: "/api", label: "API" },
     { href: "/settings", label: "Settings" },
+    { href: "/machine-setup", label: "Machine setup", admin: true },
   ];
 
   const BURGER_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
@@ -95,7 +96,9 @@
           </div>
         </div>
         <div class="account-dropdown-links">
-          ${ACCOUNT.map((l) => `<a href="${l.href}">${l.label}</a>`).join("")}
+          ${ACCOUNT.filter((l) => !l.admin || user?.is_admin)
+            .map((l) => `<a href="${l.href}">${l.label}</a>`)
+            .join("")}
         </div>
         <div class="account-theme" data-kidcore-skip>
           <p class="account-theme-title" data-kidcore-skip>Appearance</p>

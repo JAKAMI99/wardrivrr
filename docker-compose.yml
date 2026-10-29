@@ -1,50 +1,128 @@
-# Base stack: PostGIS + Valhalla.
-# Vehicle host (API + host Kismet): also use deploy/compose.car.yml
-#   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
-# Image: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest (see ./run.sh)
+# Fire-and-forget stack. One optional knob: DATA_ROOT (host path for persistent data).
+#
+#   DATA_ROOT=/var/lib/wardrivrr docker compose up -d
+#   # or defaults to ./data next to this file:
+#   docker compose up -d
+#
+# Then open http://<host>:8000 → create admin → Machine setup (Wi‑Fi / BT / Kismet) in the UI.
+# No .env file required.
 
 services:
+  init-data:
+    image: busybox:1.36
+    container_name: wardrivrr_init_data
+    volumes:
+      - ${DATA_ROOT:-./data}:/data
+      - ./deploy/kismet/kismet_site.conf.default:/defaults/kismet_site.conf:ro
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /data/kismet /data/kismet_logs /data/valhalla /data/pbf /data/incoming /data/users
+        if [ ! -f /data/kismet/kismet_site.conf ]; then
+          cp /defaults/kismet_site.conf /data/kismet/kismet_site.conf
+        fi
+        chmod -R a+rwX /data/kismet_logs /data/kismet /data/valhalla /data/pbf /data/incoming 2>/dev/null || true
+
   postgis:
     image: postgis/postgis:16-3.4
     container_name: wardrivrr_postgis
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-wardriving}
-      POSTGRES_USER: ${DB_USER:-explorer}
-      POSTGRES_PASSWORD: ${DB_PASS:-secure_password_here}
-    # Localhost only (the car API uses host networking). DB_BIND=0.0.0.0 to
-    # reach it from the LAN — then set a real DB_PASS first.
+      POSTGRES_DB: wardriving
+      POSTGRES_USER: explorer
+      POSTGRES_PASSWORD: secure_password_here
     ports:
-      - "${DB_BIND:-127.0.0.1}:5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgis/init:/docker-entrypoint-initdb.d
     command: postgres -c shared_buffers=128MB -c work_mem=16MB -c maintenance_work_mem=64MB -c effective_cache_size=512MB
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U explorer -d wardriving"]
       interval: 5s
       timeout: 5s
       retries: 30
       start_period: 90s
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
 
-  # Tiles from data/valhalla/active.osm.pbf (city/district clip from level prepare).
-  # Regional packs cache in data/pbf/ (~7 days); Valhalla only starts after a level is ready.
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
     container_name: wardrivrr_valhalla
     restart: unless-stopped
     ports:
-      - "${VALHALLA_BIND:-127.0.0.1}:8002:8002"
+      - "127.0.0.1:8002:8002"
     environment:
-      tile_urls: ${VALHALLA_TILE_URL:-}
       use_tiles_ignore_pbf: "False"
       build_elevation: "False"
       build_admins: "False"
       build_time_zones: "False"
       serve_tiles: "True"
-      server_threads: ${VALHALLA_SERVER_THREADS:-4}
+      server_threads: "4"
     volumes:
-      - ./data/valhalla:/custom_files
+      - ${DATA_ROOT:-./data}/valhalla:/custom_files
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+
+  kismet:
+    image: finchsec/kismet:latest
+    container_name: wardrivrr_kismet
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    volumes:
+      - ${DATA_ROOT:-./data}/kismet/kismet_site.conf:/etc/kismet/kismet_site.conf:ro
+      - ${DATA_ROOT:-./data}/kismet_logs:/home/kismet/logs
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+
+  api:
+    image: ${WARDRIVRR_IMAGE:-ghcr.io/jakami99/wardrivrr:latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: wardrivrr_api
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DB_NAME: wardriving
+      DB_USER: explorer
+      DB_PASS: secure_password_here
+      VALHALLA_URL: http://127.0.0.1:8002
+      GPSD_HOST: 127.0.0.1
+      GPSD_PORT: "2947"
+      GPSD_ENABLED: "1"
+      KISMET_URL: http://127.0.0.1:2501
+      KISMET_USER: wardrivrr
+      KISMET_PASSWORD: changeme
+      KISMET_LIVE: "1"
+      KISMET_LOG_DIR: /data/kismet_logs
+      DATA_ROOT: /app/data
+      WARDRIVRR_MODE: full
+      # Host path for docker-from-docker Valhalla mounts (same as compose DATA_ROOT).
+      # Prefer absolute DATA_ROOT=… when you set it; otherwise API discovers via inspect.
+      HOST_DATA_ROOT: ${DATA_ROOT:-}
+    volumes:
+      - ${DATA_ROOT:-./data}:/app/data
+      - ${DATA_ROOT:-./data}/kismet_logs:/data/kismet_logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      init-data:
+        condition: service_completed_successfully
+      postgis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 45s
 
 volumes:
   pgdata:
