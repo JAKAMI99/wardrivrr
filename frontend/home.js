@@ -125,10 +125,13 @@ async function loadOverview() {
   const me = await WardAuth.requireAuth();
   if (me && me.is_admin) {
     try {
-      const ms = await WardAuth.apiFetch("/api/system/machine-setup");
-      if (ms && ms.complete === false) {
-        location.replace("/machine-setup");
-        return;
+      const msRes = await WardAuth.apiFetch("/api/system/machine-setup");
+      if (msRes && msRes.ok) {
+        const ms = await msRes.json();
+        if (ms && ms.complete === false) {
+          location.replace("/machine-setup");
+          return;
+        }
       }
     } catch {
       /* Status/API down — stay on home */

@@ -32,15 +32,19 @@
     if (cur) sel.value = cur;
   }
 
-  async function load() {
+  async function load(me) {
     setStatus("Loading interfaces…");
-    const me = await WardAuth.apiFetch("/api/auth/me");
     if (!me || !me.is_admin) {
       setStatus("Admin only — sign in as admin to configure the machine.", true);
       applyBtn.disabled = true;
       return;
     }
-    const data = await WardAuth.apiFetch("/api/system/machine-setup");
+    const res = await WardAuth.apiFetch("/api/system/machine-setup");
+    if (!res || !res.ok) {
+      const err = res ? await res.json().catch(() => ({})) : {};
+      throw new Error(err.detail || "Could not load machine setup");
+    }
+    const data = await res.json();
     const nics = data.nics || [];
     const wifi = nics.filter(
       (n) => n.kind === "wifi" || /^(wl|kismon)/i.test(n.name || "")
@@ -65,7 +69,7 @@
       data.serial || [],
       "path",
       (n) => n.path || n.name,
-      "— none —"
+      "— none (optional) —"
     );
 
     const cfg = data.config || {};
@@ -98,14 +102,15 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res || res.ok === false) {
-        throw new Error((res && res.detail) || "Save failed");
+      const data = res ? await res.json().catch(() => ({})) : {};
+      if (!res || !res.ok) {
+        throw new Error(data.detail || "Save failed");
       }
-      const restartOk = res.restart && res.restart.ok;
+      const restartOk = data.restart && data.restart.ok;
       setStatus(
         restartOk
           ? "Saved. Kismet restarted — check Status."
-          : `Saved config, but Kismet restart: ${(res.restart && res.restart.err) || "check docker.sock"}.`
+          : `Saved config, but Kismet restart: ${(data.restart && data.restart.err) || "check docker.sock"}.`
       );
       if (restartOk) {
         setTimeout(() => {
