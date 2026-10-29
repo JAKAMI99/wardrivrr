@@ -137,9 +137,12 @@ def resolve_city_parts(
             "parent_admin_level": None,
             "child_admin_level": None,
         }
+    # Prefer the indexed city bbox. Callers (e.g. Regions tally) may pass a
+    # loaded district's bbox when the city pack is missing — that is far too
+    # small and would wrongly skip districts as city_too_small.
     if not city_may_have_parts(
         population=population,
-        bbox=bbox or city.get("bbox"),
+        bbox=city.get("bbox") or bbox,
     ):
         return {
             "parts": [],

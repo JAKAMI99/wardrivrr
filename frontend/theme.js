@@ -1,6 +1,8 @@
 /* Site-wide theme engine - Classic / Kidcore / CRT
  *
- * Kidcore speech ≈ Prism Launcher "Cute Engwish" (en@uwu): hewwo, pwease, :3
+ * Kidcore speech ≈ Prism Launcher "Cute Engwish" (en@uwu) + OwOify baseline:
+ * phrase dict, word map, soft r/l→w, ny-after-n, repeaty, stutter, :3/UwU/OwO.
+ * Attribution / notes: tools/cute-engwish/NOTES.md (no source dumps in-repo).
  */
 (function () {
   const KEY = "wardrivrr_theme";
@@ -150,6 +152,11 @@
   ];
 
   const FLOAT_EMOJI = ["🎒", "🧸", "⭐", "🖍️", "🌈", "🐸", "🎮", "🦕", "🦖", "💫", "🎀"];
+  const KIDCORE_FAVICON = "/static/brand/kidcore/favicon.png";
+  const KIDCORE_STICKERS_MANIFEST = "/static/brand/kidcore/stickers.json";
+  /** Filled async from stickers.json; decor falls back to emoji until loaded */
+  let kidcoreStickerUrls = null;
+  let kidcoreStickersPromise = null;
 
   const META = {
     classic: {
@@ -259,77 +266,243 @@
     if (meta) meta.setAttribute("content", META[id]?.themeColor || "#111315");
   }
 
+  function ensureFaviconLink() {
+    let link =
+      document.getElementById("wardFavicon") ||
+      document.querySelector("link#wardFavicon") ||
+      document.querySelector("link[rel='icon'], link[rel='shortcut icon']");
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      link.id = "wardFavicon";
+      document.head?.appendChild(link);
+    }
+    if (!link.id) link.id = "wardFavicon";
+    // Snapshot the HTML default once so classic/crt can restore it.
+    // Site ships with kidcore favicon as the default (no separate classic asset).
+    if (link.dataset.wardClassicHref === undefined) {
+      link.dataset.wardClassicHref =
+        link.getAttribute("href") || KIDCORE_FAVICON;
+    }
+    return link;
+  }
+
+  function setFavicon(theme) {
+    const link = ensureFaviconLink();
+    if (theme === "kidcore") {
+      link.href = KIDCORE_FAVICON;
+      link.type = "image/png";
+      return;
+    }
+    // Prefer HTML default; if missing, keep kidcore so the tab never goes blank
+    const classic = link.dataset.wardClassicHref || KIDCORE_FAVICON;
+    link.href = classic || KIDCORE_FAVICON;
+    if (/\.png(\?|$)/i.test(link.href)) link.type = "image/png";
+    else link.removeAttribute("type");
+  }
+
   function pick(arr, n) {
     const copy = arr.slice();
     for (let i = copy.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [copy[i], copy[j]] = [copy[j], copy[i]];
     }
-    return copy.slice(0, n);
+    return copy.slice(0, Math.min(n, copy.length));
   }
 
-  /** Toddler Cute Engwish - phrase rewrites + selective swaps (no blanket r/l->w) */
+  function fetchKidcoreStickersOnce() {
+    return fetch(KIDCORE_STICKERS_MANIFEST, { cache: "no-cache" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`stickers.json HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((body) => {
+        const base = (body?.base || "/static/brand/kidcore/stickers").replace(
+          /\/$/,
+          ""
+        );
+        const list = Array.isArray(body?.stickers) ? body.stickers : [];
+        if (!list.length) {
+          throw new Error("stickers.json returned empty list");
+        }
+        return list.map((f) => `${base}/${f}`);
+      });
+  }
+
+  function loadKidcoreStickers() {
+    if (kidcoreStickerUrls && kidcoreStickerUrls.length) {
+      return Promise.resolve(kidcoreStickerUrls);
+    }
+    if (kidcoreStickersPromise) return kidcoreStickersPromise;
+    // Retry once on empty/failed load (cache race, cold StaticFiles, etc.)
+    kidcoreStickersPromise = fetchKidcoreStickersOnce()
+      .catch((err) => {
+        console.warn("[wardrivrr] kidcore stickers load failed, retrying once", err);
+        return new Promise((resolve) => setTimeout(resolve, 400)).then(
+          fetchKidcoreStickersOnce
+        );
+      })
+      .then((urls) => {
+        kidcoreStickerUrls = urls;
+        return kidcoreStickerUrls;
+      })
+      .catch((err) => {
+        console.warn(
+          "[wardrivrr] kidcore stickers unavailable — falling back to emoji floats. Check /static/brand/kidcore/stickers.json (Docker image must COPY frontend/brand).",
+          err
+        );
+        kidcoreStickerUrls = null;
+        kidcoreStickersPromise = null;
+        return [];
+      });
+    return kidcoreStickersPromise;
+  }
+
+  /**
+   * Cute Engwish — closer to Prism's en@uwu + OwOify baseline
+   * (https://github.com/aqua-lzma/OwOify), but UI-safe:
+   *   phrase dict → word map → soft r/l→w → ny-after-n → repeaty → stutter → suffix
+   * Protects URLs, paths, and ALL-CAPS tokens (API, GPS, XP…).
+   */
+  const UWU_WORD_MAP = {
+    // OwOify core
+    love: "wuv",
+    mr: "mistuh",
+    dog: "doggo",
+    cat: "kitteh",
+    hello: "hewwo",
+    hell: "heck",
+    friend: "fwend",
+    friends: "fwends",
+    stop: "stawp",
+    god: "gosh",
+    damn: "darn",
+    // Prism / toddler UI lexicon
+    please: "pwease",
+    thanks: "tankyu",
+    "thank you": "tankyu",
+    yes: "yesh",
+    no: "nyo",
+    not: "nyot",
+    none: "nyone",
+    little: "smol",
+    small: "smol",
+    cute: "cwute",
+    you: "u",
+    your: "ur",
+    you're: "ur",
+    the: "da",
+    with: "wif",
+    for: "fow",
+    or: "ow",
+    and: "awnd",
+    very: "vewy",
+    really: "weally",
+    pretty: "pwetty",
+    hi: "hii",
+    settings: "settingsies",
+    explore: "expwore",
+    exploring: "expwowing",
+    drive: "dwive",
+    driving: "dwiving",
+  };
+
+  const UWU_SUFFIXES = [":3", "UwU", "OwO", ">:3", "nya~"];
+
+  function uwuPreserveCase(match, replacement) {
+    const upper = (match.match(/[A-Z]/g) || []).length;
+    if (upper > match.length / 2) return replacement.toUpperCase();
+    if (match[0] && match[0] === match[0].toUpperCase()) {
+      return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+    }
+    return replacement;
+  }
+
+  function uwuProtected(token) {
+    if (!token) return true;
+    if (/^https?:/i.test(token)) return true;
+    if (/^\/static\//i.test(token)) return true;
+    if (/^[A-Z]{2,}$/.test(token)) return true; // API GPS XP URL …
+    if (/^wr_/i.test(token)) return true;
+    if (/^[a-f0-9]{2}(:[a-f0-9]{2}){5}$/i.test(token)) return true;
+    if (/^[\d.:/%_-]+$/.test(token)) return true;
+    return false;
+  }
+
   function cuteEngwish(input) {
     if (!input || !input.trim()) return input;
     let s = input;
 
+    // 1) App-specific full phrases first
     for (const [re, rep] of PHRASE_DICT) s = s.replace(re, rep);
 
-    // Selective word swaps only (keeps most consonants readable)
-    const pairs = [
-      [/\bThank you\b/gi, "Tankyu"],
-      [/\bHello\b/g, "Hewwo"],
-      [/\bhello\b/g, "hewwo"],
-      [/\bHi\b/g, "Hii"],
-      [/\bPlease\b/g, "Pwease"],
-      [/\bplease\b/g, "pwease"],
-      [/\bThanks\b/g, "Tankyu"],
-      [/\bthanks\b/g, "tankyu"],
-      [/\bLove\b/g, "Wuv"],
-      [/\blove\b/g, "wuv"],
-      [/\bYes\b/g, "Yesh"],
-      [/\byes\b/g, "yesh"],
-      [/\bNo\b/g, "Nyo"],
-      [/\bno\b/g, "nyo"],
-      [/\bLittle\b/g, "Smol"],
-      [/\blittle\b/g, "smol"],
-      [/\bSmall\b/g, "Smol"],
-      [/\bsmall\b/g, "smol"],
-      [/\bCute\b/g, "Cwute"],
-      [/\bcute\b/g, "cwute"],
-      [/\bFriend\b/g, "Fwend"],
-      [/\bfriend\b/g, "fwend"],
-      [/\bFriends\b/g, "Fwends"],
-      [/\bfriends\b/g, "fwends"],
-      [/\bExplore\b/g, "Expwore"],
-      [/\bexplore\b/g, "expwore"],
-      [/\bExploring\b/g, "Expwowing"],
-      [/\bexploring\b/g, "expwowing"],
-      [/\bDrive\b/g, "Dwive"],
-      [/\bdrive\b/g, "dwive"],
-      [/\bDriving\b/g, "Dwiving"],
-      [/\bdriving\b/g, "dwiving"],
-      [/\bSettings\b/g, "Settingsies"],
-      [/\bsettings\b/g, "settingsies"],
-      [/\bVery\b/g, "Vewy"],
-      [/\bvery\b/g, "vewy"],
-      [/\bReally\b/g, "Weally"],
-      [/\breally\b/g, "weally"],
-      [/\bPretty\b/g, "Pwetty"],
-      [/\bpretty\b/g, "pwetty"],
-    ];
-    for (const [re, rep] of pairs) s = s.replace(re, rep);
+    // 2) Word map (longer keys first)
+    const mapKeys = Object.keys(UWU_WORD_MAP).sort((a, b) => b.length - a.length);
+    for (const key of mapKeys) {
+      const re = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+      s = s.replace(re, (m) => {
+        if (uwuProtected(m)) return m;
+        return uwuPreserveCase(m, UWU_WORD_MAP[key]);
+      });
+    }
 
-    // Soft stutter - rare
-    s = s.replace(/\b([A-Za-z])([a-z]{5,})\b/g, (full, a, rest) => {
-      if (Math.random() > 0.04) return full;
-      return `${a}-${a}${rest}`;
-    });
+    // 3–6 operate per word so we can skip protected tokens
+    s = s
+      .split(/(\s+)/)
+      .map((word) => {
+        if (!word || /^\s+$/.test(word)) return word;
+        // Keep leading/trailing punctuation out of transforms
+        const m = word.match(/^([^A-Za-z]*)([A-Za-z][A-Za-z']*)([^A-Za-z]*)$/);
+        if (!m) return word;
+        const [, pre, core, post] = m;
+        if (uwuProtected(core)) return word;
 
-    // Light :3 / UwU sprinkle on sentence endings
-    if (/[.!?]$/.test(s.trim()) && s.length > 18 && Math.random() < 0.12) {
-      const tails = [" :3", " UwU", " >:3"];
-      s = s.replace(/([.!?])\s*$/, tails[Math.floor(Math.random() * tails.length)]);
+        let w = core;
+
+        // 3) Soft r/l → w (OwOify rltow) — skip tiny words so UI stays readable
+        if (w.length >= 4) {
+          w = w.replace(/[rl]/gi, (ch) =>
+            ch.charCodeAt(0) < 97 ? "W" : "w"
+          );
+        }
+
+        // 4) ny after n+vowel (OwOify yaftern) — name→nyame, need→nyeed
+        w = w.replace(/n[aeiou]/gi, (pair) => {
+          const n = pair[0];
+          const v = pair[1];
+          const y = v.charCodeAt(0) < 97 ? "Y" : "y";
+          return `${n}${y}${v}`;
+        });
+
+        // 5) Repeaty wepeaty — long …y words get a w-echo
+        if (
+          w.length >= 5 &&
+          /y$/i.test(w) &&
+          /[aeiou]/i.test(w) &&
+          Math.random() < 0.35
+        ) {
+          // "pwobabwy wobabwy" style (OwOify repeaty)
+          const rest = w.match(/.[aeiouy].*/i);
+          const tail = rest ? rest[0].slice(1) : w.slice(1);
+          const wEcho = (w[0].charCodeAt(0) < 97 ? "W" : "w") + tail;
+          w = `${w} ${wEcho}`;
+        }
+
+        // 6) Soft stutter (rarer than OwOify's 10%)
+        if (w.length >= 4 && /[a-z]/i.test(w[0]) && Math.random() < 0.06) {
+          const ch = w[0];
+          w = `${ch}-${w}`;
+          if (Math.random() < 0.25) w = `${ch}-${w}`;
+        }
+
+        return pre + w + post;
+      })
+      .join("");
+
+    // 7) Suffix sprinkle on sentence endings
+    if (/[.!?]$/.test(s.trim()) && s.length > 16 && Math.random() < 0.14) {
+      const tail = UWU_SUFFIXES[Math.floor(Math.random() * UWU_SUFFIXES.length)];
+      s = s.replace(/([.!?])\s*$/, ` ${tail}`);
     }
     return s;
   }
@@ -467,13 +640,23 @@
     }, 45000);
   }
 
-  function buildDecorHtml() {
-    const emojis = pick(FLOAT_EMOJI, 4);
-    const phrases = pick(PHRASE_POOL, 4);
-    const floats = emojis
-      .map((e, i) => `<span class="kc-float kc-f${i + 1}">${e}</span>`)
+  function imgStickerHtml(urls, count = 6) {
+    const picked = pick(urls || [], count);
+    if (!picked.length) {
+      return pick(FLOAT_EMOJI, 4)
+        .map((e, i) => `<span class="kc-float kc-f${i + 1}">${e}</span>`)
+        .join("");
+    }
+    return picked
+      .map(
+        (src, i) =>
+          `<img class="kc-img kc-i${(i % 8) + 1}" src="${src}" alt="" decoding="async" draggable="false" />`
+      )
       .join("");
-    const stickers = phrases
+  }
+
+  function phraseStickerHtml() {
+    return pick(PHRASE_POOL, 3)
       .map((p, i) => {
         const cls = `kc-sticker kc-s${(i % 6) + 1}${
           /:3|>:3|UwU|OwO|nya/i.test(p) ? " kc-emo" : ""
@@ -481,21 +664,20 @@
         return `<span class="${cls}">${p}</span>`;
       })
       .join("");
-    return floats + stickers;
+  }
+
+  function buildDecorHtml() {
+    return imgStickerHtml(kidcoreStickerUrls, 6) + phraseStickerHtml();
   }
 
   function refreshPhrases(layer) {
     if (!layer) return;
     layer.querySelectorAll(".kc-sticker").forEach((el) => el.remove());
-    const phrases = pick(PHRASE_POOL, 4);
-    phrases.forEach((p, i) => {
-      const span = document.createElement("span");
-      span.className = `kc-sticker kc-s${(i % 6) + 1}${
-        /:3|>:3|UwU|OwO|nya/i.test(p) ? " kc-emo" : ""
-      }`;
-      span.textContent = p;
-      layer.appendChild(span);
-    });
+    layer.querySelectorAll(".kc-img, .kc-float").forEach((el) => el.remove());
+    // Rotate image stickers + a few text stickers
+    const wrap = document.createElement("div");
+    wrap.innerHTML = buildDecorHtml();
+    while (wrap.firstChild) layer.appendChild(wrap.firstChild);
   }
 
   function syncKidcoreDecor(theme) {
@@ -519,19 +701,25 @@
     }
     bindKidcoreVisibility();
     setKidcorePaused(document.hidden);
-    if (!layer) {
-      layer = document.createElement("div");
-      layer.id = "kidcoreDecor";
-      layer.className = "kidcore-decor";
-      layer.setAttribute("aria-hidden", "true");
-      layer.innerHTML = buildDecorHtml();
-      document.body?.appendChild(layer);
-    } else {
-      if (document.body && layer.parentNode !== document.body) {
-        document.body.appendChild(layer);
+    const mount = () => {
+      let host = document.getElementById("kidcoreDecor");
+      if (!host) {
+        host = document.createElement("div");
+        host.id = "kidcoreDecor";
+        host.className = "kidcore-decor";
+        host.setAttribute("aria-hidden", "true");
+        document.body?.appendChild(host);
+      } else if (document.body && host.parentNode !== document.body) {
+        document.body.appendChild(host);
       }
-      layer.innerHTML = buildDecorHtml();
-    }
+      host.innerHTML = buildDecorHtml();
+    };
+    mount();
+    // Once sticker pack loads, rebuild so emoji placeholders become images
+    loadKidcoreStickers().then(() => {
+      if (read() !== "kidcore") return;
+      mount();
+    });
     if (!document.hidden) {
       applySpeechToRoot(document.body);
       startSpeechObserver();
@@ -547,6 +735,7 @@
     }
     document.documentElement.dataset.theme = theme;
     applyFogCssVars(theme);
+    setFavicon(theme);
     if (document.body) {
       document.body.dataset.navTheme = theme;
       syncKidcoreDecor(theme);

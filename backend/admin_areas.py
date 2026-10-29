@@ -219,7 +219,7 @@ def place_options_for_city(
     districts_out: list[dict] = []
     if city_may_have_parts(
         population=population,
-        bbox=bbox or city.get("bbox"),
+        bbox=city.get("bbox") or bbox,
         area_km2=city_area,
     ):
         _level, districts = find_districts(city)

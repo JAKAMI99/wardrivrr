@@ -63,10 +63,8 @@ Skip if it fights map usability; Drive should keep OS cursors.
 
 Keep Classic clean; dump the cuteness **only** into Kidcore slots.
 
-### 10. Sticker sheet (8–12)
-Separate transparent PNGs, ~128–256px, chunky outlines:
-- pacifier, toy car, star, heart, dino, snack, map pin with bow, walkie-talkie, little Wi‑Fi puff, cloud
-- Style: flat plastic toy / Y2K sticker — thick stroke, 3–4 colors max each
+### 10. Sticker sheet + favicon — done
+Shipped under `frontend/brand/kidcore/`: `favicon.png`, `stickers.json`, and 111 PNGs in `stickers/` (kc-001…kc-111). Style: flat plastic toy / Y2K — thick stroke, few colors.
 
 ### 11. Kidcore cursor set (optional)
 - Default + pointer — soft toy shapes
@@ -101,4 +99,4 @@ Separate transparent PNGs, ~128–256px, chunky outlines:
 
 **Avoid:** photoreal cars, stock neon cyberpunk, random Midjourney mashups, text baked into stickers (we localize / Kidcore-rewrite in CSS/JS).
 
-**Folder suggestion:** `frontend/static/brand/` and `frontend/static/brand/kidcore/`.
+**Folder:** `frontend/brand/` and `frontend/brand/kidcore/` (served as `/static/brand/…`).

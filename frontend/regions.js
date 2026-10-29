@@ -71,7 +71,7 @@ function modeBarsHtml(byProfile) {
       const row = by[mode.id] || {};
       const pct = Math.max(0, Math.min(100, Number(row.explored_pct) || 0));
       const done = !!(row.complete || pct >= COMPLETE_PCT);
-      return `<div class="level-mode-bar${done ? " is-complete" : ""}">
+      return `<div class="level-mode-bar${done ? " is-complete" : ""}" data-mode="${escapeHtml(mode.id)}">
         <div class="level-mode-bar-meta">
           <span class="level-mode-bar-label">${escapeHtml(mode.label)}</span>
           <span class="level-mode-bar-pct">${fmtPct(pct)}</span>
@@ -82,6 +82,46 @@ function modeBarsHtml(byProfile) {
       </div>`;
     }).join("")}
   </div>`;
+}
+
+/** Catalog place → stable key for matching loaded levels */
+function partMatchKey(p) {
+  if (!p) return null;
+  if (p.osm_relation_id != null) return `osm:${p.osm_relation_id}`;
+  const n = String(p.name || p.label || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return n ? `n:${n}` : null;
+}
+
+const unloadedPlaceByKey = new Map();
+
+function unloadedRowHtml(place, key) {
+  unloadedPlaceByKey.set(key, place);
+  const title = place.label || place.name || "Sub-region";
+  return `
+    <article class="level-card is-part is-unloaded is-minimal">
+      <header>
+        <h3 class="level-card-title">
+          <span class="level-card-name"><em class="place-kind place-kind-sub">Sub-region</em>${escapeHtml(title)}</span>
+        </h3>
+        <button type="button" class="btn level-generate-btn" data-generate="${escapeHtml(key)}" data-kidcore-skip>Generate</button>
+      </header>
+    </article>`;
+}
+
+function unloadedPartsForGroup(g, catalogParts) {
+  const loadedKeys = new Set(
+    (g.parts || [])
+      .filter((p) => p.status !== "error")
+      .map(partMatchKey)
+      .filter(Boolean)
+  );
+  return (catalogParts || []).filter((p) => {
+    const k = partMatchKey(p);
+    return k && !loadedKeys.has(k);
+  });
 }
 
 function subTallyHtml(complete, progressing, unloaded) {
@@ -698,17 +738,21 @@ function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
       : "";
   const pack = packLine(lv);
   const done = isLevelComplete(lv);
-  const under =
-    sub && lv.parent_label
-      ? `<p class="muted level-place-hint">Under ${escapeHtml(lv.parent_label)}</p>`
-      : "";
-  const placeHint =
-    !under && lv.place_query && lv.place_query !== title
-      ? `<p class="muted level-place-hint">${escapeHtml(lv.place_query)}</p>`
-      : "";
   const by = levelByProfile(lv);
-  return `
-    <article class="level-card ${isActive ? "active" : ""} ${sub ? "is-part" : ""} ${done ? "is-complete" : ""}">
+  const tools = `<div class="tools-row tools-row-compact">
+        <a class="btn btn-primary ${lv.status !== "ready" ? "is-disabled" : ""}" href="${
+    lv.status === "ready" ? `/progress?level=${lv.id}` : "#"
+  }" ${lv.status !== "ready" ? 'aria-disabled="true"' : ""}>Map</a>
+        <button class="btn" data-load="${lv.id}" ${
+    lv.status !== "ready" ? "disabled" : ""
+  }>Use</button>
+        <button class="btn" data-del="${lv.id}">Delete</button>
+      </div>`;
+
+  // Nested sub-regions: compact — modes + actions, no stat grid / under-hints
+  if (sub) {
+    return `
+    <article class="level-card is-part is-minimal ${isActive ? "active" : ""} ${done ? "is-complete" : ""}">
       <header>
         <h3 class="level-card-title">
           <span class="level-card-name">${kind}${escapeHtml(title)}</span>
@@ -718,23 +762,34 @@ function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
           <span class="level-status status-${lv.status}">${lv.status}</span>
         </span>
       </header>
-      ${under}${placeHint}
       ${modeBarsHtml(by)}
-      <ul class="level-stats">
-        <li>${fmt(lv.road_km?.toFixed?.(1) ?? lv.road_km)} km roads</li>
-        ${pack ? `<li>${pack}</li>` : ""}
-        <li>${fmt(lv.networks_count)} networks</li>
-      </ul>
       ${lv.error ? `<p class="error-text">${escapeHtml(lv.error)}</p>` : ""}
-      <div class="tools-row">
-        <a class="btn btn-primary ${lv.status !== "ready" ? "is-disabled" : ""}" href="${
-    lv.status === "ready" ? `/progress?level=${lv.id}` : "#"
-  }" ${lv.status !== "ready" ? 'aria-disabled="true"' : ""}>Map</a>
-        <button class="btn" data-load="${lv.id}" ${
-    lv.status !== "ready" ? "disabled" : ""
-  }>Use</button>
-        <button class="btn" data-del="${lv.id}">Delete</button>
-      </div>
+      ${tools}
+    </article>`;
+  }
+
+  const placeHint =
+    lv.place_query && lv.place_query !== title
+      ? `<p class="muted level-place-hint">${escapeHtml(lv.place_query)}</p>`
+      : "";
+  return `
+    <article class="level-card is-minimal ${isActive ? "active" : ""} ${done ? "is-complete" : ""}">
+      <header>
+        <h3 class="level-card-title">
+          <span class="level-card-name">${kind}${escapeHtml(title)}</span>
+        </h3>
+        <span class="level-status-stack">
+          ${done ? `<span class="level-complete-badge" title="≥ ${COMPLETE_PCT}% Car roads unlocked">Complete</span>` : ""}
+          <span class="level-status status-${lv.status}">${lv.status}</span>
+        </span>
+      </header>
+      ${placeHint}
+      ${modeBarsHtml(by)}
+      <p class="muted level-card-meta">${fmt(lv.road_km?.toFixed?.(1) ?? lv.road_km)} km${
+    pack ? ` · ${pack}` : ""
+  } · ${fmt(lv.networks_count)} nets</p>
+      ${lv.error ? `<p class="error-text">${escapeHtml(lv.error)}</p>` : ""}
+      ${tools}
     </article>`;
 }
 
@@ -755,6 +810,95 @@ function groupSubCounts(g, availableTotal) {
     unloaded = Math.max(0, Number(availableTotal) - complete - progressing);
   }
   return { complete, progressing, unloaded, downloaded: parts.length };
+}
+
+const REGIONS_SORT_KEY = "wardrivrr_regions_sort_v2";
+const REGIONS_SORT_OPTS = ["created", "completion", "name", "size"];
+
+function readRegionsSort() {
+  try {
+    const v = localStorage.getItem(REGIONS_SORT_KEY);
+    if (REGIONS_SORT_OPTS.includes(v)) return v;
+  } catch {
+    /* ignore */
+  }
+  return "created";
+}
+
+function writeRegionsSort(v) {
+  try {
+    localStorage.setItem(REGIONS_SORT_KEY, v);
+  } catch {
+    /* ignore */
+  }
+}
+
+function bikeExploredPct(lv) {
+  const row = levelByProfile(lv).bicycle;
+  if (row && row.explored_pct != null) return Number(row.explored_pct) || 0;
+  return 0;
+}
+
+function entryBikePct(entry) {
+  if (entry.kind === "level") return bikeExploredPct(entry.level);
+  const bars = groupSummaryBars(entry.group);
+  return Number(bars.bicycle?.explored_pct) || 0;
+}
+
+function entryName(entry) {
+  if (entry.kind === "level") {
+    return String(entry.level.name || entry.level.place_query || "");
+  }
+  return String(entry.group.label || "");
+}
+
+function entryCreatedMs(entry) {
+  const parse = (v) => {
+    const t = Date.parse(v || "");
+    return Number.isFinite(t) ? t : null;
+  };
+  if (entry.kind === "level") return parse(entry.level.created_at) || 0;
+  const g = entry.group;
+  const times = [];
+  const c = parse(g.city?.created_at);
+  if (c != null) times.push(c);
+  for (const p of g.parts || []) {
+    const t = parse(p.created_at);
+    if (t != null) times.push(t);
+  }
+  // Earliest piece = when this region first appeared
+  return times.length ? Math.min(...times) : 0;
+}
+
+function entryRoadKm(entry) {
+  if (entry.kind === "level") return Number(entry.level.road_km) || 0;
+  const g = entry.group;
+  if (g.city && g.city.road_km != null) return Number(g.city.road_km) || 0;
+  return (g.parts || []).reduce((s, p) => s + (Number(p.road_km) || 0), 0);
+}
+
+function sortRegionEntries(entries, sortBy) {
+  const list = [...entries];
+  list.sort((a, b) => {
+    if (sortBy === "name") {
+      return entryName(a).localeCompare(entryName(b), undefined, {
+        sensitivity: "base",
+      });
+    }
+    if (sortBy === "created") {
+      return entryCreatedMs(b) - entryCreatedMs(a); // newest first
+    }
+    if (sortBy === "size") {
+      return entryRoadKm(b) - entryRoadKm(a); // largest first
+    }
+    // completion (bike) — most complete first
+    const d = entryBikePct(b) - entryBikePct(a);
+    if (d !== 0) return d;
+    return entryName(a).localeCompare(entryName(b), undefined, {
+      sensitivity: "base",
+    });
+  });
+  return list;
 }
 
 function groupLevels(levels) {
@@ -792,9 +936,9 @@ function groupLevels(levels) {
     else if (isPart && lv.parent_label) g.label = lv.parent_label;
   }
 
-  // Always group sub-regions under their root city (even a single sub).
-  const menus = [];
-  const flat = [...ungrouped];
+  // Root cities with districts → fold groups; lone cities / orphans → single cards.
+  // One flat list (no "Other regions" bucket).
+  const entries = [];
   for (const g of groups.values()) {
     g.parts.sort((a, b) =>
       String(a.name || a.place_query || "").localeCompare(
@@ -802,14 +946,62 @@ function groupLevels(levels) {
       )
     );
     if (g.parts.length) {
-      menus.push(g);
+      entries.push({ kind: "group", group: g });
     } else if (g.city) {
-      flat.push(g.city);
+      entries.push({ kind: "level", level: g.city });
     }
   }
-  menus.sort((a, b) => String(a.label).localeCompare(String(b.label)));
-  flat.sort((a, b) => Number(b.id) - Number(a.id));
-  return { menus, flat };
+  for (const lv of ungrouped) {
+    entries.push({ kind: "level", level: lv });
+  }
+  return entries;
+}
+
+async function generateFromUnloaded(place) {
+  if (!place?.map_pack?.id) {
+    showToast("No map pack for this place", true);
+    return;
+  }
+  const label = place.label || place.name || "Region";
+  showToast(`Loading boundary for ${label}…`);
+  let boundary = place.boundary;
+  let bbox = place.bbox;
+  try {
+    const params = new URLSearchParams();
+    if (place.osm_relation_id != null) {
+      params.set("osm_relation_id", String(place.osm_relation_id));
+    } else {
+      params.set("lat", String(place.lat));
+      params.set("lon", String(place.lon));
+      if (place.name) params.set("name", place.name);
+    }
+    if (place.map_pack?.id) params.set("geofabrik_id", place.map_pack.id);
+    const bRes = await WardAuth.apiFetch(`/api/levels/places/boundary?${params}`);
+    const bBody = await bRes.json().catch(() => ({}));
+    if (bRes.ok) {
+      if (bBody.boundary) boundary = bBody.boundary;
+      if (Array.isArray(bBody.bbox) && bBody.bbox.length >= 4) bbox = bBody.bbox;
+    }
+  } catch {
+    /* fall through */
+  }
+  if (!boundary?.type) {
+    showToast("Could not load boundary", true);
+    return;
+  }
+  selectedPlace = {
+    ...place,
+    label,
+    boundary,
+    bbox: bbox || place.bbox,
+    boundary_approximate: false,
+  };
+  setFixedLevelName(label);
+  document.querySelector(".wizard-panel")?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+  await generateLevel();
 }
 
 function bindLevelActions(el) {
@@ -839,6 +1031,19 @@ function bindLevelActions(el) {
       btn.setAttribute("aria-expanded", group.classList.contains("open") ? "true" : "false");
     });
   });
+  el.querySelectorAll("[data-generate]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const key = btn.dataset.generate;
+      const place = unloadedPlaceByKey.get(key);
+      if (!place) return;
+      btn.disabled = true;
+      try {
+        await generateFromUnloaded(place);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
 }
 
 async function loadLevels() {
@@ -862,10 +1067,24 @@ async function loadLevels() {
     } catch {
       /* list can render without active highlight */
     }
-    const { menus, flat } = groupLevels(data);
+    const sortBy = readRegionsSort();
+    const sortEl = document.getElementById("regionsSort");
+    if (sortEl && sortEl.value !== sortBy) sortEl.value = sortBy;
 
-    const menuHtml = menus
-      .map((g, gi) => {
+    const entries = sortRegionEntries(groupLevels(data), sortBy);
+    const menus = entries
+      .filter((e) => e.kind === "group")
+      .map((e) => e.group);
+
+    const listHtml = entries
+      .map((entry) => {
+        if (entry.kind === "level") {
+          const lv = entry.level;
+          return levelCardHtml(lv, activeId, {
+            role: isDistrict(lv) ? "sub" : isCityLevel(lv) ? "city" : null,
+          });
+        }
+        const g = entry.group;
         const city = g.city;
         const counts = groupSubCounts(g, null);
         const cityDone = city && isLevelComplete(city);
@@ -882,7 +1101,7 @@ async function loadLevels() {
         const cityReady = city?.status === "ready";
         const statusLabel = city?.status || "partial";
         const actions = city
-          ? `<div class="tools-row">
+          ? `<div class="tools-row tools-row-compact">
         <a class="btn btn-primary ${cityReady ? "" : "is-disabled"}" href="${
             cityReady ? `/progress?level=${city.id}` : "#"
           }" ${cityReady ? "" : 'aria-disabled="true"'}>Map</a>
@@ -892,14 +1111,18 @@ async function loadLevels() {
           Sub-regions <span class="level-group-chevron" aria-hidden="true"></span>
         </button>
       </div>`
-          : `<div class="tools-row">
+          : `<div class="tools-row tools-row-compact">
         <button type="button" class="btn level-group-fold" data-toggle-group aria-expanded="false">
           Sub-regions <span class="level-group-chevron" aria-hidden="true"></span>
         </button>
       </div>`;
+        const metaBits = [];
+        if (city) metaBits.push(`${fmt(city.road_km?.toFixed?.(1) ?? city.road_km)} km`);
+        if (pack) metaBits.push(pack);
+        if (city) metaBits.push(`${fmt(city.networks_count)} nets`);
         return `
-      <section class="level-group ${isActive ? "has-active" : ""} ${groupDone ? "is-complete" : ""}" data-group-idx="${gi}">
-        <article class="level-card level-group-root ${city && activeId && String(city.id) === activeId ? "active" : ""} ${cityDone ? "is-complete" : ""}">
+      <section class="level-group ${isActive ? "has-active" : ""} ${groupDone ? "is-complete" : ""}" data-group-key="${escapeHtml(g.key)}">
+        <article class="level-card level-group-root is-minimal ${city && activeId && String(city.id) === activeId ? "active" : ""} ${cityDone ? "is-complete" : ""}">
           <header>
             <h3 class="level-card-title">
               <span class="level-card-name"><em class="place-kind place-kind-city">City</em>${escapeHtml(g.label)}</span>
@@ -918,32 +1141,18 @@ async function loadLevels() {
             ${subTallyHtml(counts.complete, counts.progressing, counts.unloaded)}
           </div>
           ${modeBarsHtml(bars)}
-          <ul class="level-stats">
-            ${city ? `<li>${fmt(city.road_km?.toFixed?.(1) ?? city.road_km)} km roads</li>` : ""}
-            ${pack ? `<li>${pack}</li>` : ""}
-            ${city ? `<li>${fmt(city.networks_count)} networks</li>` : ""}
-          </ul>
+          ${metaBits.length ? `<p class="muted level-card-meta">${metaBits.join(" · ")}</p>` : ""}
           ${city?.error ? `<p class="error-text">${escapeHtml(city.error)}</p>` : ""}
           ${actions}
         </article>
-        <div class="level-group-body">
+        <div class="level-group-body" data-group-body>
           ${g.parts.map((p) => levelCardHtml(p, activeId, { nested: true, role: "sub" })).join("")}
         </div>
       </section>`;
       })
       .join("");
 
-    const flatHtml = flat.length
-      ? `<p class="area-choices-heading muted regions-flat-heading">${menus.length ? "Other regions" : ""}</p>${flat
-          .map((lv) =>
-            levelCardHtml(lv, activeId, {
-              role: isDistrict(lv) ? "sub" : isCityLevel(lv) ? "city" : null,
-            })
-          )
-          .join("")}`
-      : "";
-
-    el.innerHTML = menuHtml + flatHtml;
+    el.innerHTML = listHtml;
     bindLevelActions(el);
     fillGroupAvailableCounts(el, menus);
   } catch (err) {
@@ -954,9 +1163,12 @@ async function loadLevels() {
 async function fillGroupAvailableCounts(el, menus) {
   if (!el || !menus?.length) return;
   await Promise.all(
-    menus.map(async (g, gi) => {
-      const section = el.querySelector(`[data-group-idx="${gi}"]`);
+    menus.map(async (g) => {
+      const section = el.querySelector(
+        `[data-group-key="${CSS.escape(g.key)}"]`
+      );
       const tallyHost = section?.querySelector("[data-sub-tally]");
+      const bodyEl = section?.querySelector("[data-group-body]");
       if (!tallyHost) return;
       const anchor = g.city || g.parts[0];
       const center = levelCenter(anchor);
@@ -970,16 +1182,19 @@ async function fillGroupAvailableCounts(el, menus) {
       if (gn != null) params.set("geoname_id", String(gn));
       if (g.city?.geofabrik_id) params.set("geofabrik_id", g.city.geofabrik_id);
       else if (g.parts[0]?.geofabrik_id) params.set("geofabrik_id", g.parts[0].geofabrik_id);
-      const bbox = Array.isArray(anchor?.bbox) ? anchor.bbox : null;
-      if (bbox && bbox.length >= 4) {
-        params.set("bbox", bbox.slice(0, 4).join(","));
+      // Only pass the city root bbox. A lone sub-region's bbox is too small for
+      // the parts size heuristic and would report 0 unloaded (e.g. Köln Innenstadt).
+      const cityBbox = Array.isArray(g.city?.bbox) ? g.city.bbox : null;
+      if (cityBbox && cityBbox.length >= 4) {
+        params.set("bbox", cityBbox.slice(0, 4).join(","));
       }
       try {
         const res = await WardAuth.apiFetch(`/api/levels/places/parts?${params}`);
         const body = await res.json().catch(() => ({}));
         if (!res.ok) return;
-        const catalog = Array.isArray(body?.parts) ? body.parts.length : null;
-        if (catalog == null) return;
+        const catalogParts = Array.isArray(body?.parts) ? body.parts : null;
+        if (catalogParts == null) return;
+        const catalog = catalogParts.length;
         const downloaded = g.parts.filter((p) => p.status !== "error").length;
         const available = Math.max(catalog, downloaded);
         const counts = groupSubCounts(g, available);
@@ -988,6 +1203,37 @@ async function fillGroupAvailableCounts(el, menus) {
           counts.progressing,
           counts.unloaded
         );
+
+        if (!bodyEl) return;
+        // Drop previous unloaded rows, keep loaded cards
+        bodyEl.querySelectorAll(".is-unloaded").forEach((n) => n.remove());
+        const missing = unloadedPartsForGroup(g, catalogParts).sort((a, b) =>
+          String(a.label || a.name || "").localeCompare(
+            String(b.label || b.name || "")
+          )
+        );
+        if (!missing.length) return;
+        const frag = document.createDocumentFragment();
+        const wrap = document.createElement("div");
+        wrap.innerHTML = missing
+          .map((p, i) => unloadedRowHtml(p, `${g.key}-u${i}`))
+          .join("");
+        while (wrap.firstChild) frag.appendChild(wrap.firstChild);
+        bodyEl.appendChild(frag);
+        bodyEl.querySelectorAll("[data-generate]").forEach((btn) => {
+          if (btn.dataset.bound === "1") return;
+          btn.dataset.bound = "1";
+          btn.addEventListener("click", async () => {
+            const place = unloadedPlaceByKey.get(btn.dataset.generate);
+            if (!place) return;
+            btn.disabled = true;
+            try {
+              await generateFromUnloaded(place);
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
       } catch {
         /* keep downloaded-only tally */
       }
@@ -1038,6 +1284,16 @@ document.querySelectorAll("[data-back]").forEach((btn) => {
 });
 document.getElementById("generateBtn").addEventListener("click", generateLevel);
 document.getElementById("doneAnother").addEventListener("click", resetWizard);
+
+const regionsSortEl = document.getElementById("regionsSort");
+if (regionsSortEl) {
+  regionsSortEl.value = readRegionsSort();
+  regionsSortEl.addEventListener("change", () => {
+    const v = regionsSortEl.value;
+    writeRegionsSort(REGIONS_SORT_OPTS.includes(v) ? v : "created");
+    loadLevels();
+  });
+}
 document.getElementById("doneLoad").addEventListener("click", async () => {
   if (!createdLevelId) return;
   await WardAuth.apiFetch("/api/levels/active", {

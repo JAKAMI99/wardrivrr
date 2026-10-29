@@ -198,9 +198,18 @@ html[data-theme="kidcore"] .site-links a.active,
 html[data-theme="kidcore"] .site-links a.nav-drive,
 html[data-theme="kawaii"] .site-links a.active,
 html[data-theme="kawaii"] .site-links a.nav-drive {
+  /* accent-ink is yellow on kidcore — force dark text on the yellow pill */
+  color: #5b2b6b;
   background: #fff7ae;
   border-color: #5b2b6b;
   box-shadow: 3px 3px 0 #ff2d95;
+}
+
+html[data-theme="kidcore"] .site-links a.nav-drive:hover,
+html[data-theme="kidcore"] .site-links a.nav-drive.is-current,
+html[data-theme="kawaii"] .site-links a.nav-drive:hover,
+html[data-theme="kawaii"] .site-links a.nav-drive.is-current {
+  color: #5b2b6b;
 }
 
 html[data-theme="kidcore"] .btn,
@@ -228,16 +237,38 @@ html[data-theme="kawaii"] .btn-primary {
   box-shadow: 4px 4px 0 #5b2b6b, 0 0 18px rgba(255, 45, 149, 0.45);
 }
 
+/* Soft toy pointer — pink / cyan / yellow, not the old pacifier */
+html[data-theme="kidcore"],
+html[data-theme="kawaii"] {
+  --kc-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M5 3v22l6.2-5.2 4.3 9.4 3.6-1.7-4.3-9.3H24z' fill='%23ffe566' stroke='%235b2b6b' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M5 3v22l6.2-5.2L24 19.9z' fill='%23ff5cab' stroke='%235b2b6b' stroke-width='2.2' stroke-linejoin='round'/%3E%3Ccircle cx='10' cy='11' r='2.2' fill='%237ee8ff' stroke='%235b2b6b' stroke-width='1.4'/%3E%3C/svg%3E")
+    5 3;
+  --kc-cursor-pointer: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M5 3v22l6.2-5.2 4.3 9.4 3.6-1.7-4.3-9.3H24z' fill='%23b8ff00' stroke='%235b2b6b' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M5 3v22l6.2-5.2L24 19.9z' fill='%23ff2d95' stroke='%235b2b6b' stroke-width='2.2' stroke-linejoin='round'/%3E%3Ccircle cx='10' cy='11' r='2.2' fill='%237ee8ff' stroke='%235b2b6b' stroke-width='1.4'/%3E%3C/svg%3E")
+    5 3;
+  cursor: var(--kc-cursor), auto;
+}
+
 html[data-theme="kidcore"] a,
 html[data-theme="kidcore"] button,
 html[data-theme="kidcore"] .btn,
 html[data-theme="kidcore"] input,
 html[data-theme="kidcore"] select,
 html[data-theme="kidcore"] label,
+html[data-theme="kidcore"] .nav-icon-btn,
+html[data-theme="kidcore"] .account-trigger,
 html[data-theme="kawaii"] a,
 html[data-theme="kawaii"] button,
 html[data-theme="kawaii"] .btn {
-  cursor: inherit;
+  cursor: var(--kc-cursor-pointer), pointer;
+}
+
+/* Drive map: keep OS cursors so click targets stay clear */
+html[data-theme="kidcore"] #navMap,
+html[data-theme="kidcore"] #navMap .maplibregl-canvas,
+html[data-theme="kidcore"] #navMap .maplibregl-canvas-container,
+html[data-theme="kawaii"] #navMap,
+html[data-theme="kawaii"] #navMap .maplibregl-canvas,
+html[data-theme="kawaii"] #navMap .maplibregl-canvas-container {
+  cursor: auto;
 }
 
 html[data-theme="kidcore"] .tools-panel,
@@ -351,6 +382,28 @@ html[data-theme="crt"] .ach-card.is-mastered {
 .kidcore-decor .kc-f3 { bottom: 22%; left: 7%; animation-delay: 2.4s; }
 .kidcore-decor .kc-f4 { top: 55%; right: 10%; animation-delay: 3.6s; }
 
+/* Extracted sticker PNGs (transparent) floating behind content */
+.kidcore-decor .kc-img {
+  position: absolute;
+  width: clamp(3.2rem, 7vw, 5.5rem);
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.88;
+  filter: drop-shadow(2px 3px 0 rgba(91, 43, 107, 0.28));
+  animation: kc-bob 8s ease-in-out infinite;
+}
+
+.kidcore-decor .kc-i1 { top: 10%; left: 3%; transform: rotate(-12deg); animation-delay: 0s; width: clamp(3.6rem, 8vw, 6rem); }
+.kidcore-decor .kc-i2 { top: 18%; right: 5%; transform: rotate(9deg); animation-delay: 0.9s; }
+.kidcore-decor .kc-i3 { top: 42%; left: 5%; transform: rotate(14deg); animation-delay: 1.8s; width: clamp(3rem, 6.5vw, 5rem); }
+.kidcore-decor .kc-i4 { top: 58%; right: 8%; transform: rotate(-8deg); animation-delay: 2.7s; }
+.kidcore-decor .kc-i5 { bottom: 16%; left: 12%; transform: rotate(6deg); animation-delay: 3.6s; width: clamp(3.4rem, 7.5vw, 5.8rem); }
+.kidcore-decor .kc-i6 { bottom: 10%; right: 18%; transform: rotate(-14deg); animation-delay: 4.5s; }
+.kidcore-decor .kc-i7 { top: 72%; left: 38%; transform: rotate(11deg); animation-delay: 5.2s; width: clamp(2.8rem, 6vw, 4.6rem); }
+.kidcore-decor .kc-i8 { top: 8%; left: 42%; transform: rotate(-5deg); animation-delay: 1.4s; width: clamp(3rem, 6.5vw, 5rem); }
+
 .kidcore-decor .kc-sticker {
   position: absolute;
   font-family: "Bubblegum Sans", "Comic Sans MS", cursive;
@@ -432,16 +485,19 @@ html[data-theme="crt"] .ach-card.is-mastered {
   }
 }
 
-/* Tab hidden - freeze decor + sky so background tabs stop burning GPU */
+/* Tab hidden - freeze decor + sky so background tabs stop burning GPU.
+   Stickers stay visible (opacity unchanged); only motion pauses. */
 html.kidcore-paused .page-glow::before,
-html.kidcore-paused .kidcore-decor .kc-float {
+html.kidcore-paused .kidcore-decor .kc-float,
+html.kidcore-paused .kidcore-decor .kc-img {
   animation-play-state: paused !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="kidcore"] .page-glow::before,
   html[data-theme="kawaii"] .page-glow::before,
-  .kidcore-decor .kc-float {
+  .kidcore-decor .kc-float,
+  .kidcore-decor .kc-img {
     animation: none !important;
   }
 }
@@ -590,6 +646,55 @@ html[data-theme="kawaii"] .level-card-title .profile-icon {
   box-sizing: content-box;
 }
 
+html[data-theme="kidcore"] .level-group,
+html[data-theme="kawaii"] .level-group {
+  border: 3px solid #5b2b6b;
+  border-radius: 18px;
+  background: rgba(255, 247, 174, 0.55);
+  box-shadow: 4px 4px 0 #ff5cab;
+}
+
+html[data-theme="kidcore"] .level-card,
+html[data-theme="kawaii"] .level-card {
+  border: 3px solid #5b2b6b;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: 3px 3px 0 rgba(91, 43, 107, 0.35);
+}
+
+html[data-theme="kidcore"] .level-group-root,
+html[data-theme="kawaii"] .level-group-root {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-theme="kidcore"] .level-card.is-part,
+html[data-theme="kawaii"] .level-card.is-part {
+  border-left-width: 4px;
+  border-left-color: #7ee8ff;
+  background: rgba(126, 232, 255, 0.18);
+}
+
+html[data-theme="kidcore"] .level-card.is-unloaded,
+html[data-theme="kawaii"] .level-card.is-unloaded {
+  background: rgba(91, 43, 107, 0.08);
+  border-color: rgba(91, 43, 107, 0.35);
+  border-left-color: #9b4d8a;
+  color: #9b4d8a;
+  box-shadow: none;
+}
+
+html[data-theme="kidcore"] .level-generate-btn,
+html[data-theme="kawaii"] .level-generate-btn {
+  border: 2px solid #5b2b6b !important;
+  background: #fff7ae !important;
+  color: #5b2b6b !important;
+  box-shadow: 2px 2px 0 #5b2b6b !important;
+  border-radius: 12px !important;
+}
+
 html[data-theme="crt"] .profile-icon {
   color: #33ff33;
   text-shadow: 0 0 8px rgba(51, 255, 51, 0.55);
@@ -628,5 +733,9 @@ html[data-theme="crt"] .profile-card .profile-icon {
   }
   .kidcore-decor .kc-sticker {
     display: none;
+  }
+  .kidcore-decor .kc-img {
+    width: clamp(2.6rem, 12vw, 4.2rem);
+    opacity: 0.8;
   }
 }

@@ -74,9 +74,21 @@ const WRONG_WAY_MIN_SPEED_KMH = 3;
 const AUTO_EXPLORE_RETRY_BASE_MS = 2000;
 const AUTO_EXPLORE_RETRY_MAX_MS = 30000;
 
-const DEBUG_NAV =
-  typeof location !== "undefined" &&
-  new URLSearchParams(location.search).get("debug") === "1";
+const NAV_QS =
+  typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+const DEBUG_NAV = !!NAV_QS && NAV_QS.get("debug") === "1";
+/** Debug: ?debug=1&sim=unknown[&lat=&lon=] — clear active region and spawn elsewhere */
+const SIM_UNKNOWN = DEBUG_NAV && NAV_QS.get("sim") === "unknown";
+// Number(null) === 0 — only parse when the query param is actually present.
+const SIM_LAT = (() => {
+  const raw = NAV_QS && NAV_QS.get("lat");
+  return raw != null && raw !== "" ? Number(raw) : NaN;
+})();
+const SIM_LON = (() => {
+  const raw = NAV_QS && NAV_QS.get("lon");
+  return raw != null && raw !== "" ? Number(raw) : NaN;
+})();
+const SIM_UNKNOWN_DEFAULT = { lat: 50.9375, lon: 6.9603 }; // Köln — far from Wuppertal
 
 const state = {
   map: null,
@@ -1722,12 +1734,12 @@ function currentPitch() {
 
 const VEHICLE_ICON_SVG = {
   big_car:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M3 16h18v-4l-2-5H5L3 12v4z"/><circle cx="7.5" cy="16.5" r="1.6"/><circle cx="16.5" cy="16.5" r="1.6"/><path d="M5 12h14"/></svg>',
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.2 11.2 5.8 6.9A1.8 1.8 0 0 1 7.5 5.8h9a1.8 1.8 0 0 1 1.7 1.1l1.6 4.3H4.2zm-.7 1.5h17v3.7a1.2 1.2 0 0 1-1.2 1.2h-.4a2.45 2.45 0 0 1-4.7 0H9.8a2.45 2.45 0 0 1-4.7 0h-.4a1.2 1.2 0 0 1-1.2-1.2v-3.7zM7.4 17.6a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm9.2 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>',
   small_car:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M5 17h14v-5l-1.5-4.5A2 2 0 0015.6 6H8.4a2 2 0 00-1.9 1.5L5 12v5z"/><circle cx="8.5" cy="17" r="1.4"/><circle cx="15.5" cy="17" r="1.4"/></svg>',
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.35 6.2h7.3c.7 0 1.32.42 1.58 1.06L18.6 11H5.4l1.37-3.74A1.7 1.7 0 0 1 8.35 6.2zm-3.2 6.3h13.7v3.9a1.1 1.1 0 0 1-1.1 1.1h-.55a2.35 2.35 0 0 1-4.5 0H10.3a2.35 2.35 0 0 1-4.5 0h-.55a1.1 1.1 0 0 1-1.1-1.1v-3.9zM8.05 17.4a1.15 1.15 0 1 0 0-2.3 1.15 1.15 0 0 0 0 2.3zm7.9 0a1.15 1.15 0 1 0 0-2.3 1.15 1.15 0 0 0 0 2.3z"/></svg>',
   bicycle:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="6.5" cy="16.5" r="3"/><circle cx="17.5" cy="16.5" r="3"/><path d="M6.5 16.5l3.5-7h4l3.5 7M12 6v3.5M10 9.5h5"/></svg>',
-  foot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="12" cy="5" r="2.2"/><path d="M12 8v5l-3 7M12 13l3 7M9 11h6"/></svg>',
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="16.5" r="3" fill="currentColor" fill-opacity=".22"/><circle cx="17.5" cy="16.5" r="3" fill="currentColor" fill-opacity=".22"/><path d="M6.5 16.5l3.5-7h4l3.5 7M12 6v3.5M10 9.5h5"/></svg>',
+  foot: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2.35"/><path d="M10.6 8.2h2.8c.7 0 1.25.55 1.25 1.25V13l2.05 6.1a1.05 1.05 0 0 1-2 .7L13.2 14.5h-2.4L9.3 19.8a1.05 1.05 0 1 1-2-.7L9.35 13V9.45c0-.7.55-1.25 1.25-1.25z"/></svg>',
 };
 
 const DRIVE_MODE_PRESETS = [
@@ -3543,44 +3555,84 @@ function initMap() {
 
   state.map.on("click", (e) => {
     if (!state.spawnMode) return;
-    state.lat = e.lngLat.lat;
-    state.lon = e.lngLat.lng;
-    state.spawned = true;
-    state.hasLiveFix = true;
-    state.spawnMode = false;
-    state.outsideM = 0;
-    state.lastOutsideLat = state.lat;
-    state.lastOutsideLon = state.lon;
-    state.sessionStartedAt = new Date().toISOString();
-    state.sessionUnlockM = 0;
-    state.anomalyAlerted = new Set();
-    state.anomalyLastToastAt = 0;
-    updateUnlockHud();
-    updateRadioHud({
-      wifi: { seen: 0, new: 0 },
-      bt: { seen: 0, new: 0 },
-      ble: { seen: 0, new: 0 },
-    });
-    const spawnBtn = document.getElementById("btnSpawn");
-    if (spawnBtn) spawnBtn.textContent = "Respawn";
-    const startBtn = document.getElementById("btnStart");
-    if (startBtn) startBtn.disabled = !state.levelId;
-    setNavHint(
-      state.levelId
-        ? "Spawned. Checking level coverage..."
-        : "Spawned. Looking up a level for this place..."
-    );
-    document.getElementById("navMap").style.cursor = "";
-    ensureMarker();
-    state.camLat = state.lat;
-    state.camLon = state.lon;
-    state.camBearing = state.heading;
-    state.camPitch = currentPitch();
-    followCamera(performance.now());
-    pushFix(true);
-    checkValhallaHint();
-    wakeSimLoop();
+    spawnAt(e.lngLat.lat, e.lngLat.lng, { fromMapClick: true });
   });
+}
+
+/**
+ * Place the car at lat/lon (debug spawn / unknown-area sim).
+ * Triggers the preload prompt when no covering region exists.
+ */
+async function spawnAt(lat, lon, { fromMapClick = false } = {}) {
+  if (state.followLiveGps) setFollowLiveGps(false);
+  state.lat = Number(lat);
+  state.lon = Number(lon);
+  state.spawned = true;
+  state.hasLiveFix = true;
+  state.spawnMode = false;
+  state.outsideM = 0;
+  state.lastOutsideLat = state.lat;
+  state.lastOutsideLon = state.lon;
+  state.sessionStartedAt = new Date().toISOString();
+  state.sessionUnlockM = 0;
+  state.anomalyAlerted = new Set();
+  state.anomalyLastToastAt = 0;
+  updateUnlockHud();
+  updateRadioHud({
+    wifi: { seen: 0, new: 0 },
+    bt: { seen: 0, new: 0 },
+    ble: { seen: 0, new: 0 },
+  });
+  const spawnBtn = document.getElementById("btnSpawn");
+  if (spawnBtn) spawnBtn.textContent = "Respawn";
+  const startBtn = document.getElementById("btnStart");
+  if (startBtn) startBtn.disabled = !state.levelId;
+  setNavHint(
+    state.levelId
+      ? "Spawned. Checking level coverage…"
+      : "Spawned. Looking up a place to preload…"
+  );
+  document.getElementById("navMap").style.cursor = "";
+  ensureMarker();
+  state.camLat = state.lat;
+  state.camLon = state.lon;
+  state.camBearing = state.heading;
+  state.camPitch = currentPitch();
+  if (state.map) {
+    try {
+      state.map.jumpTo({
+        center: [state.lon, state.lat],
+        zoom: Math.max(state.map.getZoom?.() || 14, 13),
+      });
+    } catch {
+      /* map not ready */
+    }
+  }
+  followCamera(performance.now());
+  pushFix(true);
+  checkValhallaHint();
+  wakeSimLoop();
+  if (fromMapClick || !state.levelId) {
+    await promptIfUnknownOnSpawn();
+  }
+}
+
+async function runUnknownAreaSim() {
+  const lat = Number.isFinite(SIM_LAT) ? SIM_LAT : SIM_UNKNOWN_DEFAULT.lat;
+  const lon = Number.isFinite(SIM_LON) ? SIM_LON : SIM_UNKNOWN_DEFAULT.lon;
+  setNavHint("Simulating unknown area — clearing active region…");
+  // Stuck build/prompt state would block the unknown-area dialog.
+  closeLevelPrompt(false);
+  hideBuildOverlay();
+  state.dismissedLabel = null;
+  state.firstFixLevelPromptPending = false;
+  await clearActiveLevelSetting();
+  state.levelId = null;
+  state.levelName = "";
+  state.levelBoundary = null;
+  document.getElementById("statLevel").textContent = "-";
+  updateLevelTiles(null);
+  await spawnAt(lat, lon);
 }
 
 function syncViewModeUi() {
@@ -3701,6 +3753,11 @@ function bindControls() {
     setNavHint("Click the map to spawn.");
     wakeSimLoop();
   });
+  document.getElementById("btnSimUnknown")?.addEventListener("click", () => {
+    runUnknownAreaSim().catch((err) => {
+      showErrorToast(err?.message || "Unknown-area sim failed");
+    });
+  });
   document.getElementById("btnFollowGps")?.addEventListener("click", () => {
     setFollowLiveGps(!state.followLiveGps);
   });
@@ -3802,29 +3859,39 @@ async function boot() {
   bindSimVisibility();
   document.body.classList.add("nav-idle");
 
-  // Car primary path: auto-follow gpsd / live fix first - routing tiles can
-  // take minutes and must not hold back position, speed and fog.
-  const followed = await tryAutoFollowFromGpsd();
-  if (!followed && !DEBUG_NAV) {
-    setFollowLiveGps(true); // poll until gpsd appears
-    setNavHint("Waiting for GPS...");
-  }
-  // No ready level -> open generate prompt once GPS/spawn is live
-  if (!state.levelId) {
-    state.firstFixLevelPromptPending = true;
-    if (state.spawned) {
-      promptIfUnknownOnSpawn().catch(() => {});
+  if (SIM_UNKNOWN) {
+    // Wait for map so jumpTo/marker work, then clear region + spawn elsewhere.
+    const startSim = () =>
+      runUnknownAreaSim().catch((err) => {
+        showErrorToast(err?.message || "Unknown-area sim failed");
+      });
+    if (state.map?.loaded?.()) startSim();
+    else state.map?.once?.("load", startSim);
+  } else {
+    // Car primary path: auto-follow gpsd / live fix first - routing tiles can
+    // take minutes and must not hold back position, speed and fog.
+    const followed = await tryAutoFollowFromGpsd();
+    if (!followed && !DEBUG_NAV) {
+      setFollowLiveGps(true); // poll until gpsd appears
+      setNavHint("Waiting for GPS...");
     }
+    // No ready level -> open generate prompt once GPS/spawn is live
+    if (!state.levelId) {
+      state.firstFixLevelPromptPending = true;
+      if (state.spawned) {
+        promptIfUnknownOnSpawn().catch(() => {});
+      }
+    }
+    // Keep polling for late gpsd lock
+    setInterval(() => {
+      if (!state.followLiveGps) tryAutoFollowFromGpsd();
+    }, 4000);
   }
-  // Keep polling for late gpsd lock
-  setInterval(() => {
-    if (!state.followLiveGps) tryAutoFollowFromGpsd();
-  }, 4000);
 
   state.lastFrameAt = performance.now();
   scheduleSimFrame();
 
-  if (state.levelId) {
+  if (!SIM_UNKNOWN && state.levelId) {
     prepareValhallaForLevel({ overlay: false })
       .catch(() => {})
       .finally(() => checkValhallaHint());

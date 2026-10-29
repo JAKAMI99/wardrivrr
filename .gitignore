@@ -24,8 +24,18 @@ pgdata/
 # Local backups (keep off git)
 backups/
 
-# Drive sim caches
+# Drive sim caches / local recordings (*.kismet already covered above)
 tools/drive_sim/track_cache*.json
+
+# Brand: keep shipped stickers/; never commit copyrighted ref sheets
+frontend/brand/**/stickers-ref/
+frontend/brand/**/sheets/
+
+# Cute Engwish research dumps (NOTES.md stays tracked)
+tools/cute-engwish/*.ts
+tools/cute-engwish/owoify.js
+tools/cute-engwish/OwOify-README.md
+tools/cute-engwish/analyze_pack.py
 
 # Runtime data (placeholders may be force-added)
 data/incoming/*

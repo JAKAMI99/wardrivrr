@@ -1,0 +1,53 @@
+# Build context for backend/Dockerfile (context = repo root).
+# Keep: backend/, frontend/ (incl. brand/kidcore stickers), scripts/, docker/
+# Runtime data is bind-mounted; do not bake mutable dumps into the image.
+
+# VCS / Python
+.git/
+venv/
+.venv/
+backend/venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Local DB / backups / editor junk
+backups/
+pgdata/
+.offline-markdown-preview/
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+/tmp_*
+
+# Capture / OSM blobs (also covered if under data/)
+*.osm.pbf
+*.kismet
+*.kis_db
+
+# Runtime data mounts (not COPY'd; shrink context)
+data/pbf/
+data/users/
+data/incoming/*
+!data/incoming/.gitkeep
+data/valhalla/*
+!data/valhalla/.gitkeep
+data/cities/*.sqlite
+data/cities/*.sqlite.building
+data/geocode/*.sqlite
+data/geocode/*.sqlite.building
+data/geocode/address_packs.json
+data/geocode_reverse_cache.json
+data/geofabrik-index-v1.json
+data/oui/*.sqlite
+data/oui/*.sqlite.building
+data/kismet_logs/
+
+# Brand: exclude copyrighted refs/sheets only — keep stickers/, stickers.json, favicon
+frontend/brand/**/stickers-ref/
+frontend/brand/**/sheets/

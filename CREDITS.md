@@ -48,6 +48,17 @@ IEEE is the authoritative registrar for these assignments — not a third-party 
 - https://standards-oui.ieee.org/
 - CSV registries: `oui/oui.csv`, `oui28/mam.csv`, `oui36/oui36.csv`
 
+## Prism Launcher — Cute Engwish (en@uwu)
+
+Kidcore UI speech is inspired by Prism Launcher’s “Cute Engwish” language pack
+and the OwOify baseline their translators use. Not vendored runtime code — tone
+and transform ideas only.
+
+- Prism Launcher: https://prismlauncher.org/
+- Translations (`en@uwu.ts`): https://github.com/PrismLauncher/Translations
+- Weblate: https://hosted.weblate.org/projects/prismlauncher/launcher/en@uwu/
+- OwOify baseline: https://github.com/aqua-lzma/OwOify
+
 ---
 
 When new upstream data providers are added, credit them here and link a donate or support page if one exists.
