@@ -311,6 +311,6 @@ fi
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "=== Setup done ==="
-echo "UI:     http://${IP:-127.0.0.1}:8000/"
-echo "Status: http://${IP:-127.0.0.1}:8000/status"
+echo "UI:     http://${IP:-127.0.0.1}:1337/"
+echo "Status: http://${IP:-127.0.0.1}:1337/status"
 echo "Later:  ./run.sh"

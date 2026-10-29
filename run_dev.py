@@ -6,7 +6,7 @@ Usage (from repo root):
   python run_dev.py              # full mode (default)
   python run_dev.py --database   # database-only dashboard mode (--db)
 
-Opens: http://localhost:8000
+Opens: http://localhost:1337
 
 Reload (Windows-safe): parent watches backend/*.py and restarts a plain uvicorn
 subprocess via taskkill — never uses `uvicorn --reload` (its Ctrl+C broadcast
@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT / "backend"
 DEFAULT_HOST = os.getenv("DEV_HOST", "127.0.0.1")
-DEFAULT_PORT = int(os.getenv("DEV_PORT", "8000"))
+DEFAULT_PORT = int(os.getenv("DEV_PORT", "1337"))
 
 
 def log(msg: str) -> None:

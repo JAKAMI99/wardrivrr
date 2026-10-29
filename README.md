@@ -43,7 +43,7 @@ export DATA_ROOT=/var/lib/wardrivrr
 docker compose up -d
 ```
 
-Then open `http://<host-ip>:8000/`:
+Then open `http://<host-ip>:1337/`:
 
 1. **Setup** — create the admin password (no default login)
 2. **Login** — as `admin`
@@ -53,7 +53,7 @@ Then open `http://<host-ip>:8000/`:
 Health check:
 
 ```bash
-curl -fsS http://127.0.0.1:8000/api/health
+curl -fsS http://127.0.0.1:1337/api/health
 # → {"ok":true,"version":"1.0.0",...}
 ```
 
@@ -80,7 +80,7 @@ docker compose up -d postgis
 ./debug.sh                                         # or .\debug.bat
 ```
 
-Open `http://127.0.0.1:8000/setup`. Full Drive (Kismet / Valhalla / host GPS) is meant for the Compose path above.
+Open `http://127.0.0.1:1337/setup`. Full Drive (Kismet / Valhalla / host GPS) is meant for the Compose path above.
 
 ---
 
@@ -130,7 +130,7 @@ Omit the password argument to be prompted interactively.
 
 | Service | Port |
 | --- | --- |
-| API + UI | `8000` |
+| API + UI | `1337` |
 | Valhalla | `8002` |
 | PostGIS | `5432` (bound `127.0.0.1`) |
 | Kismet | `2501` |

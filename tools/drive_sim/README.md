@@ -14,7 +14,7 @@ Replays `recording.kismet` into wardrivrr so **Navigate** thinks you are driving
 
 1. API running (`python run_dev.py`)
 2. Logged-in user exists (default `admin` / `admin`)
-3. Open **http://localhost:8000/navigate**, spawn if needed, enable **Follow live GPS**
+3. Open **http://localhost:1337/navigate**, spawn if needed, enable **Follow live GPS**
 
 ## Run
 

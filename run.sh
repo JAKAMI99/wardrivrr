@@ -172,15 +172,15 @@ if [[ -f deploy/wardrivrr-stack.service ]]; then
 fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-echo "API:    http://${IP:-127.0.0.1}:8000/"
-echo "Status: http://${IP:-127.0.0.1}:8000/status"
+echo "API:    http://${IP:-127.0.0.1}:1337/"
+echo "Status: http://${IP:-127.0.0.1}:1337/status"
 echo "Kismet: http://${IP:-127.0.0.1}:2501/"
 
 if command -v curl >/dev/null 2>&1; then
   echo -n "Waiting for API"
   HEALTHY=0
   for _ in {1..45}; do
-    if curl -fsS --max-time 2 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+    if curl -fsS --max-time 2 http://127.0.0.1:1337/api/health >/dev/null 2>&1; then
       HEALTHY=1
       break
     fi

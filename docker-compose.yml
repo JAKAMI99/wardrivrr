@@ -4,7 +4,7 @@
 #   # or defaults to ./data next to this file:
 #   docker compose up -d
 #
-# Then open http://<host>:8000 → create admin → Machine setup (Wi‑Fi / BT / Kismet) in the UI.
+# Then open http://<host>:1337 → create admin → Machine setup (Wi‑Fi / BT / Kismet) in the UI.
 # No .env file required.
 
 services:
@@ -118,7 +118,7 @@ services:
       postgis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:1337/api/health"]
       interval: 20s
       timeout: 5s
       retries: 6

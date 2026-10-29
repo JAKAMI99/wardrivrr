@@ -59,9 +59,9 @@ COPY VERSION /app/VERSION
 WORKDIR /app/backend
 ENV PYTHONUNBUFFERED=1
 ENV WARDRIVRR_VERSION=${WARDRIVRR_VERSION}
-EXPOSE 8000
+EXPOSE 1337
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
+  CMD curl -fsS http://127.0.0.1:1337/api/health || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "1337"]

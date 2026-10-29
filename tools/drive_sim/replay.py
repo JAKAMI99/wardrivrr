@@ -448,7 +448,7 @@ def main() -> int:
         default=4.0,
         help="Replay speed multiplier (default: 4). Example: -x 8 or --speed 16",
     )
-    p.add_argument("--base", default="http://127.0.0.1:8000", help="API base URL")
+    p.add_argument("--base", default="http://127.0.0.1:1337", help="API base URL")
     p.add_argument("--user", default="admin", help="WebUI username")
     p.add_argument(
         "--password",
