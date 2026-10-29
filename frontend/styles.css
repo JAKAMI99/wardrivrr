@@ -2236,6 +2236,11 @@ a.module:active {
   gap: 0.4rem;
 }
 
+/* display:flex above beats the UA [hidden] rule — keep idle progress collapsed */
+.job-progress[hidden] {
+  display: none !important;
+}
+
 .job-progress-bar {
   height: 6px;
   width: 0%;

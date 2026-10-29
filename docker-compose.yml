@@ -118,9 +118,9 @@ services:
       - ${DATA_ROOT:-./data}/kismet_logs:/data/kismet_logs
       - /var/run/docker.sock:/var/run/docker.sock
       # Host devices for Machine setup dropdowns (Wi‑Fi via host net + iproute2;
-      # BT/serial need these mounts — network_mode:host does not share /dev).
+      # BT/serial need /dev; /sys for chipset/driver labels in the pickers).
       - /dev:/dev:ro
-      - /sys/class/bluetooth:/sys/class/bluetooth:ro
+      - /sys:/sys:ro
     depends_on:
       init-data:
         condition: service_completed_successfully

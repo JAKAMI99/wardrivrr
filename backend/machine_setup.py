@@ -51,6 +51,133 @@ def kismet_credentials() -> tuple[str, str]:
     return user, str(password)
 
 
+def _read_sysfs(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def _driver_basename(dev: Path) -> str:
+    link = dev / "driver"
+    try:
+        if link.is_symlink() or link.exists():
+            return link.resolve().name
+    except OSError:
+        pass
+    return ""
+
+
+def _chipset_from_sysfs(dev: Path) -> str:
+    """Best-effort USB/PCI product + driver label from a sysfs device node."""
+    if not dev.exists():
+        return ""
+    product = ""
+    vendor = ""
+    driver = _driver_basename(dev)
+    cur: Path | None = dev
+    for _ in range(8):
+        if cur is None or not cur.exists():
+            break
+        if not product:
+            product = _read_sysfs(cur / "product") or _read_sysfs(cur / "name")
+        if not vendor:
+            vendor = _read_sysfs(cur / "manufacturer")
+        if not driver:
+            driver = _driver_basename(cur)
+        # PCI pretty name when product string missing
+        if not product:
+            vendor_id = _read_sysfs(cur / "vendor")
+            device_id = _read_sysfs(cur / "device")
+            if vendor_id and device_id:
+                product = f"{vendor_id}:{device_id}"
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+    bits = [b for b in (product, vendor) if b]
+    label = " · ".join(dict.fromkeys(bits))  # preserve order, dedupe
+    if driver and driver not in label.lower():
+        label = f"{label} [{driver}]" if label else driver
+    return label[:120]
+
+
+def _chipset_udevadm(*query: str) -> str:
+    """Optional udev database names (ID_MODEL_FROM_DATABASE, etc.)."""
+    if not query:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["udevadm", "info", "-q", "property", *query],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    props: dict[str, str] = {}
+    for line in (proc.stdout or "").splitlines():
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        props[k.strip()] = v.strip()
+    model = (
+        props.get("ID_MODEL_FROM_DATABASE")
+        or props.get("ID_MODEL")
+        or props.get("ID_USB_MODEL_FROM_DATABASE")
+        or props.get("ID_USB_MODEL")
+        or ""
+    ).replace("_", " ")
+    vendor = (
+        props.get("ID_VENDOR_FROM_DATABASE")
+        or props.get("ID_VENDOR")
+        or props.get("ID_USB_VENDOR_FROM_DATABASE")
+        or ""
+    ).replace("_", " ")
+    driver = (
+        props.get("ID_USB_DRIVER")
+        or props.get("ID_NET_DRIVER")
+        or props.get("DRIVER")
+        or ""
+    )
+    bits = [b for b in (model, vendor) if b]
+    label = " · ".join(dict.fromkeys(bits))
+    if driver and driver.lower() not in label.lower():
+        label = f"{label} [{driver}]" if label else driver
+    return label[:120]
+
+
+def _iface_chipset(name: str) -> str:
+    sys_dev = Path(f"/sys/class/net/{name}/device")
+    label = _chipset_from_sysfs(sys_dev)
+    if not label:
+        label = _chipset_udevadm("-p", f"/sys/class/net/{name}")
+    if not label:
+        label = _chipset_udevadm("-n", name)
+    return label
+
+
+def _hci_chipset(name: str) -> str:
+    sys_dev = Path(f"/sys/class/bluetooth/{name}/device")
+    label = _chipset_from_sysfs(sys_dev)
+    if not label:
+        label = _chipset_udevadm("-p", f"/sys/class/bluetooth/{name}")
+    return label
+
+
+def _tty_chipset(dev_path: str) -> str:
+    name = Path(dev_path).name
+    sys_dev = Path(f"/sys/class/tty/{name}/device")
+    label = _chipset_from_sysfs(sys_dev)
+    if not label:
+        label = _chipset_udevadm("-n", dev_path)
+    if not label:
+        label = _chipset_udevadm("-n", f"/dev/{name}")
+    return label
+
+
 def list_network_interfaces() -> list[dict[str, str]]:
     """Host interfaces (needs network_mode: host)."""
     out: list[dict[str, str]] = []
@@ -83,7 +210,11 @@ def list_network_interfaces() -> list[dict[str, str]]:
         # Skip docker/bridge noise in the picker
         if low.startswith(("docker", "br-", "veth", "virbr", "cni")):
             continue
-        out.append({"name": name, "kind": kind, "raw": line.strip()[:200]})
+        chipset = _iface_chipset(name)
+        row: dict[str, str] = {"name": name, "kind": kind, "raw": line.strip()[:200]}
+        if chipset:
+            row["chipset"] = chipset
+        out.append(row)
     return out
 
 
@@ -93,7 +224,11 @@ def list_bluetooth_adapters() -> list[dict[str, str]]:
     if sys_hci.is_dir():
         for p in sorted(sys_hci.iterdir()):
             if p.name.startswith("hci"):
-                out.append({"name": p.name, "path": str(p)})
+                chipset = _hci_chipset(p.name)
+                row: dict[str, str] = {"name": p.name, "path": str(p)}
+                if chipset:
+                    row["chipset"] = chipset
+                out.append(row)
     if out:
         return out
     try:
@@ -107,7 +242,11 @@ def list_bluetooth_adapters() -> list[dict[str, str]]:
             if line.startswith("hci"):
                 name = line.split(":", 1)[0].strip()
                 if name:
-                    out.append({"name": name, "path": f"/sys/class/bluetooth/{name}"})
+                    chipset = _hci_chipset(name)
+                    row = {"name": name, "path": f"/sys/class/bluetooth/{name}"}
+                    if chipset:
+                        row["chipset"] = chipset
+                    out.append(row)
     except (OSError, subprocess.TimeoutExpired):
         pass
     return out
@@ -117,7 +256,11 @@ def list_serial_devices() -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for pattern in ("/dev/ttyUSB*", "/dev/ttyACM*", "/dev/ttyAMA*", "/dev/gps*"):
         for path in sorted(Path("/dev").glob(Path(pattern).name)):
-            out.append({"name": path.name, "path": str(path)})
+            chipset = _tty_chipset(str(path))
+            row: dict[str, str] = {"name": path.name, "path": str(path)}
+            if chipset:
+                row["chipset"] = chipset
+            out.append(row)
     return out
 
 

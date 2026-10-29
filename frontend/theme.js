@@ -900,20 +900,27 @@
     };
   }
 
+  // Bumped on user pick so a slow syncFromServer cannot clobber the new theme.
+  let themeSyncEpoch = 0;
+
   async function syncFromServer() {
     if (!hasAuthToken() || !window.WardAuth?.apiFetch) {
       return applyGuestClassic({ broadcast: true });
     }
+    const epoch = themeSyncEpoch;
     try {
       const res = await WardAuth.apiFetch("/api/settings");
+      if (epoch !== themeSyncEpoch) return read();
       if (!res.ok) return apply(read(), { persist: false, broadcast: true });
       const data = await res.json();
+      if (epoch !== themeSyncEpoch) return read();
       // Per-user setting from user_settings - never a global/server-wide theme
       const theme = normalize(data.theme || "classic");
       return apply(theme, { persist: true, broadcast: true });
     } catch {
       /* ignore */
     }
+    if (epoch !== themeSyncEpoch) return read();
     return apply(read(), { persist: false, broadcast: true });
   }
 
@@ -921,14 +928,21 @@
     if (!hasAuthToken()) {
       return applyGuestClassic({ broadcast: true });
     }
+    themeSyncEpoch += 1;
     const theme = apply(id, { persist: true, broadcast: true });
     if (!window.WardAuth?.apiFetch) return theme;
     try {
-      await WardAuth.apiFetch("/api/settings", {
+      const res = await WardAuth.apiFetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ theme }),
       });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.theme) {
+          return apply(normalize(data.theme), { persist: true, broadcast: true });
+        }
+      }
     } catch {
       /* local still applied for this session */
     }

@@ -50,25 +50,29 @@
       (n) => n.kind === "wifi" || /^(wl|kismon)/i.test(n.name || "")
     );
     const wifiList = wifi.length ? wifi : nics;
+    const withChip = (id, extra) => {
+      const chip = (extra && extra.chipset) || "";
+      return chip ? `${id} — ${chip}` : id;
+    };
     fillSelect(
       wifiSel,
       wifiList,
       "name",
-      (n) => `${n.name} (${n.kind})`,
+      (n) => withChip(`${n.name} (${n.kind})`, n),
       wifiList.length ? "— select Wi‑Fi —" : "— no interfaces found —"
     );
     fillSelect(
       btSel,
       data.bluetooth || [],
       "name",
-      (n) => n.name,
+      (n) => withChip(n.name, n),
       "— none (optional) —"
     );
     fillSelect(
       gpsSel,
       data.serial || [],
       "path",
-      (n) => n.path || n.name,
+      (n) => withChip(n.path || n.name, n),
       "— none (optional) —"
     );
 

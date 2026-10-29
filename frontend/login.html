@@ -8,7 +8,7 @@
     <title>Login · wardrivrr</title>
     <link rel="stylesheet" href="/static/styles.css" />
     <link rel="stylesheet" href="/static/themes.css?v=25" />
-    <script src="/static/theme.js?v=31"></script>
+    <script src="/static/theme.js?v=32"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -55,17 +55,18 @@
       // Only same-origin paths: blocks javascript: URLs and open redirects
       // (//evil.example, /\evil.example).
       function safeNext() {
-        const raw = new URLSearchParams(location.search).get("next") || "/machine-setup";
+        // Default home; home.js sends admins to /machine-setup only while incomplete.
+        const raw = new URLSearchParams(location.search).get("next") || "/";
         if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
-          return "/machine-setup";
+          return "/";
         }
         try {
           const url = new URL(raw, location.origin);
           return url.origin === location.origin
             ? url.pathname + url.search + url.hash
-            : "/machine-setup";
+            : "/";
         } catch (_) {
-          return "/machine-setup";
+          return "/";
         }
       }
       (async () => {
