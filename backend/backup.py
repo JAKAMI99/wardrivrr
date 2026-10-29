@@ -32,7 +32,7 @@ def _read_app_version() -> str:
                 return text.splitlines()[0].strip()
         except OSError:
             continue
-    return "1.0.0"
+    return "1.2.2"
 
 
 def _samples_csv(user_id: int) -> tuple[str, int]:

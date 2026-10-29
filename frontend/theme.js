@@ -5,7 +5,7 @@
  * Attribution / notes: tools/cute-engwish/NOTES.md (no source dumps in-repo).
  */
 (function () {
-  const APP_VERSION = "1.0.0";
+  const APP_VERSION = "1.2.2";
   const KEY = "wardrivrr_theme";
   const LEGACY_KEY = "wardrivrr_nav_theme";
   const IDS = ["classic", "kidcore", "crt"];

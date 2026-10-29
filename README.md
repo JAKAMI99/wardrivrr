@@ -1,8 +1,8 @@
 # wardrivrr
 
-![Version](https://img.shields.io/badge/version-1.0.0-0ea5e9)
+![Version](https://img.shields.io/badge/version-1.2.2-0ea5e9)
 
-**Discover your digital surroundings.** · **Version 1.0.0**
+**Discover your digital surroundings.** · **Version 1.2.2**
 
 Local-first wardriving on OpenStreetMap: GPS unlocks road segments as you drive, the map shows what’s still unexplored, and offline routing points you toward streets you haven’t covered yet. Kismet fills in Wi‑Fi / Bluetooth sightings. Everything runs on your machine — PostGIS, UI, and routing — no cloud account.
 
@@ -20,13 +20,13 @@ Local-first wardriving on OpenStreetMap: GPS unlocks road segments as you drive,
 | ![Status](docs/screenshots/status.png) | ![Explorer stats](docs/screenshots/stats.png) |
 | GPS, Kismet, routing, disk at a glance | Levels, achievements, radio totals |
 
-Drop PNGs into `docs/screenshots/` (see that folder’s README). Still missing: `drive.png`, `stats.png`.
+Drop PNGs into `docs/screenshots/` (see that folder’s README). Still missing: `drive.png`.
 
 ---
 
 ## Install
 
-Product version (**1.0.0**) is shown in this README header, on the home page, and via `/api/health`. Image tag: **`:latest`**.
+Product version (**1.2.2**) is shown in this README header, on the home page, and via `/api/health`. Image tag: **`:latest`**.
 
 ### Docker Compose
 
@@ -90,7 +90,7 @@ Health check:
 
 ```bash
 curl -fsS http://127.0.0.1:1337/api/health
-# → {"ok":true,"version":"1.0.0",...}
+# → {"ok":true,"version":"1.2.2",...}
 ```
 
 ### Updating a deploy
