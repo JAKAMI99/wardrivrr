@@ -184,22 +184,109 @@ def render_kismet_conf(cfg: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _restart_container(name: str) -> dict[str, Any]:
+def _docker(args: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["docker", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _compose_up_kismet() -> dict[str, Any]:
+    """Start/recreate kismet via the same compose project as this API container."""
     try:
-        proc = subprocess.run(
-            ["docker", "restart", name],
-            capture_output=True,
-            text=True,
-            timeout=120,
+        insp = _docker(
+            [
+                "inspect",
+                "-f",
+                "{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}"
+                "|{{index .Config.Labels \"com.docker.compose.project.config_files\"}}"
+                "|{{index .Config.Labels \"com.docker.compose.project\"}}",
+                "wardrivrr_api",
+            ]
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"ok": False, "container": name, "error": str(exc)}
+        return {"ok": False, "method": "compose", "error": str(exc)}
+
+    parts = (insp.stdout or "").strip().split("|")
+    workdir = (parts[0] if parts else "").strip()
+    configs = (parts[1] if len(parts) > 1 else "").strip()
+    project = (parts[2] if len(parts) > 2 else "").strip() or "wardrivrr"
+    if not workdir or not Path(workdir).is_dir():
+        return {
+            "ok": False,
+            "method": "compose",
+            "error": f"compose working_dir unknown ({workdir!r})",
+        }
+
+    cmd = ["compose", "--project-directory", workdir]
+    if project:
+        cmd.extend(["-p", project])
+    for cfg in configs.split(","):
+        cfg = cfg.strip()
+        if cfg:
+            cmd.extend(["-f", cfg])
+    # Recreate so new kismet_site.conf bind is picked up
+    cmd.extend(["up", "-d", "--force-recreate", "kismet"])
+    env = {k: str(v) for k, v in os.environ.items() if v is not None}
+    # Prefer host data path so compose volume interpolation matches the original stack
+    host_data = (os.getenv("HOST_DATA_ROOT") or "").strip()
+    if not host_data:
+        try:
+            from valhalla_prep import _host_data_root
+
+            host_data = str(_host_data_root())
+        except Exception:
+            host_data = ""
+    if host_data:
+        env["DATA_ROOT"] = host_data
+    try:
+        proc = subprocess.run(
+            ["docker", *cmd],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=env,
+            cwd=workdir,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "method": "compose", "error": str(exc)}
     return {
         "ok": proc.returncode == 0,
-        "container": name,
+        "method": "compose",
         "code": proc.returncode,
-        "err": (proc.stderr or "")[-400:],
+        "err": (proc.stderr or proc.stdout or "")[-500:],
+        "cmd": cmd,
+        "DATA_ROOT": host_data or None,
     }
+
+
+def _ensure_kismet() -> dict[str, Any]:
+    """Restart Kismet if present; otherwise compose up the kismet service."""
+    steps: list[dict[str, Any]] = []
+    for args in (
+        ["restart", "wardrivrr_kismet"],
+        ["start", "wardrivrr_kismet"],
+    ):
+        try:
+            proc = _docker(args, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            steps.append({"cmd": args, "ok": False, "error": str(exc)})
+            continue
+        steps.append(
+            {
+                "cmd": args,
+                "ok": proc.returncode == 0,
+                "err": (proc.stderr or "")[-300:],
+            }
+        )
+        if proc.returncode == 0:
+            return {"ok": True, "method": args[0], "container": "wardrivrr_kismet", "steps": steps}
+
+    composed = _compose_up_kismet()
+    composed["steps"] = steps
+    return composed
 
 
 def apply_machine_setup(body: dict[str, Any]) -> dict[str, Any]:
@@ -230,7 +317,7 @@ def apply_machine_setup(body: dict[str, Any]) -> dict[str, Any]:
     KISMET_CONF.write_text(render_kismet_conf(cfg), encoding="utf-8")
     set_setting(SETUP_FLAG, "1")
 
-    restart = _restart_container("wardrivrr_kismet")
+    restart = _ensure_kismet()
     return {
         "ok": True,
         "config": {**cfg, "kismet_password": "***"},
