@@ -69,7 +69,7 @@
           if (res.ok) {
             const body = await res.json();
             if (!body.required) {
-              location.href = "/login";
+              location.href = "/login?next=/machine-setup";
             }
           }
         } catch (_) {}
@@ -98,7 +98,7 @@
           return;
         }
         showToast("Admin created — sign in");
-        location.href = "/login";
+        location.href = "/login?next=/machine-setup";
       });
     </script>
   </body>

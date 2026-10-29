@@ -42,21 +42,23 @@
     }
     const data = await WardAuth.apiFetch("/api/system/machine-setup");
     const nics = data.nics || [];
-    const wifi = nics.filter((n) => n.kind === "wifi" || /^wl/i.test(n.name));
+    const wifi = nics.filter(
+      (n) => n.kind === "wifi" || /^(wl|kismon)/i.test(n.name || "")
+    );
     const wifiList = wifi.length ? wifi : nics;
     fillSelect(
       wifiSel,
       wifiList,
       "name",
       (n) => `${n.name} (${n.kind})`,
-      "— select Wi‑Fi —"
+      wifiList.length ? "— select Wi‑Fi —" : "— no interfaces found —"
     );
     fillSelect(
       btSel,
       data.bluetooth || [],
       "name",
       (n) => n.name,
-      "— none —"
+      "— none (optional) —"
     );
     fillSelect(
       gpsSel,

@@ -55,17 +55,17 @@
       // Only same-origin paths: blocks javascript: URLs and open redirects
       // (//evil.example, /\evil.example).
       function safeNext() {
-        const raw = new URLSearchParams(location.search).get("next") || "/";
+        const raw = new URLSearchParams(location.search).get("next") || "/machine-setup";
         if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
-          return "/";
+          return "/machine-setup";
         }
         try {
           const url = new URL(raw, location.origin);
           return url.origin === location.origin
             ? url.pathname + url.search + url.hash
-            : "/";
+            : "/machine-setup";
         } catch (_) {
-          return "/";
+          return "/machine-setup";
         }
       }
       (async () => {

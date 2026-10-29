@@ -74,11 +74,15 @@ def list_network_interfaces() -> list[dict[str, str]]:
         if not name or name == "lo":
             continue
         flags = parts[2] if len(parts) > 2 else ""
-        kind = "wifi" if ("wlan" in name or "WIFI" in flags.upper()) else "other"
-        if name.startswith(("wlan", "wlp", "wlx")):
+        kind = "other"
+        low = name.lower()
+        if low.startswith(("wlan", "wlp", "wlx", "kismon")) or "ieee802.11" in flags.lower():
             kind = "wifi"
-        elif name.startswith(("eth", "en")):
+        elif low.startswith(("eth", "en")):
             kind = "ethernet"
+        # Skip docker/bridge noise in the picker
+        if low.startswith(("docker", "br-", "veth", "virbr", "cni")):
+            continue
         out.append({"name": name, "kind": kind, "raw": line.strip()[:200]})
     return out
 

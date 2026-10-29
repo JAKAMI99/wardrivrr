@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     curl \
     ca-certificates \
+    iproute2 \
+    bluez \
     && DOCKER_ARCH="$(uname -m)" \
     && case "${TARGETARCH:-}" in \
          amd64) DOCKER_ARCH=x86_64 ;; \

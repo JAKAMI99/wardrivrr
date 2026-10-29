@@ -88,6 +88,8 @@ services:
     container_name: wardrivrr_api
     restart: unless-stopped
     network_mode: host
+    # Explicit so host-network always hits 1337 even if an old image CMD remains.
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "1337"]
     environment:
       DB_HOST: 127.0.0.1
       DB_PORT: "5432"
@@ -112,6 +114,10 @@ services:
       - ${DATA_ROOT:-./data}:/app/data
       - ${DATA_ROOT:-./data}/kismet_logs:/data/kismet_logs
       - /var/run/docker.sock:/var/run/docker.sock
+      # Host devices for Machine setup dropdowns (Wi‑Fi via host net + iproute2;
+      # BT/serial need these mounts — network_mode:host does not share /dev).
+      - /dev:/dev:ro
+      - /sys/class/bluetooth:/sys/class/bluetooth:ro
     depends_on:
       init-data:
         condition: service_completed_successfully
