@@ -336,11 +336,11 @@ def backfill_network_vendors(*, batch: int = 2000) -> int:
     return updated
 
 
-def list_vendors_for_user(user_id: int, *, max_ouis: int = 8) -> list[dict]:
+def list_vendors_for_user(user_id: int) -> list[dict]:
     """
     Vendors present in this user's triangulated networks.
 
-    Each entry: {vendor, count, ouis: ["AA:BB:CC", ...], label: "Apple, Inc. (AA:BB:CC, …)"}
+    Each entry: {vendor, count, label} — label is the vendor name only (A–Z).
     """
     from db import connect_dict
 
@@ -362,8 +362,7 @@ def list_vendors_for_user(user_id: int, *, max_ouis: int = 8) -> list[dict]:
     finally:
         conn.close()
 
-    # vendor -> {count, prefixes set}
-    buckets: dict[str, dict] = {}
+    counts: dict[str, int] = {}
     for row in rows:
         mac = normalize_mac_hex(row.get("network_id"))
         if len(mac) < 6:
@@ -373,30 +372,13 @@ def list_vendors_for_user(user_id: int, *, max_ouis: int = 8) -> list[dict]:
             vendor = lookup_vendor(mac)
         if not vendor:
             continue
-        bucket = buckets.setdefault(vendor, {"count": 0, "prefixes": set()})
-        bucket["count"] += 1
-        # Prefer 24-bit OUI for the label chip list
-        bucket["prefixes"].add(mac[:6])
+        counts[vendor] = counts.get(vendor, 0) + 1
 
-    out: list[dict] = []
-    for vendor, info in buckets.items():
-        ouis_hex = sorted(info["prefixes"])
-        ouis = [format_oui(p) for p in ouis_hex[:max_ouis]]
-        more = len(ouis_hex) - len(ouis)
-        oui_part = ", ".join(ouis)
-        if more > 0:
-            oui_part = f"{oui_part}, +{more}" if oui_part else f"+{more}"
-        label = f"{vendor} ({oui_part})" if oui_part else vendor
-        out.append(
-            {
-                "vendor": vendor,
-                "count": info["count"],
-                "ouis": ouis,
-                "oui_count": len(ouis_hex),
-                "label": label,
-            }
-        )
-    out.sort(key=lambda x: (-int(x["count"]), x["vendor"].lower()))
+    out = [
+        {"vendor": vendor, "count": count, "label": vendor}
+        for vendor, count in counts.items()
+    ]
+    out.sort(key=lambda x: x["vendor"].lower())
     return out
 
 

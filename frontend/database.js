@@ -127,6 +127,62 @@ function formatDisplayDate(value) {
   return `${dd}.${mm}.${yyyy}`;
 }
 
+function formatFilterDate(d) {
+  return formatDisplayDate(d);
+}
+
+function startOfLocalDay(d) {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+function endOfLocalDay(d) {
+  const out = new Date(d);
+  out.setHours(23, 59, 59, 999);
+  return out;
+}
+
+/** Rolling window presets → { after: Date, before: Date }. */
+function rangeForPreset(key) {
+  const now = new Date();
+  const before = endOfLocalDay(now);
+  if (key === "48h") {
+    return { after: new Date(now.getTime() - 48 * 60 * 60 * 1000), before };
+  }
+  const days = { "7d": 7, "30d": 30, "182d": 182, "365d": 365, "730d": 730 }[key];
+  if (!days) return null;
+  const after = startOfLocalDay(new Date(now));
+  after.setDate(after.getDate() - (days - 1));
+  return { after, before };
+}
+
+function applyDatePreset(key) {
+  const afterEl = document.getElementById("seenAfter");
+  const beforeEl = document.getElementById("seenBefore");
+  const presetEl = document.getElementById("datePreset");
+  if (!afterEl || !beforeEl || !presetEl) return;
+  if (!key) {
+    afterEl.value = "";
+    beforeEl.value = "";
+    delete form.dataset.seenAfterIso;
+    return;
+  }
+  if (key === "custom") {
+    delete form.dataset.seenAfterIso;
+    return;
+  }
+  const range = rangeForPreset(key);
+  if (!range) return;
+  afterEl.value = formatFilterDate(range.after);
+  beforeEl.value = formatFilterDate(range.before);
+  if (key === "48h") {
+    form.dataset.seenAfterIso = range.after.toISOString();
+  } else {
+    delete form.dataset.seenAfterIso;
+  }
+}
+
 /** Parse UI filter date dd.mm.yyyy → local Date at midnight, or null if invalid. */
 function parseDdMmYyyy(value) {
   const raw = String(value ?? "").trim();
@@ -192,17 +248,27 @@ function queryFromForm() {
   if (networkId) params.set("network_id", networkId);
   if (vendor) params.set("vendor", vendor);
   if (data.get("exclude_no_ssid")) params.set("exclude_no_ssid", "true");
-  const afterRaw = data.get("seen_after")?.trim();
-  const beforeRaw = data.get("seen_before")?.trim();
-  if (afterRaw) {
-    const after = toIsoDayBoundary(afterRaw, false);
-    if (!after) throw new Error("From date must be dd.mm.yyyy");
-    params.set("seen_after", after);
-  }
-  if (beforeRaw) {
-    const before = toIsoDayBoundary(beforeRaw, true);
-    if (!before) throw new Error("To date must be dd.mm.yyyy");
-    params.set("seen_before", before);
+  const preset = (data.get("date_preset") || "").trim();
+  if (preset && preset !== "custom") {
+    const range = rangeForPreset(preset);
+    if (!range) throw new Error("Unknown date range");
+    params.set("seen_after", range.after.toISOString());
+    params.set("seen_before", range.before.toISOString());
+  } else {
+    const afterRaw = data.get("seen_after")?.trim();
+    const beforeRaw = data.get("seen_before")?.trim();
+    if (form.dataset.seenAfterIso && !afterRaw) {
+      params.set("seen_after", form.dataset.seenAfterIso);
+    } else if (afterRaw) {
+      const after = toIsoDayBoundary(afterRaw, false);
+      if (!after) throw new Error("From date must be dd.mm.yyyy");
+      params.set("seen_after", after);
+    }
+    if (beforeRaw) {
+      const before = toIsoDayBoundary(beforeRaw, true);
+      if (!before) throw new Error("To date must be dd.mm.yyyy");
+      params.set("seen_before", before);
+    }
   }
   if (data.get("in_view")) {
     const b = map.getBounds();
@@ -230,7 +296,6 @@ async function loadVendorFilter() {
     for (const v of vendors) {
       const opt = document.createElement("option");
       opt.value = v.vendor;
-      // "Apple, Inc. (F0:D1:A9, AC:BC:32, +12) · 48"
       const count = v.count != null ? ` · ${v.count}` : "";
       opt.textContent = `${v.label || v.vendor}${count}`;
       select.append(opt);
@@ -286,11 +351,30 @@ async function search(event) {
 }
 
 form.addEventListener("submit", search);
+const datePresetEl = document.getElementById("datePreset");
+const seenAfterEl = document.getElementById("seenAfter");
+const seenBeforeEl = document.getElementById("seenBefore");
+datePresetEl?.addEventListener("change", () => {
+  applyDatePreset(datePresetEl.value);
+});
+function markCustomDates() {
+  if (!datePresetEl) return;
+  if (datePresetEl.value && datePresetEl.value !== "custom") {
+    datePresetEl.value = "custom";
+  } else if (!datePresetEl.value && (seenAfterEl?.value || seenBeforeEl?.value)) {
+    datePresetEl.value = "custom";
+  }
+  delete form.dataset.seenAfterIso;
+}
+seenAfterEl?.addEventListener("input", markCustomDates);
+seenBeforeEl?.addEventListener("input", markCustomDates);
 document.getElementById("clear").addEventListener("click", () => {
   form.reset();
   form.network_type.value = "WIFI";
   form.exclude_no_ssid.checked = true;
   if (form.vendor) form.vendor.value = "";
+  if (datePresetEl) datePresetEl.value = "";
+  delete form.dataset.seenAfterIso;
 });
 document.getElementById("toggleFilters").addEventListener("click", () => {
   form.classList.toggle("open");
