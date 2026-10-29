@@ -217,6 +217,7 @@
     more.className = "site-links-more";
 
     if (!isLogin) {
+      // Home → Drive → rest: keeps Drive CTA clear of Home (was colliding when Drive led).
       const home = document.createElement("a");
       home.href = "/";
       home.textContent = "Home";
@@ -224,7 +225,7 @@
         home.classList.add("active");
         home.setAttribute("aria-current", "page");
       }
-      more.appendChild(home);
+      links.appendChild(home);
 
       for (const item of PRIMARY) {
         const a = buildLink(item, path);

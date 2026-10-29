@@ -101,6 +101,42 @@ function circle(lat, lon, type) {
   });
 }
 
+/** Display API ISO datetimes as dd.mm.yyyy (no time). */
+function formatDisplayDate(value) {
+  if (value == null || value === "") return "-";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}.${mm}.${yyyy}`;
+}
+
+/** Parse UI filter date dd.mm.yyyy → local Date at midnight, or null if invalid. */
+function parseDdMmYyyy(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  const d = new Date(year, month - 1, day);
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+    return null;
+  }
+  return d;
+}
+
+/** Convert filter day to ISO for API: start of local day (seen_after) or end (seen_before). */
+function toIsoDayBoundary(value, endOfDay) {
+  const d = parseDdMmYyyy(value);
+  if (!d) return null;
+  if (endOfDay) d.setHours(23, 59, 59, 999);
+  else d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 // Names come from over-the-air broadcasts - build with textContent, never HTML.
 function popup(props) {
   const rows = [
@@ -109,7 +145,7 @@ function popup(props) {
     ["Vendor", props.vendor],
     ["Type", props.network_type],
     ["Enc", props.encryption],
-    ["Time", props.seen_at ?? props.last_seen],
+    ["Date", formatDisplayDate(props.seen_at ?? props.last_seen)],
     ["Signal", props.signal ?? props.avg_signal],
     ["Altitude", props.altitude],
     ["Samples", props.sample_count],
@@ -127,11 +163,6 @@ function popup(props) {
   return dl;
 }
 
-function toIsoLocal(value) {
-  if (!value) return "";
-  return new Date(value).toISOString();
-}
-
 function queryFromForm() {
   const data = new FormData(form);
   const params = new URLSearchParams();
@@ -146,10 +177,18 @@ function queryFromForm() {
   if (networkId) params.set("network_id", networkId);
   if (vendor) params.set("vendor", vendor);
   if (data.get("exclude_no_ssid")) params.set("exclude_no_ssid", "true");
-  const after = data.get("seen_after");
-  const before = data.get("seen_before");
-  if (after) params.set("seen_after", toIsoLocal(after));
-  if (before) params.set("seen_before", toIsoLocal(before));
+  const afterRaw = data.get("seen_after")?.trim();
+  const beforeRaw = data.get("seen_before")?.trim();
+  if (afterRaw) {
+    const after = toIsoDayBoundary(afterRaw, false);
+    if (!after) throw new Error("From date must be dd.mm.yyyy");
+    params.set("seen_after", after);
+  }
+  if (beforeRaw) {
+    const before = toIsoDayBoundary(beforeRaw, true);
+    if (!before) throw new Error("To date must be dd.mm.yyyy");
+    params.set("seen_before", before);
+  }
   if (data.get("in_view")) {
     const b = map.getBounds();
     params.set("bbox", [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(","));
@@ -191,7 +230,15 @@ async function loadVendorFilter() {
 
 async function search(event) {
   event?.preventDefault();
-  const params = queryFromForm();
+  let params;
+  try {
+    params = queryFromForm();
+  } catch (err) {
+    statusEl.textContent = "bad date";
+    banner.hidden = false;
+    banner.textContent = err.message || "Date must be dd.mm.yyyy";
+    return;
+  }
   statusEl.textContent = "loading...";
   banner.hidden = true;
   const res = await WardAuth.apiFetch(`/api/explore?${params.toString()}`);

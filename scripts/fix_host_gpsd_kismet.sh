@@ -6,13 +6,13 @@ cd "$ROOT"
 
 GPS_DEV="${1:-/dev/ttyACM0}"
 
-echo "=== gpsd → $GPS_DEV (listen all ifaces for safety) ==="
+echo "=== gpsd → $GPS_DEV (localhost only; no -G) ==="
 if [[ ! -e "$GPS_DEV" ]]; then
   echo "WARNING: $GPS_DEV not present yet — gpsd will start anyway (USBAUTO)."
 fi
 sudo tee /etc/default/gpsd >/dev/null <<EOF
 DEVICES="$GPS_DEV"
-GPSD_OPTIONS="-n -G"
+GPSD_OPTIONS="-n"
 USBAUTO="true"
 START_DAEMON="true"
 EOF

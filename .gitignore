@@ -2,6 +2,7 @@
 .env
 deploy/.env
 deploy/kismet/kismet_site.conf
+data/.jwt_secret
 
 # Python
 venv/
@@ -30,6 +31,12 @@ tools/drive_sim/track_cache*.json
 # Brand: keep shipped stickers/; never commit copyrighted ref sheets
 frontend/brand/**/stickers-ref/
 frontend/brand/**/sheets/
+frontend/brand/**/_dl*
+
+# Local kidcore download / remat scratch (do not ship)
+tools/_kidcore_dl/
+tools/_kidcore_dl*
+tools/_kidcore_remat*
 
 # Cute Engwish research dumps (NOTES.md stays tracked)
 tools/cute-engwish/*.ts

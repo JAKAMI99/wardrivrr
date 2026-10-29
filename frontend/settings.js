@@ -15,7 +15,6 @@ async function loadSettings() {
   const res = await WardAuth.apiFetch("/api/settings");
   const data = await res.json();
   if (!res.ok) return;
-  document.getElementById("localizationMode").value = data.default_localization_mode || "2d";
   document.getElementById("precision").value = data.default_localize_precision || "balanced";
   document.getElementById("nightly").checked = !!data.localize_nightly;
   document.getElementById("anomalyAlerts").checked =
@@ -24,6 +23,11 @@ async function loadSettings() {
   if (snd) {
     snd.checked =
       data.achievement_sounds !== false && data.achievement_sounds !== "false";
+  }
+  const sonar = document.getElementById("driveSonar");
+  if (sonar) {
+    sonar.checked =
+      data.drive_sonar !== false && data.drive_sonar !== "false";
   }
   document.getElementById("units").value = data.units === "imperial" ? "imperial" : "metric";
   const mapDark = document.getElementById("mapDarkMode");
@@ -110,7 +114,6 @@ const SETTINGS_SECTIONS = [
   "account",
   "preferences",
   "data",
-  "advanced",
   "admin",
 ];
 
@@ -159,11 +162,12 @@ document.getElementById("settingsForm").addEventListener("submit", async (event)
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      default_localization_mode: document.getElementById("localizationMode").value,
+      default_localization_mode: "2d",
       default_localize_precision: document.getElementById("precision").value,
       localize_nightly: document.getElementById("nightly").checked,
       anomaly_alerts: document.getElementById("anomalyAlerts").checked,
       achievement_sounds: document.getElementById("achievementSounds")?.checked ?? true,
+      drive_sonar: document.getElementById("driveSonar")?.checked ?? true,
       units: document.getElementById("units").value,
       map_dark_mode: document.getElementById("mapDarkMode")?.value || "auto",
       theme,
@@ -182,12 +186,11 @@ document.getElementById("settingsForm").addEventListener("submit", async (event)
 
 document.getElementById("recomputeNow").addEventListener("click", async () => {
   const precision = document.getElementById("precision").value;
-  const mode = document.getElementById("localizationMode").value;
-  if (!window.confirm(`Queue full localization (${mode}, ${precision})?`)) return;
+  if (!window.confirm(`Queue full localization (2d, ${precision})?`)) return;
   const res = await WardAuth.apiFetch("/api/localize/recompute", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, precision, async_job: true }),
+    body: JSON.stringify({ mode: "2d", precision, async_job: true }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -195,57 +198,6 @@ document.getElementById("recomputeNow").addEventListener("click", async () => {
     return;
   }
   showToast(body.queued ? `Queued job #${body.job_id}` : `Updated ${fmt(body.updated)}`);
-});
-
-async function loadAdvancedPills() {
-  const locEl = document.getElementById("locMode");
-  const deployEl = document.getElementById("deployMode");
-  if (!locEl && !deployEl) return;
-  try {
-    const [healthRes, systemRes] = await Promise.all([
-      WardAuth.apiFetch("/api/health"),
-      WardAuth.apiFetch("/api/system/status"),
-    ]);
-    const health = await healthRes.json().catch(() => ({}));
-    const system = await systemRes.json().catch(() => ({}));
-    if (locEl) locEl.textContent = health.localization_mode_default || "2d";
-    if (deployEl) deployEl.textContent = system.deployment?.mode || "full";
-  } catch {
-    /* pills stay at defaults */
-  }
-}
-
-document.getElementById("recompute3d")?.addEventListener("click", async () => {
-  const btn = document.getElementById("recompute3d");
-  const ok = window.confirm(
-    "Recalculate all network locations in 3D using stored altitude?\n\nThis is opt-in and may take a while. Map markers stay 2D; only estimated positions change."
-  );
-  if (!ok) return;
-  btn.disabled = true;
-  showToast("3D recalculation running...");
-  try {
-    const res = await WardAuth.apiFetch("/api/localize/recompute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "3d", precision: "precise", async_job: true }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      showToast(body.detail || "3D recompute failed", true);
-      return;
-    }
-    const locEl = document.getElementById("locMode");
-    if (locEl) locEl.textContent = "3d";
-    if (body.queued) {
-      showToast(`3D localization queued (job #${body.job_id}).`);
-    } else {
-      showToast(`Updated ${fmt(body.updated)} networks with 3D localization.`);
-    }
-  } catch (err) {
-    showToast(String(err), true);
-  } finally {
-    btn.disabled = false;
-  }
 });
 
 document.getElementById("createKey").addEventListener("click", async () => {
@@ -449,12 +401,17 @@ document.getElementById("importBtn").addEventListener("click", async () => {
 
 document.getElementById("inviteForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const invitePass = document.getElementById("invitePass").value;
+  if (invitePass.length < 8) {
+    showToast("Password must be at least 8 characters", true);
+    return;
+  }
   const res = await WardAuth.apiFetch("/api/admin/users", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       username: document.getElementById("inviteUser").value.trim(),
-      password: document.getElementById("invitePass").value,
+      password: invitePass,
       is_admin: document.getElementById("inviteAdmin").checked,
     }),
   });
@@ -505,6 +462,10 @@ document.getElementById("passwordForm")?.addEventListener("submit", async (e) =>
   const current = document.getElementById("currentPassword").value;
   const next = document.getElementById("newPassword").value;
   const confirm = document.getElementById("confirmPassword").value;
+  if (next.length < 8) {
+    showToast("Password must be at least 8 characters", true);
+    return;
+  }
   if (next !== confirm) {
     showToast("New passwords do not match", true);
     return;
@@ -534,7 +495,6 @@ document.getElementById("passwordForm")?.addEventListener("submit", async (e) =>
   bindSettingsNav();
   await loadSettings();
   await loadExplorerXp();
-  await loadAdvancedPills();
   await loadKeys();
   await loadAdmin(user);
   showSettingsSection(location.hash.replace(/^#/, "") || "account");

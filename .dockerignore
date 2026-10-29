@@ -51,3 +51,9 @@ data/kismet_logs/
 # Brand: exclude copyrighted refs/sheets only — keep stickers/, stickers.json, favicon
 frontend/brand/**/stickers-ref/
 frontend/brand/**/sheets/
+frontend/brand/**/_dl*
+
+# Local kidcore download / remat scratch
+tools/_kidcore_dl/
+tools/_kidcore_dl*
+tools/_kidcore_remat*

@@ -7,9 +7,11 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# Edit WorkingDirectory / Exec* paths to match the clone location.
+# Install: copy this unit and replace every /opt/wardrivrr with the real clone
+# path (or symlink the clone to /opt/wardrivrr). ./deploy.sh already writes
+# matching HOST_* into .env when run from the clone.
 WorkingDirectory=/opt/wardrivrr
-Environment=FORCE_LOCAL_BUILD=1
+# FORCE_LOCAL_BUILD comes from .env via run.sh — do not force rebuild every boot.
 ExecStart=/bin/bash /opt/wardrivrr/run.sh
 ExecStop=/usr/bin/docker compose -f /opt/wardrivrr/docker-compose.yml -f /opt/wardrivrr/deploy/compose.car.yml --env-file /opt/wardrivrr/.env stop
 TimeoutStartSec=900

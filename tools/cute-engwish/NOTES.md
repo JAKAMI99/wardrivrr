@@ -26,3 +26,9 @@ attribution / research only — no source dumps checked in.
 `theme.js` keeps an app-specific `PHRASE_DICT` / phrase pool, then applies a
 wholesome OwOify-like pipeline (no NSFW prefixes). Protects URLs, codes, and
 all-caps tokens (API, GPS, XP…).
+
+## Related — Kidcore stickers (not speech)
+
+Decorative franchise stickers (Bluey / Winnie the Pooh) are separate from Cute
+Engwish: user-supplied local PNGs/sheets only. Gallery links and terms note live
+in repo-root `CREDITS.md` (DisneyClips). Do not scrape clipart into the tree.

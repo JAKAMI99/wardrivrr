@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,7 +16,66 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 
 from db import connect_dict
 
-JWT_SECRET = os.getenv("JWT_SECRET_KEY", "wardrivrr_dev_change_me")
+MIN_PASSWORD_LENGTH = 8
+
+# In-memory login / setup throttle (per process). Enough for a car mini-PC.
+_AUTH_ATTEMPTS: dict[str, list[float]] = {}
+_AUTH_LOCK = threading.Lock()
+_AUTH_WINDOW_S = float(os.getenv("AUTH_RATE_WINDOW_S", "300"))
+_AUTH_MAX_ATTEMPTS = max(3, int(os.getenv("AUTH_RATE_MAX", "8")))
+
+
+def _client_ip(request: Request | None) -> str:
+    if request is None:
+        return "unknown"
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def check_auth_rate(bucket: str, *, request: Request | None = None) -> None:
+    """
+    Raise 429 after too many failures for the same IP+bucket within the window.
+    Call record_auth_failure() after a rejected attempt; clear_auth_rate() on success.
+    """
+    key = f"{_client_ip(request)}:{bucket}"
+    now = time.monotonic()
+    with _AUTH_LOCK:
+        hits = [t for t in _AUTH_ATTEMPTS.get(key, []) if now - t < _AUTH_WINDOW_S]
+        _AUTH_ATTEMPTS[key] = hits
+        if len(hits) >= _AUTH_MAX_ATTEMPTS:
+            raise HTTPException(
+                429,
+                "Too many attempts — try again in a few minutes",
+            )
+
+
+def record_auth_failure(bucket: str, *, request: Request | None = None) -> None:
+    key = f"{_client_ip(request)}:{bucket}"
+    now = time.monotonic()
+    with _AUTH_LOCK:
+        hits = [t for t in _AUTH_ATTEMPTS.get(key, []) if now - t < _AUTH_WINDOW_S]
+        hits.append(now)
+        _AUTH_ATTEMPTS[key] = hits
+        # Bound the map so a long-lived API process cannot grow forever.
+        if len(_AUTH_ATTEMPTS) > 4000:
+            stale = [
+                k
+                for k, times in _AUTH_ATTEMPTS.items()
+                if not times or now - times[-1] >= _AUTH_WINDOW_S
+            ]
+            for k in stale:
+                _AUTH_ATTEMPTS.pop(k, None)
+
+
+def clear_auth_rate(bucket: str, *, request: Request | None = None) -> None:
+    key = f"{_client_ip(request)}:{bucket}"
+    with _AUTH_LOCK:
+        _AUTH_ATTEMPTS.pop(key, None)
+
 JWT_ALG = "HS256"
 
 # New random value every process start → all prior JWTs/cookies become invalid.
@@ -30,6 +91,42 @@ REMEMBER_DAYS = 30
 bearer_scheme = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+# Once any user exists, skip further DB checks in the request path.
+_setup_complete: bool | None = None
+
+
+def _load_jwt_secret() -> str:
+    """Use JWT_SECRET_KEY if set; otherwise load/create a random secret under DATA_ROOT."""
+    env = (os.getenv("JWT_SECRET_KEY") or "").strip()
+    if env:
+        return env
+    from paths import DATA
+
+    secret_path = DATA / ".jwt_secret"
+    try:
+        if secret_path.is_file():
+            existing = secret_path.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+    except OSError as exc:
+        print(f"[auth] could not read JWT secret file: {exc}")
+
+    secret = secrets.token_urlsafe(48)
+    try:
+        DATA.mkdir(parents=True, exist_ok=True)
+        secret_path.write_text(secret + "\n", encoding="utf-8")
+        try:
+            os.chmod(secret_path, 0o600)
+        except OSError:
+            pass
+        print(f"[auth] wrote new JWT secret to {secret_path}")
+    except OSError as exc:
+        print(f"[auth] could not persist JWT secret to {secret_path}: {exc}")
+    return secret
+
+
+JWT_SECRET = _load_jwt_secret()
+
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -40,6 +137,14 @@ def verify_password(password: str, password_hash: str) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except ValueError:
         return False
+
+
+def validate_password_strength(password: str) -> None:
+    if len(password or "") < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            400,
+            f"Password must be at least {MIN_PASSWORD_LENGTH} characters",
+        )
 
 
 def create_access_token(
@@ -135,24 +240,52 @@ def get_user_by_username(username: str) -> dict | None:
         conn.close()
 
 
-def ensure_bootstrap_admin(username: str = "admin", password: str = "admin") -> dict | None:
-    """Create first admin if no users exist. Returns created user or None."""
+def setup_required() -> bool:
+    """True when no users exist yet (first-boot web setup needed)."""
+    global _setup_complete
+    if _setup_complete is True:
+        return False
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) AS n FROM users")
+            n = int(cur.fetchone()["n"])
+    finally:
+        conn.close()
+    if n > 0:
+        _setup_complete = True
+        return False
+    return True
+
+
+def mark_setup_complete() -> None:
+    global _setup_complete
+    _setup_complete = True
+
+
+def create_first_admin(password: str, username: str = "admin") -> dict:
+    """
+    One-shot first admin. Rejects if any user already exists.
+    Assigns orphaned samples/networks to the new admin.
+    """
+    validate_password_strength(password)
+    name = (username or "admin").strip() or "admin"
+    conn = connect_dict()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("LOCK TABLE users IN EXCLUSIVE MODE")
+            cur.execute("SELECT COUNT(*) AS n FROM users")
             if cur.fetchone()["n"] > 0:
-                return None
+                raise HTTPException(409, "Setup already completed")
             cur.execute(
                 """
                 INSERT INTO users (username, password_hash, is_admin)
                 VALUES (%s, %s, TRUE)
                 RETURNING id, username, is_admin, created_at
                 """,
-                (username, hash_password(password)),
+                (name, hash_password(password)),
             )
             user = cur.fetchone()
-            # Assign orphaned data to admin
             cur.execute(
                 "UPDATE signal_samples SET user_id = %s WHERE user_id IS NULL",
                 (user["id"],),
@@ -171,6 +304,7 @@ def ensure_bootstrap_admin(username: str = "admin", password: str = "admin") -> 
                 (user["id"], user["id"]),
             )
         conn.commit()
+        mark_setup_complete()
         return user
     finally:
         conn.close()

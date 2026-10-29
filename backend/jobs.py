@@ -87,22 +87,49 @@ def enqueue_job(user_id: int | None, job_type: str, payload: dict | None = None)
                 )
                 existing = cur.fetchone()
             if existing:
-                # Broaden queued job so later imports aren't skipped
+                # Merge payloads without widening to a full re-geocode.
+                old = existing.get("payload") or {}
+                if isinstance(old, str):
+                    try:
+                        old = json.loads(old)
+                    except Exception:
+                        old = {}
+                if not isinstance(old, dict):
+                    old = {}
+                merged = dict(old)
+                # Keep only_missing True unless the *new* job explicitly asks
+                # for a full pass. Never force False just because we coalesced.
+                if payload.get("only_missing") is False:
+                    merged["only_missing"] = False
+                else:
+                    merged["only_missing"] = bool(
+                        old.get("only_missing", True)
+                    )
+                merged["priority"] = min(
+                    int(old.get("priority") or 50),
+                    int(payload.get("priority") or 50),
+                )
+                old_ids = old.get("network_ids")
+                new_ids = payload.get("network_ids")
+                if old_ids is None or new_ids is None:
+                    # One side wants "all matching rows" — drop the id filter.
+                    merged.pop("network_ids", None)
+                else:
+                    merged["network_ids"] = sorted(
+                        {str(x) for x in list(old_ids) + list(new_ids) if x}
+                    )
                 with conn.cursor() as cur:
                     cur.execute(
                         """
                         UPDATE jobs SET payload = %s::jsonb
                         WHERE id = %s
                         """,
-                        (
-                            json.dumps(
-                                {"only_missing": False, "priority": 50}
-                            ),
-                            existing["id"],
-                        ),
+                        (json.dumps(merged), existing["id"]),
                     )
                 conn.commit()
                 ensure_worker()
+                existing = dict(existing)
+                existing["payload"] = merged
                 return existing
         # Coalesce duplicate address fills for the same level
         if job_type == "level_addresses" and payload.get("level_id") is not None:
@@ -473,6 +500,22 @@ def process_one_job() -> bool:
             status="error",
             error=f"{exc}\n{traceback.format_exc()[:2000]}",
         )
+        # Region builds flip levels to processing/segmentizing early; without this
+        # a failed job leaves Drive stuck (explore/roads/unlock all require ready).
+        if job.get("job_type") == "geofabrik_level":
+            try:
+                payload = job.get("payload") or {}
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                lid = payload.get("level_id")
+                if lid is not None:
+                    from levels import mark_level_build_failed
+
+                    mark_level_build_failed(
+                        int(job["user_id"]), int(lid), str(exc)[:2000]
+                    )
+            except Exception:
+                pass
         conn = connect()
         try:
             with conn.cursor() as cur:

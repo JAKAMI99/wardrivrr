@@ -82,7 +82,9 @@ jobs:
         run: |
           cosign sign --yes "${IMAGE_REF}@${DIGEST}"
 
+      # GitHub rejects attestations on user-owned private repositories.
       - name: Attest
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ steps.image.outputs.ref }}

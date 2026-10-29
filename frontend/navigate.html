@@ -7,10 +7,10 @@
     <link rel="icon" href="/static/brand/kidcore/favicon.png" type="image/png" id="wardFavicon" />
     <title>Drive · wardrivrr</title>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
-    <link rel="stylesheet" href="/static/styles.css?v=21" />
-    <link rel="stylesheet" href="/static/themes.css?v=12" />
-    <script src="/static/theme.js?v=19"></script>
-    <link rel="stylesheet" href="/static/navigate.css?v=51" />
+    <link rel="stylesheet" href="/static/styles.css?v=25" />
+    <link rel="stylesheet" href="/static/themes.css?v=15" />
+    <script src="/static/theme.js?v=23"></script>
+    <link rel="stylesheet" href="/static/navigate.css?v=57" />
   </head>
   <body class="nav-body" data-nav-night="0">
     <div class="app-shell nav-shell">
@@ -132,9 +132,8 @@
             <span class="nav-vehicle-glyph" id="btnDriveModeIcon" aria-hidden="true"></span>
           </button>
           <button type="button" class="nav-icon-btn is-muted-look" id="btnNavSettings" title="Drive settings" aria-label="Drive settings" aria-expanded="false" aria-controls="navSettingsSheet">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.4-1.04-.72-1.62-.94l-.36-2.54a.49.49 0 0 0-.48-.41h-3.84a.49.49 0 0 0-.48.41l-.36 2.54c-.58.22-1.12.54-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.86 14.52a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.4 1.04.72 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .43-.17.48-.41l.36-2.54c.58-.22 1.12-.54 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
             </svg>
           </button>
           <p class="nav-hint muted" id="navHint" hidden>Waiting for GPS...</p>
@@ -155,8 +154,13 @@
                 <span class="nav-settings-label">Map view</span>
                 <span class="nav-settings-value" id="settingsViewValue">3D</span>
               </button>
+              <button type="button" class="nav-settings-row" id="btnDriveSonar" aria-pressed="true">
+                <span class="nav-settings-label">Receive FX</span>
+                <span class="nav-settings-value" id="settingsSonarValue">On</span>
+              </button>
               <a class="nav-settings-row nav-settings-link" href="/regions">Regions</a>
               <a class="nav-settings-row nav-settings-link" href="/status">Status</a>
+              <a class="nav-settings-row nav-settings-link" href="/settings#preferences">All settings</a>
             </div>
           </div>
         </div>
@@ -217,7 +221,7 @@
 
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=9"></script>
-    <script src="/static/navigate.js?v=72"></script>
+    <script src="/static/nav.js?v=10"></script>
+    <script src="/static/navigate.js?v=78"></script>
   </body>
 </html>

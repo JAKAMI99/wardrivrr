@@ -1,10 +1,11 @@
 /* Site-wide theme engine - Classic / Kidcore / CRT
  *
  * Kidcore speech ≈ Prism Launcher "Cute Engwish" (en@uwu) + OwOify baseline:
- * phrase dict, word map, soft r/l→w, ny-after-n, repeaty, stutter, :3/UwU/OwO.
+ * phrase dict, word map, soft r/l→w, ny-after-n — fully deterministic (no RNG).
  * Attribution / notes: tools/cute-engwish/NOTES.md (no source dumps in-repo).
  */
 (function () {
+  const APP_VERSION = "1.0.0";
   const KEY = "wardrivrr_theme";
   const LEGACY_KEY = "wardrivrr_nav_theme";
   const IDS = ["classic", "kidcore", "crt"];
@@ -130,7 +131,6 @@
     [/Technical details/gi, "Nerdy bits"],
     [/Save settings/gi, "Save settingsies"],
     [/Run full calculation now/gi, "Do big math now"],
-    [/Recalculate locations in 3D/gi, "Make locations 3D again"],
     [/Upload\s*&\s*ingest/gi, "Upload & eat file"],
     [/Import capture file/gi, "Bring capture file"],
     [/Download export/gi, "Get export"],
@@ -220,7 +220,6 @@
 
   let speechObserver = null;
   let phraseTimer = null;
-  let speechDebounce = null;
   let visibilityBound = false;
 
   function normalize(id) {
@@ -360,8 +359,9 @@
 
   /**
    * Cute Engwish — closer to Prism's en@uwu + OwOify baseline
-   * (https://github.com/aqua-lzma/OwOify), but UI-safe:
-   *   phrase dict → word map → soft r/l→w → ny-after-n → repeaty → stutter → suffix
+   * (https://github.com/aqua-lzma/OwOify), but UI-safe + fully deterministic:
+   *   phrase dict → word map → soft r/l→w → ny-after-n
+   * No stutter / random suffixes / probabilistic repeaty (same input → same output).
    * Protects URLs, paths, and ALL-CAPS tokens (API, GPS, XP…).
    */
   const UWU_WORD_MAP = {
@@ -390,7 +390,7 @@
     cute: "cwute",
     you: "u",
     your: "ur",
-    you're: "ur",
+    "you're": "ur",
     the: "da",
     with: "wif",
     for: "fow",
@@ -407,7 +407,10 @@
     driving: "dwiving",
   };
 
-  const UWU_SUFFIXES = [":3", "UwU", "OwO", ">:3", "nya~"];
+  /** Longer keys first so "thank you" wins over "you" */
+  const UWU_WORD_KEYS = Object.keys(UWU_WORD_MAP).sort(
+    (a, b) => b.length - a.length
+  );
 
   function uwuPreserveCase(match, replacement) {
     const upper = (match.match(/[A-Z]/g) || []).length;
@@ -436,17 +439,19 @@
     // 1) App-specific full phrases first
     for (const [re, rep] of PHRASE_DICT) s = s.replace(re, rep);
 
-    // 2) Word map (longer keys first)
-    const mapKeys = Object.keys(UWU_WORD_MAP).sort((a, b) => b.length - a.length);
-    for (const key of mapKeys) {
-      const re = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+    // 2) Word map (static dictionary — always the same)
+    for (const key of UWU_WORD_KEYS) {
+      const re = new RegExp(
+        `\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+        "gi"
+      );
       s = s.replace(re, (m) => {
         if (uwuProtected(m)) return m;
         return uwuPreserveCase(m, UWU_WORD_MAP[key]);
       });
     }
 
-    // 3–6 operate per word so we can skip protected tokens
+    // 3–4 operate per word so we can skip protected tokens
     s = s
       .split(/(\s+)/)
       .map((word) => {
@@ -474,36 +479,10 @@
           return `${n}${y}${v}`;
         });
 
-        // 5) Repeaty wepeaty — long …y words get a w-echo
-        if (
-          w.length >= 5 &&
-          /y$/i.test(w) &&
-          /[aeiou]/i.test(w) &&
-          Math.random() < 0.35
-        ) {
-          // "pwobabwy wobabwy" style (OwOify repeaty)
-          const rest = w.match(/.[aeiouy].*/i);
-          const tail = rest ? rest[0].slice(1) : w.slice(1);
-          const wEcho = (w[0].charCodeAt(0) < 97 ? "W" : "w") + tail;
-          w = `${w} ${wEcho}`;
-        }
-
-        // 6) Soft stutter (rarer than OwOify's 10%)
-        if (w.length >= 4 && /[a-z]/i.test(w[0]) && Math.random() < 0.06) {
-          const ch = w[0];
-          w = `${ch}-${w}`;
-          if (Math.random() < 0.25) w = `${ch}-${w}`;
-        }
-
         return pre + w + post;
       })
       .join("");
 
-    // 7) Suffix sprinkle on sentence endings
-    if (/[.!?]$/.test(s.trim()) && s.length > 16 && Math.random() < 0.14) {
-      const tail = UWU_SUFFIXES[Math.floor(Math.random() * UWU_SUFFIXES.length)];
-      s = s.replace(/([.!?])\s*$/, ` ${tail}`);
-    }
     return s;
   }
 
@@ -534,40 +513,121 @@
     return false;
   }
 
+  /** Text nodes already speechified (paired with node[ORIG_KEY] = original English) */
+  const speechifiedNodes = new WeakSet();
+  let speechApplying = false;
+
   function restoreSpeech(root) {
     const scope = root || document.body;
     if (!scope) return;
     const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
-    for (const node of nodes) {
-      if (node[ORIG_KEY] != null) {
-        node.nodeValue = node[ORIG_KEY];
-        delete node[ORIG_KEY];
+    speechApplying = true;
+    try {
+      for (const node of nodes) {
+        if (node[ORIG_KEY] != null) {
+          node.nodeValue = node[ORIG_KEY];
+          delete node[ORIG_KEY];
+        }
+        speechifiedNodes.delete(node);
       }
+    } finally {
+      speechApplying = false;
+    }
+  }
+
+  /**
+   * Owoify one text node from its English original only.
+   * - Stores original on first see / content change
+   * - Skips when already equals cuteEngwish(original) (no double-owoify / no flicker)
+   * - On DOM text update: treat new nodeValue as new original, transform once
+   */
+  function applySpeechToTextNode(node) {
+    if (!node || node.nodeType !== Node.TEXT_NODE) return;
+    const parent = node.parentElement;
+    if (!parent || shouldSkipElement(parent)) return;
+
+    const current = node.nodeValue || "";
+    const orig = node[ORIG_KEY];
+
+    if (orig != null) {
+      const expected = cuteEngwish(orig);
+      // Already showing the deterministic speech form — leave it
+      if (current === expected) {
+        speechifiedNodes.add(node);
+        return;
+      }
+      // Still the stored English — re-apply (e.g. after a failed mid-update)
+      if (current === orig) {
+        if (shouldSkipText(orig)) return;
+        speechApplying = true;
+        try {
+          node.nodeValue = expected;
+          speechifiedNodes.add(node);
+        } finally {
+          speechApplying = false;
+        }
+        return;
+      }
+      // App changed the string (GPS status, etc.) — owoify the new original once
+      if (shouldSkipText(current)) {
+        delete node[ORIG_KEY];
+        speechifiedNodes.delete(node);
+        return;
+      }
+      node[ORIG_KEY] = current;
+      speechApplying = true;
+      try {
+        node.nodeValue = cuteEngwish(current);
+        speechifiedNodes.add(node);
+      } finally {
+        speechApplying = false;
+      }
+      return;
+    }
+
+    if (shouldSkipText(current)) return;
+
+    // Fresh node: store English, transform once (never treat speech as original)
+    node[ORIG_KEY] = current;
+    const transformed = cuteEngwish(current);
+    if (transformed === current) {
+      speechifiedNodes.add(node);
+      return;
+    }
+    speechApplying = true;
+    try {
+      node.nodeValue = transformed;
+      speechifiedNodes.add(node);
+    } finally {
+      speechApplying = false;
     }
   }
 
   function applySpeechToRoot(root) {
     const scope = root || document.body;
     if (!scope) return;
+    if (scope.nodeType === Node.TEXT_NODE) {
+      applySpeechToTextNode(scope);
+      return;
+    }
     const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         const parent = node.parentElement;
         if (!parent || shouldSkipElement(parent)) return NodeFilter.FILTER_REJECT;
-        const source = node[ORIG_KEY] != null ? node[ORIG_KEY] : node.nodeValue || "";
-        if (shouldSkipText(source)) return NodeFilter.FILTER_REJECT;
+        const source =
+          node[ORIG_KEY] != null ? node[ORIG_KEY] : node.nodeValue || "";
+        // Still walk speechified nodes so content changes get re-checked
+        if (node[ORIG_KEY] == null && shouldSkipText(source)) {
+          return NodeFilter.FILTER_REJECT;
+        }
         return NodeFilter.FILTER_ACCEPT;
       },
     });
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
-    for (const node of nodes) {
-      // Transform once per text node so MutationObserver does not re-roll stutter forever
-      if (node[ORIG_KEY] != null) continue;
-      node[ORIG_KEY] = node.nodeValue;
-      node.nodeValue = cuteEngwish(node[ORIG_KEY]);
-    }
+    for (const node of nodes) applySpeechToTextNode(node);
   }
 
   function stopSpeechObserver() {
@@ -575,29 +635,34 @@
       speechObserver.disconnect();
       speechObserver = null;
     }
-    if (speechDebounce) {
-      clearTimeout(speechDebounce);
-      speechDebounce = null;
-    }
   }
 
   function startSpeechObserver() {
     stopSpeechObserver();
     if (!document.body) return;
-    speechObserver = new MutationObserver(() => {
-      if (document.hidden || read() !== "kidcore") return;
-      if (speechDebounce) return;
-      // Coalesce bursts (status chips, stats) - full TreeWalker is expensive
-      speechDebounce = setTimeout(() => {
-        speechDebounce = null;
-        if (document.hidden || read() !== "kidcore") return;
-        applySpeechToRoot(document.body);
-      }, 220);
+    speechObserver = new MutationObserver((mutations) => {
+      if (speechApplying || document.hidden || read() !== "kidcore") return;
+
+      for (const m of mutations) {
+        if (m.type === "characterData" && m.target) {
+          // Fast path: GPS / status chips rewrite the same text node
+          applySpeechToTextNode(m.target);
+        } else if (m.type === "childList") {
+          for (const n of m.addedNodes) {
+            if (n.nodeType === Node.TEXT_NODE) applySpeechToTextNode(n);
+            else if (n.nodeType === Node.ELEMENT_NODE) {
+              if (!shouldSkipElement(n)) applySpeechToRoot(n);
+            }
+          }
+          // Removals need no work — ORIG_KEY dies with the node
+        }
+      }
     });
     speechObserver.observe(document.body, {
       childList: true,
       subtree: true,
-      characterData: false,
+      characterData: true,
+      characterDataOldValue: false,
     });
   }
 
@@ -667,7 +732,8 @@
   }
 
   function buildDecorHtml() {
-    return imgStickerHtml(kidcoreStickerUrls, 6) + phraseStickerHtml();
+    // 8 edge-biased PNG stickers + phrase chips (CSS keeps center form zone clear)
+    return imgStickerHtml(kidcoreStickerUrls, 8) + phraseStickerHtml();
   }
 
   function refreshPhrases(layer) {
@@ -688,10 +754,6 @@
       document.documentElement.style.removeProperty("cursor");
       setKidcorePaused(false);
       stopSpeechObserver();
-      if (speechDebounce) {
-        clearTimeout(speechDebounce);
-        speechDebounce = null;
-      }
       if (phraseTimer) {
         clearInterval(phraseTimer);
         phraseTimer = null;
@@ -864,6 +926,7 @@
   apply(read(), { persist: false, broadcast: false });
 
   window.WardTheme = {
+    APP_VERSION,
     KEY,
     IDS,
     META,

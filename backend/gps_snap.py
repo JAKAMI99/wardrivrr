@@ -47,12 +47,35 @@ def snap_threshold_m() -> float:
 
 
 def resolve_level_id(user_id: int) -> int | None:
+    """Active Drive region, with car-headless fallbacks when unset."""
     try:
         from db import get_user_setting
 
         raw = get_user_setting(user_id, "active_level_id", None)
         if raw and str(raw).isdigit():
             return int(raw)
+    except Exception:
+        pass
+    # Always-on gpsd (no Drive UI yet): pin via env or sole ready level.
+    env_level = os.getenv("GPSD_LEVEL_ID", "").strip()
+    if env_level.isdigit():
+        return int(env_level)
+    try:
+        from db import get_conn
+
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id FROM levels
+                WHERE user_id = %s AND status = 'ready'
+                ORDER BY id DESC
+                LIMIT 2
+                """,
+                (int(user_id),),
+            )
+            rows = cur.fetchall() or []
+        if len(rows) == 1:
+            return int(rows[0][0])
     except Exception:
         pass
     return None

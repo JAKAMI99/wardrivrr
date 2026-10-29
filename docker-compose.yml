@@ -1,7 +1,8 @@
 # Base stack: PostGIS + Valhalla.
+# Release: WARDRIVRR_VERSION=1.0.0
 # Vehicle host (API + host Kismet): also use deploy/compose.car.yml
 #   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
-# Image: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest (see ./run.sh)
+# Image: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:1.0.0 (see ./run.sh)
 
 services:
   postgis:

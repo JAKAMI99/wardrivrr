@@ -1,11 +1,14 @@
 # Vehicle host overlay (with root compose):
+# Release: WARDRIVRR_VERSION=1.0.0
 #   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
 # gpsd + Kismet stay on the host; API reaches them via host-gateway.
 
 services:
   postgis:
+    # Paths relative to this file (deploy/) — root .env is one level up.
+    # CLI `--env-file .env` only interpolates ${VAR}; env_file injects into the container.
     env_file:
-      - ./.env
+      - ../.env
     # Conservative memory defaults
     command: postgres -c shared_buffers=128MB -c work_mem=16MB -c maintenance_work_mem=64MB -c effective_cache_size=512MB
     healthcheck:
@@ -17,12 +20,13 @@ services:
 
   valhalla:
     env_file:
-      - ./.env
+      - ../.env
 
   api:
     # WARDRIVRR_IMAGE may be a tag or an immutable digest, for example:
     # ghcr.io/owner/wardrivrr@sha256:...
-    image: ${WARDRIVRR_IMAGE:-ghcr.io/OWNER/wardrivrr:latest}
+    # Default local tag matches ./deploy.sh / .env.car.example (not a fake OWNER).
+    image: ${WARDRIVRR_IMAGE:-wardrivrr-api:local}
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -32,7 +36,7 @@ services:
     # cannot; Status was false-negative while host curl worked).
     network_mode: host
     env_file:
-      - ./.env
+      - ../.env
     environment:
       # postgis/valhalla publish ports on the host in this mode
       DB_HOST: 127.0.0.1
@@ -49,7 +53,8 @@ services:
       KISMET_PASSWORD: ${KISMET_PASSWORD:-changeme}
       KISMET_LIVE: ${KISMET_LIVE:-1}
       KISMET_LOG_DIR: /data/kismet_logs
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_in_production}
+      # Prefer root .env via env_file; also interpolate so --env-file alone works.
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       WARDRIVRR_MODE: ${WARDRIVRR_MODE:-full}
       DATA_ROOT: /app/data
       # Absolute host paths so the API can `docker compose` against the same

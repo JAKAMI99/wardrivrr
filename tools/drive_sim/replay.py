@@ -450,7 +450,11 @@ def main() -> int:
     )
     p.add_argument("--base", default="http://127.0.0.1:8000", help="API base URL")
     p.add_argument("--user", default="admin", help="WebUI username")
-    p.add_argument("--password", default="admin", help="WebUI password")
+    p.add_argument(
+        "--password",
+        required=True,
+        help="WebUI password (set at first-boot /setup)",
+    )
     p.add_argument(
         "--start",
         default="0",

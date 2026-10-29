@@ -149,18 +149,18 @@ select {
   justify-self: center;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0.85rem;
   flex-wrap: nowrap;
 }
 
 .site-links-more {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0.75rem;
 }
 
 .site-links a {
-  padding: 7px 11px;
+  padding: 7px 12px;
   border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: 0.9rem;
@@ -1570,12 +1570,12 @@ a.module:active {
   }
 
   .site-links a {
-    padding: 8px 10px;
+    padding: 8px 11px;
     font-size: 0.85rem;
   }
 
   .site-links a.nav-drive {
-    padding: 8px 14px;
+    padding: 8px 11px;
   }
 
   #toggleFilters {
@@ -2029,6 +2029,80 @@ a.module:active {
 .error-text {
   color: #f0a0a0;
   font-size: 0.9rem;
+}
+
+.api-hero .hero-actions {
+  margin-top: 22px;
+  width: 100%;
+  max-width: 22rem;
+}
+
+.api-swagger-cta {
+  width: 100%;
+  min-height: 56px;
+  padding: 0.95rem 1.6rem;
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1.5px solid color-mix(in srgb, var(--accent-strong) 55%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 10px 28px rgba(0, 0, 0, 0.28),
+    0 0 36px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.api-swagger-cta:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-strong) 35%, transparent),
+    0 12px 32px rgba(0, 0, 0, 0.32),
+    0 0 44px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.api-hero-hint {
+  margin: 10px 0 0;
+  max-width: 28rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  opacity: 0.88;
+}
+
+.api-main .api-quick {
+  margin-top: clamp(28px, 5vw, 40px);
+  padding: 12px 14px;
+  background: transparent;
+  opacity: 0.92;
+}
+
+.api-main .api-quick h2 {
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.api-main .api-quick > p {
+  font-size: 0.82rem;
+}
+
+.api-main .api-quick .btn-primary {
+  background: color-mix(in srgb, var(--accent) 72%, var(--panel));
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 600;
+  min-height: 38px;
+  font-size: 0.92rem;
+}
+
+.api-main .api-quick .btn-primary:hover {
+  background: color-mix(in srgb, var(--accent-strong) 78%, var(--panel));
+}
+
+@media (max-width: 520px) {
+  .api-hero .hero-actions {
+    max-width: none;
+  }
 }
 
 .api-grid {
@@ -2865,30 +2939,40 @@ a.btn.is-disabled {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
-/* Drive CTA in desktop nav — solid, not neon outline */
+/* Drive CTA — emphasized text + soft underline, not an active pill */
 .site-links a.nav-drive {
-  color: var(--accent-ink);
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  border: 1px solid transparent;
-  background: var(--accent);
+  color: var(--accent);
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.28em;
+  /* Extra air so underline / weight never reads into Home */
+  margin-inline: 0.2rem 0.35rem;
+  padding-inline: 0.55rem;
 }
 
 .site-links a.nav-drive:hover {
-  color: var(--accent-ink);
-  background: var(--accent-strong);
-  border-color: transparent;
+  color: var(--accent-strong);
+  background: transparent;
+  text-decoration-color: var(--accent-strong);
 }
 
 .site-links a.nav-drive.is-current {
-  color: var(--accent-ink);
-  background: var(--accent-strong);
-  border-color: transparent;
+  color: var(--accent);
+  background: transparent;
   box-shadow: none;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2.5px;
 }
 
 .site-links a.nav-drive.active {
-  background: var(--accent);
+  background: transparent;
 }
 
 .account-menu {

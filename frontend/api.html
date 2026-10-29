@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0c0e11" />
     <link rel="icon" href="/static/brand/kidcore/favicon.png" type="image/png" id="wardFavicon" />
     <title>API · wardrivrr</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-    <link rel="stylesheet" href="/static/themes.css?v=12" />
-    <script src="/static/theme.js?v=19"></script>
+    <link rel="stylesheet" href="/static/styles.css?v=28" />
+    <link rel="stylesheet" href="/static/themes.css?v=15" />
+    <script src="/static/theme.js?v=23"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -29,15 +29,18 @@
       </nav>
 
       <main class="home-main settings-main api-main">
-        <header class="home-hero settings-hero">
+        <header class="home-hero settings-hero api-hero">
           <h1>API</h1>
           <p>
-            Search networks by MAC, SSID, place, or ZIP.
-            Docs: <a href="/api/docs" target="_blank" rel="noopener">/api/docs</a>
+            Open Swagger to try every endpoint live — authorized with your session.
           </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary btn-lg api-swagger-cta" href="/api/docs" target="_blank" rel="noopener" id="openSwagger" title="Opens Swagger already authorized with your login">Open Swagger</a>
+          </div>
+          <p class="api-hero-hint">Interactive docs · search &amp; curl below if you need them</p>
         </header>
 
-        <section class="tools-panel settings-form-panel" aria-label="Auth">
+        <section class="tools-panel settings-form-panel api-quick" aria-label="Auth">
           <h2>Auth</h2>
           <p class="muted">
             Uses your session. Optional API key from <a href="/settings">Settings</a> for curl.
@@ -48,8 +51,9 @@
           </label>
         </section>
 
-        <section class="tools-panel settings-form-panel" aria-label="Search">
-          <h2>Search</h2>
+        <section class="tools-panel settings-form-panel api-quick" aria-label="Quick try">
+          <h2>Quick try</h2>
+          <p class="muted">Optional in-page search for a fast check.</p>
           <form id="searchForm" class="settings-form api-search-form">
             <div class="api-grid">
               <label>
@@ -101,14 +105,13 @@
             <div class="tools-row">
               <button class="btn btn-primary" type="submit">Search</button>
               <button class="btn" type="button" id="copyCurl">Copy curl</button>
-              <a class="btn" href="/api/docs" target="_blank" rel="noopener" id="openSwagger" title="Opens Swagger already authorized with your login">Open Swagger</a>
             </div>
           </form>
           <pre class="code-block" id="curlBox"></pre>
           <div class="toast" id="toast" hidden></div>
         </section>
 
-        <section class="tools-panel" aria-label="Results">
+        <section class="tools-panel api-quick" aria-label="Results">
           <h2>Results <span class="muted" id="resultMeta"></span></h2>
           <div id="geocodeHint" class="muted"></div>
           <div class="api-table-wrap">
@@ -136,6 +139,6 @@
     </div>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=8"></script>
-    <script src="/static/api.js"></script>
+    <script src="/static/api.js?v=2"></script>
   </body>
 </html>

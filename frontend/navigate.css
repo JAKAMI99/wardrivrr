@@ -34,6 +34,15 @@
   z-index: 1100;
 }
 
+/* Drive page: give Home ↔ Drive more breathing room than global default */
+.nav-site-nav .site-links {
+  gap: 1rem;
+}
+
+.nav-site-nav .site-links a.nav-drive {
+  margin-inline: 0.35rem 0.55rem;
+}
+
 .nav-main {
   position: relative;
   flex: 1 1 auto;
@@ -1009,12 +1018,16 @@ html[data-theme="crt"] .nav-maneuver-dist {
 
 /* Turn-by-turn chevron - same shape every theme, fill from theme color */
 .nav-map-marker {
+  position: relative;
   width: 40px;
   height: 46px;
   pointer-events: none;
 }
 
+/* Receive sonar is a MapLibre GeoJSON line layer (drive-sonar), not DOM markers */
+
 .nav-marker-chevron {
+  position: relative;
   width: 40px;
   height: 46px;
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));

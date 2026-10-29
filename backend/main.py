@@ -11,21 +11,27 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg2 import OperationalError
 from pydantic import BaseModel, Field
 
 from auth import (
+    MIN_PASSWORD_LENGTH,
+    check_auth_rate,
+    clear_auth_rate,
     clear_session_cookie,
     create_access_token,
-    ensure_bootstrap_admin,
+    create_first_admin,
     generate_api_key,
     get_current_user,
     get_optional_user,
     hash_password,
+    record_auth_failure,
     require_admin,
     set_session_cookie,
+    setup_required,
+    validate_password_strength,
     verify_password,
     get_user_by_username,
 )
@@ -49,10 +55,28 @@ from stats_dashboard import build_stats_dashboard
 from system_status import collect_system_status
 
 FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
+_ROOT = FRONTEND.parent
+
+
+def _read_app_version() -> str:
+    env = (os.getenv("WARDRIVRR_VERSION") or "").strip()
+    if env:
+        return env
+    for path in (_ROOT / "VERSION", Path("/app/VERSION")):
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+            if text:
+                return text.splitlines()[0].strip()
+        except OSError:
+            continue
+    return "1.0.0"
+
+
+APP_VERSION = _read_app_version()
 
 app = FastAPI(
     title="wardrivrr",
-    version="0.5.0",
+    version=APP_VERSION,
     description=(
         "Local triangulated network database API. "
         "Authenticate with `X-API-Key: wr_...` or `Authorization: Bearer <jwt|wr_...>`."
@@ -90,7 +114,7 @@ class LoginBody(BaseModel):
 
 class CreateUserBody(BaseModel):
     username: str = Field(min_length=2, max_length=64)
-    password: str = Field(min_length=4, max_length=128)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
     is_admin: bool = False
 
 
@@ -100,7 +124,11 @@ class UpdateUsernameBody(BaseModel):
 
 class ChangePasswordBody(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=4, max_length=128)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
+
+
+class SetupAdminBody(BaseModel):
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
 
 
 class ApiKeyCreateBody(BaseModel):
@@ -123,6 +151,7 @@ class SettingsBody(BaseModel):
     navigation_active: bool | None = None
     anomaly_alerts: bool | None = None
     achievement_sounds: bool | None = None
+    drive_sonar: bool | None = None
     units: str | None = Field(default=None, pattern="^(metric|imperial)$")
     map_dark_mode: str | None = Field(
         default=None, pattern="^(auto|bright|dark|system)$"
@@ -281,12 +310,35 @@ def parse_bbox(value: str | None):
     return west, south, east, north
 
 
+@app.middleware("http")
+async def block_until_setup(request: Request, call_next):
+    """Until first admin exists, only setup + health + static are usable."""
+    path = request.url.path
+    if (
+        path.startswith("/api/setup")
+        or path == "/api/health"
+        or path.startswith("/static")
+        or path == "/setup"
+    ):
+        return await call_next(request)
+    try:
+        needed = setup_required()
+    except Exception:
+        return await call_next(request)
+    if not needed:
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "Setup required"}, status_code=503)
+    return RedirectResponse(url="/setup", status_code=302)
+
+
 @app.on_event("startup")
 def on_startup():
     try:
-        ensure_bootstrap_admin()
+        if setup_required():
+            print("[startup] first-boot setup required — open /setup")
     except Exception as exc:
-        print(f"[startup] bootstrap admin: {exc}")
+        print(f"[startup] setup check: {exc}")
     try:
         ensure_worker()
     except Exception as exc:
@@ -348,6 +400,42 @@ def on_startup():
         print(f"[startup] valhalla: {exc}")
 
 
+# ----- First-boot setup -----
+
+
+@app.get("/api/setup/status")
+def setup_status():
+    try:
+        required = setup_required()
+    except OperationalError as exc:
+        raise HTTPException(503, f"database unavailable: {exc}") from exc
+    return {"required": required}
+
+
+@app.post("/api/setup/admin")
+def setup_admin(body: SetupAdminBody, request: Request):
+    """One-shot: create the first admin. Rejects if setup already done."""
+    check_auth_rate("setup", request=request)
+    try:
+        validate_password_strength(body.password)
+        user = create_first_admin(body.password)
+    except HTTPException:
+        record_auth_failure("setup", request=request)
+        raise
+    except OperationalError as exc:
+        record_auth_failure("setup", request=request)
+        raise HTTPException(503, f"database unavailable: {exc}") from exc
+    clear_auth_rate("setup", request=request)
+    return {
+        "ok": True,
+        "user": {
+            "id": user["id"],
+            "username": user["username"],
+            "is_admin": user["is_admin"],
+        },
+    }
+
+
 # ----- Auth -----
 
 
@@ -373,16 +461,22 @@ def auth_status(user: dict | None = Depends(get_optional_user)):
             else None
         ),
         "users_exist": n > 0,
+        "setup_required": n == 0,
         "invite_only": True,
     }
 
 
 @app.post("/api/auth/login")
 def login(body: LoginBody, request: Request, response: Response):
-    ensure_bootstrap_admin()
+    if setup_required():
+        raise HTTPException(503, "Setup required")
+    user_key = body.username.strip().lower() or "-"
+    check_auth_rate(f"login:{user_key}", request=request)
     row = get_user_by_username(body.username.strip())
     if not row or not verify_password(body.password, row["password_hash"]):
+        record_auth_failure(f"login:{user_key}", request=request)
         raise HTTPException(401, "Invalid username or password")
+    clear_auth_rate(f"login:{user_key}", request=request)
     keep = bool(body.keep_logged_in)
     token = create_access_token(
         row["id"], row["username"], row["is_admin"], keep_logged_in=keep
@@ -493,15 +587,24 @@ def change_username(
 
 
 @app.post("/api/auth/password")
-def change_password(body: ChangePasswordBody, user: dict = Depends(get_current_user)):
+def change_password(
+    body: ChangePasswordBody,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     """Change password for the signed-in user (requires current password)."""
     if user.get("auth") == "api_key":
         raise HTTPException(400, "Use a WebUI login to change password")
+    bucket = f"password:{user['id']}"
+    check_auth_rate(bucket, request=request)
+    validate_password_strength(body.new_password)
     row = get_user_by_username(user["username"])
     if not row or not verify_password(body.current_password, row["password_hash"]):
+        record_auth_failure(bucket, request=request)
         raise HTTPException(400, "Current password is incorrect")
     if body.current_password == body.new_password:
         raise HTTPException(400, "New password must be different")
+    clear_auth_rate(bucket, request=request)
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
@@ -517,6 +620,7 @@ def change_password(body: ChangePasswordBody, user: dict = Depends(get_current_u
 
 @app.post("/api/admin/users")
 def admin_create_user(body: CreateUserBody, admin: dict = Depends(require_admin)):
+    validate_password_strength(body.password)
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
@@ -727,7 +831,12 @@ def health(user: dict | None = Depends(get_optional_user)):
             if not user:
                 # Liveness probe (Docker healthcheck / run.sh) - no data counts
                 conn.close()
-                return {"ok": True, "postgis": pg["postgis"], "authenticated": False}
+                return {
+                    "ok": True,
+                    "version": APP_VERSION,
+                    "postgis": pg["postgis"],
+                    "authenticated": False,
+                }
             cur.execute(
                 """
                 SELECT
@@ -743,6 +852,7 @@ def health(user: dict | None = Depends(get_optional_user)):
         conn.close()
         return {
             "ok": True,
+            "version": APP_VERSION,
             "postgis": pg["postgis"],
             "samples": row["samples"],
             "networks": row["networks"],
@@ -858,6 +968,10 @@ def read_settings(user: dict = Depends(get_current_user)):
             get_user_setting(user["id"], "achievement_sounds", "true") or "true"
         ).lower()
         == "true",
+        "drive_sonar": (
+            get_user_setting(user["id"], "drive_sonar", "true") or "true"
+        ).lower()
+        == "true",
         "map_dark_mode": _normalize_map_dark_mode(
             get_user_setting(user["id"], "map_dark_mode", "auto") or "auto"
         ),
@@ -896,6 +1010,12 @@ def patch_settings(body: SettingsBody, user: dict = Depends(get_current_user)):
             "achievement_sounds",
             "true" if body.achievement_sounds else "false",
         )
+    if body.drive_sonar is not None:
+        set_user_setting(
+            user["id"],
+            "drive_sonar",
+            "true" if body.drive_sonar else "false",
+        )
     if body.units is not None:
         set_user_setting(user["id"], "units", body.units)
     if body.map_dark_mode is not None:
@@ -931,12 +1051,30 @@ def gps_get_fix(
     from gps_state import get_fix
 
     fix = get_fix(user["id"])
+    stats_uid = int(user["id"])
+    # gpsd / Kismet always land on the car collection account. If the WebUI
+    # user differs, still serve the live receiver so Drive is not stuck on
+    # "Waiting for GPS…" with a healthy dongle.
+    try:
+        from gpsd_poller import collection_user_id
+
+        cid = int(collection_user_id())
+        if cid != stats_uid:
+            coll = get_fix(cid)
+            if coll and coll.get("source") == "gpsd":
+                own_ts = float((fix or {}).get("updated_at") or 0)
+                coll_ts = float(coll.get("updated_at") or 0)
+                if not fix or coll_ts >= own_ts:
+                    fix = coll
+                    stats_uid = cid
+    except Exception:
+        pass
     if not fix:
         return {"ok": True, "fix": None}
     out: dict = {"ok": True, "fix": fix}
     session_key = session_started_at or fix.get("session_started_at")
     if session_key:
-        out.update(_drive_hud_extras(user["id"], session_key))
+        out.update(_drive_hud_extras(stats_uid, session_key))
     return out
 
 
@@ -948,7 +1086,7 @@ _hud_extras_lock = threading.Lock()
 
 
 def _drive_hud_extras(user_id: int, session_key: str) -> dict:
-    from drive_session import parse_session_start, session_radio_stats
+    from drive_session import parse_session_start, session_radio_stats, session_recent_hits
 
     key = (user_id, session_key)
     now = time.monotonic()
@@ -965,6 +1103,10 @@ def _drive_hud_extras(user_id: int, session_key: str) -> dict:
         extras["radio"] = session_radio_stats(user_id, since)
     except Exception:
         extras["radio"] = None
+    try:
+        extras["recent_hits"] = session_recent_hits(user_id, window_s=30.0)
+    except Exception:
+        extras["recent_hits"] = []
     try:
         from anomalies import session_anomaly_hits
 
@@ -1093,7 +1235,8 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
 
     radio = None
     anomalies = None
-    from drive_session import parse_session_start, session_radio_stats
+    recent_hits = None
+    from drive_session import parse_session_start, session_radio_stats, session_recent_hits
 
     since = parse_session_start(body.session_started_at)
     if since is not None:
@@ -1101,6 +1244,10 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
             radio = session_radio_stats(user["id"], since)
         except Exception:
             radio = None
+        try:
+            recent_hits = session_recent_hits(user["id"], window_s=30.0)
+        except Exception:
+            recent_hits = []
         try:
             from anomalies import session_anomaly_hits
 
@@ -1117,6 +1264,7 @@ def gps_post_fix(body: GpsFixBody, user: dict = Depends(get_current_user)):
         "newly_unlocked": newly_unlocked,
         "radio": radio,
         "anomalies": anomalies,
+        "recent_hits": recent_hits,
     }
 
 
@@ -1168,13 +1316,16 @@ def navigate_status(user: dict = Depends(get_current_user)):
             meta = json.loads(ACTIVE_META.read_text(encoding="utf-8"))
         except Exception:
             meta = None
+    pbf_ready = active_pbf_ready()
     return {
         "ok": True,
         "valhalla": st,
         "ensure": ensure_note,
+        "active_pbf_ready": pbf_ready,
         "active_extract": {
             "path": str(ACTIVE_PBF),
             "bytes": ACTIVE_PBF.stat().st_size if ACTIVE_PBF.exists() else 0,
+            "ready": pbf_ready,
             "meta": meta,
         },
     }
@@ -1182,7 +1333,8 @@ def navigate_status(user: dict = Depends(get_current_user)):
 
 class NavigatePrepareBody(BaseModel):
     level_id: int
-    restart: bool = True
+    # Default false so status/replan callers do not wipe tiles unless they opt in.
+    restart: bool = False
     force: bool = False
 
 
@@ -1194,6 +1346,9 @@ def navigate_prepare(body: NavigatePrepareBody, user: dict = Depends(get_current
     """
     from valhalla_prep import ValhallaPrepError, prepare_valhalla_for_level
 
+    # force=True recreates the Valhalla container via the host Docker socket.
+    if body.force and not user.get("is_admin"):
+        raise HTTPException(403, "Admin required to force Valhalla rebuild")
     level = get_level(user["id"], body.level_id)
     if not level:
         raise HTTPException(404, "Level not found")
@@ -1258,6 +1413,17 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
     fix = None
     if lat is None or lon is None or heading is None:
         fix = get_fix(user["id"])
+        if not fix or fix.get("source") != "gpsd":
+            try:
+                from gpsd_poller import collection_user_id
+
+                cid = int(collection_user_id())
+                if cid != int(user["id"]):
+                    coll = get_fix(cid)
+                    if coll and coll.get("source") == "gpsd":
+                        fix = coll
+            except Exception:
+                pass
     if lat is None or lon is None:
         if not fix:
             raise HTTPException(400, "No GPS fix - spawn on the map or send lat/lon")
@@ -1565,13 +1731,26 @@ def levels_download(level_id: int, user: dict = Depends(get_current_user)):
 
 @app.post("/api/levels/active")
 def set_active_level(body: ActiveLevelBody, user: dict = Depends(get_current_user)):
+    def _mirror_collection(value: str) -> None:
+        # gpsd/Kismet unlock under collection_user_id; keep active level in sync.
+        try:
+            from gpsd_poller import collection_user_id
+
+            cid = int(collection_user_id())
+            if cid != int(user["id"]):
+                set_user_setting(cid, "active_level_id", value)
+        except Exception:
+            pass
+
     if body.level_id is None:
         set_user_setting(user["id"], "active_level_id", "")
+        _mirror_collection("")
         return {"active_level_id": None}
     level = get_level(user["id"], body.level_id)
     if not level:
         raise HTTPException(404, "Level not found")
     set_user_setting(user["id"], "active_level_id", str(body.level_id))
+    _mirror_collection(str(body.level_id))
     return {"active_level_id": body.level_id, "level": level}
 
 
@@ -2042,6 +2221,11 @@ def index():
 @app.get("/login")
 def login_page():
     return FileResponse(FRONTEND / "login.html")
+
+
+@app.get("/setup")
+def setup_page():
+    return FileResponse(FRONTEND / "setup.html")
 
 
 @app.get("/database")

@@ -339,6 +339,28 @@ def _device_time(device: dict) -> float | None:
     return ts / 1000.0 if ts > 1e12 else ts
 
 
+def _receiver_stationary(user_id: int) -> bool:
+    """True when gpsd's parked/idle filter says the car is effectively still."""
+    try:
+        from gps_state import get_fix
+
+        fix = get_fix(user_id)
+        return bool(fix and fix.get("stationary"))
+    except Exception:
+        return False
+
+
+def _max_device_ts(devices: list[dict]) -> float | None:
+    committed: float | None = None
+    for d in devices:
+        if not isinstance(d, dict):
+            continue
+        seen_ts = _device_time(d)
+        if seen_ts is not None:
+            committed = max(committed or seen_ts, seen_ts)
+    return committed
+
+
 def _ingest_devices(devices: list[dict]) -> tuple[int, float | None]:
     global _session_started_at
     if not devices:
@@ -354,6 +376,13 @@ def _ingest_devices(devices: list[dict]) -> tuple[int, float | None]:
         pass
     if not _session_started_at:
         _session_started_at = datetime.now(timezone.utc).isoformat()
+
+    # Parked overnight: advance the REST watermark without inserting samples so
+    # resume does not backfill hours of idle sightings. Thinning alone is not
+    # enough — stale-time / signal-gain still write while jittering in place.
+    if _receiver_stationary(user_id):
+        return 0, _max_device_ts(devices)
+
     rows = []
     pending_keys: list[str] = []
     pending_key_set: set[str] = set()
@@ -407,7 +436,12 @@ def _poll_rest_once() -> int:
         except (TypeError, ValueError):
             _rest_watermarks[user_id] = 0.0
     watermark = _rest_watermarks[user_id]
-    since = str(int(watermark) + 1) if watermark > 0 else "-30"
+    if watermark > time.time() + 300:
+        # Saved under a skewed clock; a future watermark would drop every device.
+        watermark = _rest_watermarks[user_id] = 0.0
+    # Inclusive second: Kismet last_time is whole seconds, so devices first seen
+    # in the watermark's own second arrive on the next poll. _seen_keys dedups.
+    since = str(int(watermark)) if watermark > 0 else "-30"
     fields = (
         "kismet.device.base.macaddr,kismet.device.base.key,"
         "kismet.device.base.name,kismet.device.base.commonname,"
@@ -451,7 +485,7 @@ def _poll_rest_once() -> int:
         if not isinstance(device, dict):
             continue
         seen_ts = _device_time(device)
-        if watermark > 0 and seen_ts is not None and seen_ts <= watermark:
+        if watermark > 0 and seen_ts is not None and seen_ts < watermark:
             continue
         fresh_devices.append(device)
     if not fresh_devices:
@@ -460,6 +494,8 @@ def _poll_rest_once() -> int:
     if committed_through is not None and committed_through > watermark:
         _rest_watermarks[user_id] = committed_through
         _set_setting(user_id, _REST_WATERMARK_KEY, str(committed_through))
+    if count == 0 and committed_through is not None:
+        return -1  # only already-ingested boundary devices; REST is healthy
     return count
 
 
@@ -537,29 +573,40 @@ def _fallback_kis_db() -> int:
             rows.append(row)
         if not rows:
             return 0
+
+        def _persist_file_watermark() -> None:
+            nonlocal watermark_state
+            watermark_state[state_key] = {
+                "ts": max_ts,
+                "keys": sorted(max_ts_keys),
+            }
+            # Keep only the most recent log files so user_settings stays bounded.
+            if len(watermark_state) > 8:
+                ordered = sorted(
+                    watermark_state.items(),
+                    key=lambda item: float((item[1] or {}).get("ts") or 0),
+                    reverse=True,
+                )
+                watermark_state = dict(ordered[:8])
+            _set_setting(
+                user_id,
+                _FILE_WATERMARK_KEY,
+                json.dumps(watermark_state, separators=(",", ":")),
+            )
+
+        # Parked: skip inserts but still advance the file watermark so overnight
+        # log growth is not backfilled when the car starts moving again.
+        if _receiver_stationary(user_id):
+            _persist_file_watermark()
+            return 0
+
         from live_ingest import ingest_observation_batch
 
         result = ingest_observation_batch(
             user_id, rows, localize=True, enqueue_geocode=False
         )
         _remember_seen(pending_keys)
-        watermark_state[state_key] = {
-            "ts": max_ts,
-            "keys": sorted(max_ts_keys),
-        }
-        # Keep only the most recent log files so user_settings stays bounded.
-        if len(watermark_state) > 8:
-            ordered = sorted(
-                watermark_state.items(),
-                key=lambda item: float((item[1] or {}).get("ts") or 0),
-                reverse=True,
-            )
-            watermark_state = dict(ordered[:8])
-        _set_setting(
-            user_id,
-            _FILE_WATERMARK_KEY,
-            json.dumps(watermark_state, separators=(",", ":")),
-        )
+        _persist_file_watermark()
         return int(result.get("samples") or 0)
     except Exception as exc:
         print(f"[kismet_live] kis_db fallback: {exc}")

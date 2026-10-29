@@ -24,7 +24,14 @@ for arg in "$@"; do
   esac
 done
 
-HOME_DIR="${HOME:-/home/jakami}"
+HOME_DIR="${HOME:-}"
+if [[ -z "$HOME_DIR" ]]; then
+  HOME_DIR="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6 || true)"
+fi
+if [[ -z "$HOME_DIR" || ! -d "$HOME_DIR" ]]; then
+  echo "ERROR: cannot resolve HOME for wipe candidates." >&2
+  exit 1
+fi
 # Every place a checkout / nested clone / orphan data might live
 CANDIDATE_ROOTS=(
   "$HOME_DIR/wardrivrr"

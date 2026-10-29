@@ -760,7 +760,40 @@ def delete_level(user_id: int, level_id: int) -> bool:
         import shutil
 
         shutil.rmtree(d, ignore_errors=True)
+    # Drop stale active_level_id so gpsd/snap do not keep unlocking a ghost id.
+    try:
+        from db import get_user_setting, set_user_setting
+
+        raw = get_user_setting(user_id, "active_level_id", None)
+        if raw is not None and str(raw).isdigit() and int(raw) == int(level_id):
+            set_user_setting(user_id, "active_level_id", "")
+        try:
+            from gpsd_poller import collection_user_id
+
+            cid = int(collection_user_id())
+            if cid != int(user_id):
+                craw = get_user_setting(cid, "active_level_id", None)
+                if craw is not None and str(craw).isdigit() and int(craw) == int(level_id):
+                    set_user_setting(cid, "active_level_id", "")
+        except Exception:
+            pass
+    except Exception:
+        pass
     return True
+
+
+def mark_level_build_failed(user_id: int, level_id: int, error: str) -> None:
+    """Move a stuck processing/segmentizing level to error after a failed job."""
+    level = get_level(user_id, level_id)
+    if not level:
+        return
+    if level.get("status") == "ready":
+        return
+    _update_level(
+        level_id,
+        status="error",
+        error=(error or "Region build failed")[:2000],
+    )
 
 
 def _update_level(level_id: int, **fields: Any) -> None:
@@ -1489,9 +1522,26 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
             total_m = meters
 
     report(0.86, "roads", f"Writing {len(all_rows):,} segments…", 20)
+    # Snapshot fog before wipe so a rebuild does not erase drive progress / tile XP.
+    explored_osm_ids: list[int] = []
     conn = connect()
     try:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT osm_id
+                FROM road_segments
+                WHERE level_id = %s
+                  AND is_explored
+                  AND osm_id IS NOT NULL
+                """,
+                (level_id,),
+            )
+            explored_osm_ids = [
+                int(row[0] if not isinstance(row, dict) else row["osm_id"])
+                for row in (cur.fetchall() or [])
+                if (row[0] if not isinstance(row, dict) else row.get("osm_id")) is not None
+            ]
             cur.execute("DELETE FROM road_segments WHERE level_id = %s", (level_id,))
             flush_n = 2000
             for i in range(0, len(all_rows), flush_n):
@@ -1505,6 +1555,24 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
                         f"Writing segments… {seg_count:,}/{len(all_rows):,}",
                         None,
                     )
+            if explored_osm_ids:
+                cur.execute(
+                    """
+                    UPDATE road_segments SET
+                      is_explored = TRUE,
+                      explored_at = COALESCE(explored_at, NOW()),
+                      last_driven_at = COALESCE(last_driven_at, NOW())
+                    WHERE level_id = %s
+                      AND osm_id = ANY(%s)
+                    """,
+                    (level_id, explored_osm_ids),
+                )
+                report(
+                    0.93,
+                    "roads",
+                    f"Restored fog on {len(explored_osm_ids):,} previously driven ways…",
+                    3,
+                )
             cur.execute(
                 """
                 UPDATE levels SET
@@ -1517,6 +1585,7 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
                 """,
                 (total_m / 1000.0, size, level_id),
             )
+            _update_level_explored_stats(cur, level_id)
         conn.commit()
     finally:
         conn.close()
@@ -1525,6 +1594,26 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
     if boundary:
         report(0.94, "roads", "Clipping roads to level border…", 5)
         clip_road_segments_to_boundary(level_id)
+        if explored_osm_ids:
+            # Clip may drop midpoints; re-apply fog for remaining matching osm_ids.
+            conn = connect()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE road_segments SET
+                          is_explored = TRUE,
+                          explored_at = COALESCE(explored_at, NOW()),
+                          last_driven_at = COALESCE(last_driven_at, NOW())
+                        WHERE level_id = %s
+                          AND osm_id = ANY(%s)
+                        """,
+                        (level_id, explored_osm_ids),
+                    )
+                    _update_level_explored_stats(cur, level_id)
+                conn.commit()
+            finally:
+                conn.close()
 
     # Addresses are NOT on the critical path — enqueue after roads are ready so
     # Navigate / Valhalla can start immediately. Geocode fills in later too.
@@ -1566,8 +1655,10 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
         try:
             from valhalla_prep import prepare_valhalla_for_level
 
+            # Never force=True here — that recreates the container via docker.sock
+            # and is admin-only on the HTTP prepare endpoint. Retry is restart-only.
             valhalla_out = prepare_valhalla_for_level(
-                user_id, level_id, restart=True, force=True
+                user_id, level_id, restart=True, force=False
             )
             valhalla_out = {"retried": True, "first_error": str(exc), **valhalla_out}
         except Exception as exc2:
@@ -1677,10 +1768,6 @@ def set_level_default_profile(user_id: int, level_id: int, profile: str | None) 
         conn.close()
 
 
-# Drive refetches the road map every few seconds; the observation probe scans
-# every locked segment against signal_samples, so run it at most this often.
-_OBSERVATION_REFRESH_S = 60.0
-_observation_refresh_at: dict[tuple[int, int], float] = {}
 _boundary_clip_done: set[int] = set()
 
 
@@ -1750,12 +1837,8 @@ def get_level_road_map(
                 pass
             _boundary_clip_done.add(level_id)
             level = get_level(user_id, level_id) or level
-        now = time.monotonic()
-        key = (user_id, level_id)
-        if now - _observation_refresh_at.get(key, -1e9) >= _OBSERVATION_REFRESH_S:
-            _observation_refresh_at[key] = now
-            _refresh_explored_from_observations(level_id, user_id)
-            level = get_level(user_id, level_id) or level
+        # Observation radius unlock stays on build finish only — polling /roads
+        # every minute was unlocking parallel streets never driven (Kismet avg_loc).
 
     mode = normalize_profile(profile) if profile else None
     highways = sorted(profile_highways(mode)) if mode else None

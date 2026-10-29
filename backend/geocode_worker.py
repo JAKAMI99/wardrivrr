@@ -92,20 +92,23 @@ def _fields_from_geo(geo: dict | None) -> dict:
 
 UPDATE_ADDR_SQL = """
 UPDATE networks SET
-    address = %(address)s,
-    city = %(city)s,
-    postcode = %(postcode)s,
-    country = %(country)s,
-    country_code = %(country_code)s
+    address = COALESCE(%(address)s, address),
+    city = COALESCE(%(city)s, city),
+    postcode = COALESCE(%(postcode)s, postcode),
+    country = COALESCE(%(country)s, country),
+    country_code = COALESCE(%(country_code)s, country_code)
 WHERE user_id = %(user_id)s AND network_id = %(network_id)s
 """
 
 
-def _work_row(row, nav: bool) -> dict:
+def _work_row(row, nav: bool) -> dict | None:
     if nav:
         _set_thread_low_priority()
     uid, nid, lat, lon = row[0], row[1], float(row[2]), float(row[3])
     geo = _geocode_one(lat, lon)
+    # Miss: leave the row alone so a later job (after address packs) can retry.
+    if not geo:
+        return None
     fields = _fields_from_geo(geo)
     fields["user_id"] = uid
     fields["network_id"] = nid
@@ -169,7 +172,9 @@ def geocode_networks(
                 batch: list[dict] = []
                 for fut in as_completed(futures):
                     try:
-                        batch.append(fut.result())
+                        item = fut.result()
+                        if item:
+                            batch.append(item)
                     except Exception as exc:
                         print(f"[geocode] worker error: {exc}", flush=True)
                 if batch:

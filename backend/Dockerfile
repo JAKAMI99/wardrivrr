@@ -1,6 +1,12 @@
 # Build from repo root:
-#   docker build -f backend/Dockerfile -t wardrivrr-api .
+#   docker build -f backend/Dockerfile -t wardrivrr-api:1.0.0 .
 FROM python:3.11-slim
+
+ARG WARDRIVRR_VERSION=1.0.0
+LABEL org.opencontainers.image.title="wardrivrr" \
+      org.opencontainers.image.description="Local-first wardriving on OpenStreetMap" \
+      org.opencontainers.image.version="${WARDRIVRR_VERSION}" \
+      org.opencontainers.image.source="https://github.com/JAKAMI99/wardrivrr"
 
 # docker CLI: API seeds/clips PBFs then recreates Valhalla via host docker.sock (car overlay).
 ARG TARGETARCH
@@ -45,12 +51,14 @@ COPY backend/ /app/backend/
 COPY frontend/ /app/frontend/
 COPY scripts/ /app/scripts/
 COPY docker/ /app/docker/
+COPY VERSION /app/VERSION
 
 # Offline geo DBs: prefer volume + prepare-data at deploy time.
 # Or bake in: RUN python /app/scripts/prepare_offline_data.py
 
 WORKDIR /app/backend
 ENV PYTHONUNBUFFERED=1
+ENV WARDRIVRR_VERSION=${WARDRIVRR_VERSION}
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

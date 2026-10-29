@@ -35,19 +35,54 @@ function authHeaders(extra = {}) {
   return headers;
 }
 
+async function checkSetupRequired() {
+  try {
+    const res = await fetch("/api/setup/status", { credentials: "same-origin" });
+    if (!res.ok) return false;
+    const body = await res.json();
+    return !!body.required;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Redirect to /setup when first-boot is required. Returns false if navigating away. */
+async function ensureSetup() {
+  const onSetup = location.pathname.startsWith("/setup");
+  const required = await checkSetupRequired();
+  if (required && !onSetup) {
+    location.href = "/setup";
+    return false;
+  }
+  if (!required && onSetup) {
+    location.href = "/login";
+    return false;
+  }
+  return true;
+}
+
 async function apiFetch(url, options = {}) {
   const { redirectOn401 = true, ...rest } = options;
   const opts = { ...rest };
   opts.credentials = opts.credentials || "same-origin";
   opts.headers = authHeaders(opts.headers || {});
   const res = await fetch(url, opts);
+  if (redirectOn401 && res.status === 503) {
+    try {
+      const body = await res.clone().json();
+      if (body && body.detail === "Setup required" && !location.pathname.startsWith("/setup")) {
+        location.href = "/setup";
+        return res;
+      }
+    } catch (_) {}
+  }
   if (
     redirectOn401 &&
     res.status === 401 &&
     !String(url).includes("/api/auth/login")
   ) {
     setToken(null);
-    if (!location.pathname.startsWith("/login")) {
+    if (!location.pathname.startsWith("/login") && !location.pathname.startsWith("/setup")) {
       location.href = `/login?next=${encodeURIComponent(location.pathname)}`;
     }
   }
@@ -55,10 +90,11 @@ async function apiFetch(url, options = {}) {
 }
 
 async function requireAuth() {
+  if (!(await ensureSetup())) return null;
   const res = await apiFetch("/api/auth/me");
   if (!res.ok) {
     setToken(null);
-    if (!location.pathname.startsWith("/login")) {
+    if (!location.pathname.startsWith("/login") && !location.pathname.startsWith("/setup")) {
       location.href = `/login?next=${encodeURIComponent(location.pathname)}`;
     }
     return null;
@@ -81,4 +117,13 @@ async function logout() {
   location.href = "/login";
 }
 
-window.WardAuth = { getToken, setToken, authHeaders, apiFetch, requireAuth, logout };
+window.WardAuth = {
+  getToken,
+  setToken,
+  authHeaders,
+  apiFetch,
+  requireAuth,
+  logout,
+  ensureSetup,
+  checkSetupRequired,
+};

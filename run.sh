@@ -158,7 +158,15 @@ fi
 "${COMPOSE[@]}" up -d --remove-orphans "${SERVICES[@]}"
 
 if [[ -f deploy/wardrivrr-stack.service ]]; then
-  sudo cp -f deploy/wardrivrr-stack.service /etc/systemd/system/wardrivrr-stack.service
+  # Rewrite /opt/wardrivrr placeholders to this clone so boot works off-path.
+  _unit="$(mktemp)"
+  sed "s|/opt/wardrivrr|$ROOT|g" deploy/wardrivrr-stack.service >"$_unit"
+  # Prefer GHCR/local image from .env — do not force a rebuild every boot.
+  sed -i '/^Environment=FORCE_LOCAL_BUILD=/d' "$_unit" 2>/dev/null \
+    || sed -i '' '/^Environment=FORCE_LOCAL_BUILD=/d' "$_unit" 2>/dev/null \
+    || true
+  sudo cp -f "$_unit" /etc/systemd/system/wardrivrr-stack.service
+  rm -f "$_unit"
   sudo systemctl daemon-reload
   sudo systemctl enable wardrivrr-stack docker gpsd kismet 2>/dev/null || true
 fi

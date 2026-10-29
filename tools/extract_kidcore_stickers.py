@@ -1,13 +1,15 @@
 """
 Split packed Kidcore sticker sheets into individual transparent PNGs.
 
-Shippable stickers already live in frontend/brand/kidcore/stickers/ (kc-*.png).
-Copyrighted reference packs are NOT in the repo (stickers-ref/ is gitignored).
+Shippable stickers live in frontend/brand/kidcore/stickers/ (kc-*.png plus
+franchise cuts as bluey-* / winnie-* after prep).
 
-To regenerate from local sheets you keep privately:
-  1. Drop sheet images into frontend/brand/kidcore/ (or sheets/ after first run)
+To regenerate from user-supplied local sheets (do not scrape copyrighted art):
+  1. Drop sheet images into frontend/brand/kidcore/
+     — Bluey: s-l1600.jpg; Winnie the Pooh: winnie* / pooh* / winniethepooh*
+     (gallery links in CREDITS.md — decorative stickers are local user assets)
   2. python tools/extract_kidcore_stickers.py
-  3. python tools/prep_kidcore_stickers.py   # rename + manifest
+  3. python tools/prep_kidcore_stickers.py   # clean + kc-/bluey-/winnie- + manifest
 
 Usage:
   python tools/extract_kidcore_stickers.py

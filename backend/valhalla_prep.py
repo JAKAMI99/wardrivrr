@@ -336,6 +336,8 @@ def _start_valhalla_docker_run(*, wipe: bool = False) -> dict[str, Any]:
     )
 
     threads = str(valhalla_server_threads())
+    # Match compose VALHALLA_BIND (default loopback) — never publish on all ifaces.
+    bind = (os.getenv("VALHALLA_BIND") or "127.0.0.1").strip() or "127.0.0.1"
     run_cmd = [
         "docker",
         "run",
@@ -345,7 +347,7 @@ def _start_valhalla_docker_run(*, wipe: bool = False) -> dict[str, Any]:
         "--restart",
         "unless-stopped",
         "-p",
-        "8002:8002",
+        f"{bind}:8002:8002",
         "-e",
         "use_tiles_ignore_pbf=False",
         "-e",

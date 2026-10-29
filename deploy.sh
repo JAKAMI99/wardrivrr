@@ -108,8 +108,7 @@ if [[ -z "$KPASS" ]]; then
   KPASS="$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   echo "Generated Kismet password (saved in .env)."
 fi
-read -r -p "JWT secret (blank = random): " JWT
-[[ -z "$JWT" ]] && JWT="$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+read -r -p "JWT secret (blank = auto-generate on first API start): " JWT
 
 IMAGE="wardrivrr-api:local"
 read -r -p "Local image tag [$IMAGE]: " IMAGE_IN
@@ -150,7 +149,8 @@ LOG_PREFIX="$ROOT/data/kismet_logs/wardrivrr"
   if [[ -n "$BT_IFACE" ]]; then
     echo "source=${BT_IFACE}:name=linuxbt:type=linuxbluetooth"
   else
-    echo "source=hci0:name=linuxbt:type=linuxbluetooth"
+    # Declined / no HCI — do not enable a phantom hci0 (restart loops).
+    echo "#source=hci0:name=linuxbt:type=linuxbluetooth"
   fi
   echo "log_prefix=${LOG_PREFIX}"
   echo "log_types=kismet,kis_db"
@@ -244,7 +244,15 @@ set_env KISMET_URL "http://127.0.0.1:2501"
 set_env KISMET_USER "$KUSER"
 set_env KISMET_PASSWORD "$KPASS"
 set_env KISMET_LIVE 1
-set_env JWT_SECRET_KEY "$JWT"
+if [[ -n "$JWT" ]]; then
+  set_env JWT_SECRET_KEY "$JWT"
+else
+  # Drop any copied placeholder so the API can auto-generate data/.jwt_secret
+  if [[ -f .env ]] && grep -qE '^JWT_SECRET_KEY=' .env; then
+    sed -i.bak -E '/^JWT_SECRET_KEY=/d' .env && rm -f .env.bak
+  fi
+  echo "JWT_SECRET_KEY left unset — API will write data/.jwt_secret on first start."
+fi
 set_env WARDRIVRR_IMAGE "$IMAGE"
 set_env FORCE_LOCAL_BUILD 1
 set_env VALHALLA_URL "http://127.0.0.1:8002"

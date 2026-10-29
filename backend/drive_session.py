@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from db import connect_dict
@@ -94,4 +94,73 @@ def session_radio_stats(user_id: int, since: datetime) -> dict[str, Any]:
                     out[key]["new"] += int(row["n"] or 0)
     finally:
         conn.close()
+    return out
+
+
+def session_recent_hits(
+    user_id: int,
+    window_s: float = 30.0,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """
+    Distinct networks observed in the last `window_s` seconds, with GPS
+    of the newest sample. Used by Drive receive-FX dots (no schema change).
+    """
+    since = datetime.now(timezone.utc) - timedelta(seconds=max(1.0, float(window_s)))
+    conn = connect_dict()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT * FROM (
+                  SELECT DISTINCT ON (network_id)
+                    network_id,
+                    name,
+                    network_type,
+                    lat,
+                    lon,
+                    seen_at
+                  FROM signal_samples
+                  WHERE user_id = %s
+                    AND seen_at >= %s
+                    AND network_id IS NOT NULL
+                    AND lat IS NOT NULL
+                    AND lon IS NOT NULL
+                  ORDER BY network_id, seen_at DESC
+                ) recent
+                ORDER BY seen_at DESC
+                LIMIT %s
+                """,
+                (user_id, since, int(limit)),
+            )
+            rows = cur.fetchall() or []
+    finally:
+        conn.close()
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            lat = float(row["lat"])
+            lon = float(row["lon"])
+        except (TypeError, ValueError):
+            continue
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            continue
+        seen = row.get("seen_at")
+        if isinstance(seen, datetime):
+            if seen.tzinfo is None:
+                seen = seen.replace(tzinfo=timezone.utc)
+            seen_iso = seen.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        else:
+            seen_iso = str(seen) if seen else None
+        out.append(
+            {
+                "network_id": row.get("network_id"),
+                "name": row.get("name"),
+                "network_type": row.get("network_type"),
+                "lat": lat,
+                "lon": lon,
+                "seen_at": seen_iso,
+            }
+        )
     return out

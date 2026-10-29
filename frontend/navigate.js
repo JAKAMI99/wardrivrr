@@ -8,6 +8,27 @@ const VIEW_3D_KEY = "wardrivrr_nav_3d";
 /** @deprecated kept for one-time migration from buildings-only pref */
 const BUILDINGS_KEY = "wardrivrr_nav_buildings";
 const VEHICLE_KEY = "wardrivrr_nav_vehicle";
+/** Optimistic cache for drive receive FX (server key: drive_sonar) */
+const DRIVE_SONAR_KEY = "wardrivrr_drive_sonar";
+/** Live network dots age out after this many ms */
+const HIT_TTL_MS = 30000;
+const HIT_LAYER_ID = "drive-hits-glow";
+const HIT_SRC_ID = "drive-hits";
+/** Ground-plane receive rings (GeoJSON) */
+const SONAR_SRC_ID = "drive-sonar";
+const SONAR_LAYER_ID = "drive-sonar-ring";
+const SONAR_SPAWN_MS = 2000;
+const SONAR_DURATION_MS = 4000;
+/** Soft-spawn: opacity 0→target over this window */
+const SONAR_FADE_IN_MS = 200;
+const SONAR_R_MAX_M = 58;
+const SONAR_R_MIN_M = 5;
+const SONAR_MAX_RINGS = 2;
+const SONAR_RING_STEPS = 64;
+/** Fallback fill-extrusion when basemap has none (OpenFreeMap dark) */
+const BUILDINGS_LAYER_ID = "wardrivrr-3d-buildings";
+/** Manual zoom ceiling (auto-follow still uses ZOOM_LEVELS) */
+const MAP_MAX_ZOOM = 22;
 
 const CAM_MS = 32;
 /** Smooth follow time-constant (higher = snappier). Keep low so the chevron glides. */
@@ -205,6 +226,15 @@ const state = {
   autoExploreAttempts: 0,
   autoExploreRetryAt: 0,
   achievementSounds: true,
+  /** Inward sonar + age-colored network dots (user setting drive_sonar) */
+  driveSonar: true,
+  /** Active ground rings: { id, bornAt } — geometry rebuilt each tick at dispLat/Lon */
+  sonarRings: [],
+  sonarLastSpawnAt: 0,
+  sonarSeq: 0,
+  /** network_id -> { lon, lat, seenAtMs } for last ~30s of radio hits */
+  recentHits: new Map(),
+  lastHitPaintAt: 0,
   /** auto | bright | dark | system - Drive basemap lighting */
   mapDarkMode: "auto",
   gpsSource: null,
@@ -254,6 +284,34 @@ function haversineM(lat1, lon1, lat2, lon2) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1 * toR) * Math.cos(lat2 * toR) * Math.sin(dLon / 2) ** 2;
   return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** Destination point (lon, lat) after traveling distM along bearingDeg from lat/lon. */
+function destinationLonLat(lat, lon, bearingDeg, distM) {
+  const R = 6371000;
+  const δ = distM / R;
+  const θ = (bearingDeg * Math.PI) / 180;
+  const φ1 = (lat * Math.PI) / 180;
+  const λ1 = (lon * Math.PI) / 180;
+  const sinφ1 = Math.sin(φ1);
+  const cosφ1 = Math.cos(φ1);
+  const sinδ = Math.sin(δ);
+  const cosδ = Math.cos(δ);
+  const φ2 = Math.asin(sinφ1 * cosδ + cosφ1 * sinδ * Math.cos(θ));
+  const λ2 =
+    λ1 +
+    Math.atan2(Math.sin(θ) * sinδ * cosφ1, cosδ - sinφ1 * Math.sin(φ2));
+  return [(λ2 * 180) / Math.PI, (φ2 * 180) / Math.PI];
+}
+
+/** Closed geographic ring around lat/lon (meters) for ground-plane LineString. */
+function circleRingCoords(lat, lon, radiusM, steps = SONAR_RING_STEPS) {
+  const coords = [];
+  const n = Math.max(16, steps | 0);
+  for (let i = 0; i <= n; i++) {
+    coords.push(destinationLonLat(lat, lon, (i / n) * 360, radiusM));
+  }
+  return coords;
 }
 
 /** Discrete distance buckets (meters), largest first; below 20 -> "now" */
@@ -713,6 +771,7 @@ function applyRouteThemeColors() {
       ["explore-route-line", t.ahead],
       ["explore-route-done-glow", t.done],
       ["explore-route-done-line", t.done],
+      [SONAR_LAYER_ID, t.ahead],
     ]) {
       if (state.map.getLayer(id)) {
         state.map.setPaintProperty(id, "line-color", color);
@@ -788,8 +847,13 @@ function applyDayNight(force = false) {
     applyFogThemeColors();
     restoreRouteLayer();
     applyRouteThemeColors();
-    // Liberty/dark ship their own building-3d - always sync visibility after style swap
-    enableBuildings(!!state.buildingsOn);
+    // Buildings before drive FX so we can tuck sonar/hits under extrusions
+    enableBuildings(state.view3d && state.webglOk);
+    ensureSonarLayers();
+    ensureHitLayers();
+    paintRecentHits(true);
+    placeDriveOverlaysBelowBuildings();
+    hidePoiLayers();
     ensureMarker();
     fixOnewayArrows();
   });
@@ -829,21 +893,64 @@ function fixOnewayArrows() {
 }
 
 function findBuildingSource(style) {
+  // Prefer the source already wired to a building layer (OpenFreeMap: openmaptiles)
+  for (const layer of style.layers || []) {
+    if (layer?.["source-layer"] === "building" && layer.source) {
+      return layer.source;
+    }
+  }
   const sources = style.sources || {};
+  if (sources.openmaptiles?.type === "vector" || sources.openmaptiles) {
+    return "openmaptiles";
+  }
   for (const [id, src] of Object.entries(sources)) {
-    if (src.type === "vector") return id;
+    if (src?.type === "vector") return id;
   }
   return null;
 }
 
-/** Toggle every fill-extrusion (style building-3d + our layer) for 2D perf. */
-function setFillExtrusionVisibility(on) {
+/** First fill-extrusion in the stack (Liberty `building-3d` or our fallback). */
+function firstBuildingExtrusionId() {
+  if (!state.map) return null;
+  let style;
+  try {
+    style = state.map.getStyle();
+  } catch {
+    return null;
+  }
+  for (const layer of style?.layers || []) {
+    if (layer?.type === "fill-extrusion") return layer.id;
+  }
+  return null;
+}
+
+/**
+ * Ground FX must sit under extrusions so buildings occlude sonar rings / hit dots.
+ * Call after sonar, hits, or buildings are (re)added.
+ */
+function placeDriveOverlaysBelowBuildings() {
   if (!state.map) return;
+  const beforeId = firstBuildingExtrusionId();
+  if (!beforeId) return;
+  for (const id of [SONAR_LAYER_ID, HIT_LAYER_ID]) {
+    if (!state.map.getLayer(id) || id === beforeId) continue;
+    try {
+      state.map.moveLayer(id, beforeId);
+    } catch {
+      /* style mid-swap / layer already below */
+    }
+  }
+}
+
+/** Toggle style-native fill-extrusions only (excludes our fallback id). */
+function setNativeFillExtrusionVisibility(on) {
+  if (!state.map) return false;
   const style = state.map.getStyle();
-  if (!style) return;
+  if (!style) return false;
   let any = false;
   for (const layer of style.layers || []) {
     if (layer.type !== "fill-extrusion") continue;
+    if (layer.id === BUILDINGS_LAYER_ID) continue;
     any = true;
     try {
       state.map.setLayoutProperty(
@@ -858,45 +965,29 @@ function setFillExtrusionVisibility(on) {
   return any;
 }
 
-function enableBuildings(on) {
-  if (!state.map || !state.webglOk) return;
-  const style = state.map.getStyle();
-  if (!style) return;
-  const want = !!on;
+function removeFallbackBuildings() {
+  if (!state.map?.getLayer(BUILDINGS_LAYER_ID)) return;
+  try {
+    state.map.removeLayer(BUILDINGS_LAYER_ID);
+  } catch (_) {
+    /* ignore */
+  }
+}
 
-  // Prefer toggling style-native extrusions (Liberty `building-3d`, etc.)
-  const hadStyleExtrusions = setFillExtrusionVisibility(want);
-
-  // Drop our fallback if the basemap already extrudes - avoid double draw
-  if (hadStyleExtrusions && state.map.getLayer("wardrivrr-3d-buildings")) {
+function addFallbackBuildingExtrusions(style) {
+  if (state.map.getLayer(BUILDINGS_LAYER_ID)) {
     try {
-      state.map.removeLayer("wardrivrr-3d-buildings");
+      state.map.setLayoutProperty(BUILDINGS_LAYER_ID, "visibility", "visible");
     } catch (_) {
       /* ignore */
     }
+    return true;
   }
-
-  if (state.map.getLayer("wardrivrr-3d-buildings")) {
-    if (!want) {
-      try {
-        state.map.removeLayer("wardrivrr-3d-buildings");
-      } catch (_) {
-        /* ignore */
-      }
-    }
-    return;
-  }
-  if (!want) return;
-  // Style already has 3D buildings - nothing more to add
-  if (hadStyleExtrusions) return;
-
   const sourceId = findBuildingSource(style);
-  if (!sourceId) {
-    const toggle = document.getElementById("toggleBuildings");
-    if (toggle) toggle.checked = false;
-    state.buildingsOn = false;
-    return;
-  }
+  if (!sourceId) return false;
+
+  // Dark styles put flat `building` fill under roads — do NOT insert there or
+  // extrusions vanish under highways. Slot under the topmost symbol (labels).
   const layers = style.layers || [];
   let beforeId;
   for (let i = layers.length - 1; i >= 0; i--) {
@@ -905,31 +996,110 @@ function enableBuildings(on) {
       break;
     }
   }
-  // Fallback extrusion when the basemap has none
+
+  // OpenFreeMap dark has no building-3d — add extrusion for CRT / classic night
+  const nightish = !!state.night || currentThemeId() === "crt";
   const layer = {
-    id: "wardrivrr-3d-buildings",
+    id: BUILDINGS_LAYER_ID,
     source: sourceId,
     "source-layer": "building",
     type: "fill-extrusion",
-    minzoom: 16,
+    minzoom: 14,
+    filter: [
+      "match",
+      ["geometry-type"],
+      ["Polygon", "MultiPolygon"],
+      true,
+      false,
+    ],
     paint: {
-      "fill-extrusion-color": state.night ? "#1c222b" : "#c8ced6",
+      // Dark basemap needs readable faces — near-black (#1c222b) looked "missing"
+      "fill-extrusion-color": nightish ? "#4a5568" : "#c8ced6",
       "fill-extrusion-height": [
         "coalesce",
-        ["get", "render_height"],
-        ["get", "height"],
-        10,
+        ["to-number", ["get", "render_height"]],
+        ["to-number", ["get", "height"]],
+        12,
       ],
-      "fill-extrusion-base": 0,
-      "fill-extrusion-opacity": 0.55,
+      "fill-extrusion-base": [
+        "coalesce",
+        ["to-number", ["get", "render_min_height"]],
+        ["to-number", ["get", "min_height"]],
+        0,
+      ],
+      "fill-extrusion-opacity": nightish ? 0.78 : 0.6,
     },
   };
   try {
-    if (beforeId) state.map.addLayer(layer, beforeId);
-    else state.map.addLayer(layer);
+    if (beforeId && state.map.getLayer(beforeId)) {
+      state.map.addLayer(layer, beforeId);
+    } else {
+      state.map.addLayer(layer);
+    }
+    return true;
   } catch (err) {
     console.warn("3D buildings failed", err);
-    state.buildingsOn = false;
+    return false;
+  }
+}
+
+function enableBuildings(on) {
+  if (!state.map || !state.webglOk) return;
+  let style;
+  try {
+    style = state.map.getStyle();
+  } catch {
+    return;
+  }
+  if (!style) return;
+  const want = !!on;
+  state.buildingsOn = want;
+
+  // Liberty ships native `building-3d`. OpenFreeMap dark does not — use fallback.
+  const hadNative = setNativeFillExtrusionVisibility(want);
+
+  if (hadNative) {
+    removeFallbackBuildings();
+    if (want) placeDriveOverlaysBelowBuildings();
+    return;
+  }
+
+  if (!want) {
+    removeFallbackBuildings();
+    return;
+  }
+
+  addFallbackBuildingExtrusions(style);
+  placeDriveOverlaysBelowBuildings();
+}
+
+/** Hide OpenFreeMap liberty POI icon layers; keep road shields / place labels. */
+function hidePoiLayers() {
+  if (!state.map) return;
+  let style;
+  try {
+    style = state.map.getStyle();
+  } catch {
+    return;
+  }
+  for (const layer of style?.layers || []) {
+    if (layer.type !== "symbol") continue;
+    const id = String(layer.id || "");
+    const idLower = id.toLowerCase();
+    const srcLayer = String(layer["source-layer"] || "").toLowerCase();
+    const isPoi =
+      srcLayer === "poi" ||
+      idLower === "poi" ||
+      idLower.startsWith("poi_") ||
+      idLower.startsWith("poi-") ||
+      idLower.includes("label_poi") ||
+      idLower.includes("poi-label");
+    if (!isPoi) continue;
+    try {
+      state.map.setLayoutProperty(id, "visibility", "none");
+    } catch {
+      /* style mid-swap */
+    }
   }
 }
 
@@ -1397,9 +1567,29 @@ function checkOffRoute(now) {
 
 function setNavHint(text) {
   const el = document.getElementById("navHint");
-  if (!el) return;
-  el.textContent = text || "";
-  if (DEBUG_NAV) el.hidden = false;
+  if (el) {
+    el.textContent = text || "";
+    if (DEBUG_NAV) el.hidden = false;
+  }
+  // Production hides #navHint — mirror drive-critical status on the visible chip.
+  if (DEBUG_NAV || state.exploreInFlight || state.rerouting) return;
+  const chip = document.getElementById("navRerouting");
+  if (!chip) return;
+  const msg = (text || "").trim();
+  if (!msg) {
+    if (state.diverted) return;
+    chip.hidden = true;
+    return;
+  }
+  const critical =
+    state.diverted ||
+    /off route|waiting for gps|routing failed|could not|replan|far from|no gps/i.test(
+      msg
+    );
+  if (critical) {
+    chip.hidden = false;
+    chip.textContent = msg;
+  }
 }
 
 function ensureToastHost() {
@@ -1612,6 +1802,172 @@ function makeMarkerEl() {
   return el;
 }
 
+function sonarReducedMotion() {
+  return !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+}
+
+function sonarShouldAnimate() {
+  return (
+    !!state.driveSonar &&
+    !!state.spawned &&
+    !!state.simActive &&
+    document.visibilityState === "visible" &&
+    !sonarReducedMotion()
+  );
+}
+
+function emptySonarCollection() {
+  return { type: "FeatureCollection", features: [] };
+}
+
+function ensureSonarLayers() {
+  if (!state.map) return;
+  if (typeof state.map.isStyleLoaded === "function" && !state.map.isStyleLoaded()) {
+    return;
+  }
+  const color = themePack().ahead || "#00e5ff";
+  try {
+    if (!state.map.getSource(SONAR_SRC_ID)) {
+      state.map.addSource(SONAR_SRC_ID, {
+        type: "geojson",
+        data: emptySonarCollection(),
+      });
+    }
+    if (!state.map.getLayer(SONAR_LAYER_ID)) {
+      const layer = {
+        id: SONAR_LAYER_ID,
+        type: "line",
+        source: SONAR_SRC_ID,
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+          visibility: state.driveSonar ? "visible" : "none",
+        },
+        paint: {
+          "line-color": color,
+          "line-width": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            14,
+            1.4,
+            18,
+            2.2,
+            22,
+            2.8,
+          ],
+          "line-opacity": ["get", "opacity"],
+          "line-blur": 0.35,
+        },
+      };
+      state.map.addLayer(layer);
+      placeDriveOverlaysBelowBuildings();
+    } else {
+      try {
+        state.map.setPaintProperty(SONAR_LAYER_ID, "line-color", color);
+      } catch {
+        /* ignore */
+      }
+      placeDriveOverlaysBelowBuildings();
+    }
+  } catch (err) {
+    console.warn("drive sonar layers not ready", err);
+  }
+}
+
+function clearSonarRings() {
+  state.sonarRings = [];
+  state.sonarLastSpawnAt = 0;
+  if (!state.map) return;
+  const src = state.map.getSource?.(SONAR_SRC_ID);
+  if (src) src.setData(emptySonarCollection());
+  try {
+    if (state.map.getLayer(SONAR_LAYER_ID) && !state.driveSonar) {
+      state.map.setLayoutProperty(SONAR_LAYER_ID, "visibility", "none");
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Rebuild inward-contracting rings at the exact puck lat/lon (ground plane). */
+function tickSonar(now = performance.now()) {
+  if (!state.map || !state.spawned) return;
+  ensureSonarLayers();
+  const src = state.map.getSource(SONAR_SRC_ID);
+  if (!src) return;
+
+  if (!sonarShouldAnimate()) {
+    if (state.sonarRings.length) clearSonarRings();
+    try {
+      if (state.map.getLayer(SONAR_LAYER_ID)) {
+        state.map.setLayoutProperty(
+          SONAR_LAYER_ID,
+          "visibility",
+          state.driveSonar && !sonarReducedMotion() ? "visible" : "none"
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  try {
+    if (state.map.getLayer(SONAR_LAYER_ID)) {
+      state.map.setLayoutProperty(SONAR_LAYER_ID, "visibility", "visible");
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const lat = state.dispLat != null ? state.dispLat : state.lat;
+  const lon = state.dispLon != null ? state.dispLon : state.lon;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+  if (!state.sonarLastSpawnAt || now - state.sonarLastSpawnAt >= SONAR_SPAWN_MS) {
+    state.sonarLastSpawnAt = state.sonarLastSpawnAt
+      ? state.sonarLastSpawnAt + SONAR_SPAWN_MS
+      : now;
+    // Catch up if tab was backgrounded a long time
+    if (now - state.sonarLastSpawnAt > SONAR_SPAWN_MS) state.sonarLastSpawnAt = now;
+    state.sonarSeq += 1;
+    state.sonarRings.push({ id: state.sonarSeq, bornAt: now });
+    while (state.sonarRings.length > SONAR_MAX_RINGS) state.sonarRings.shift();
+  }
+
+  const features = [];
+  const alive = [];
+  for (const ring of state.sonarRings) {
+    const age = now - ring.bornAt;
+    if (age >= SONAR_DURATION_MS) continue;
+    alive.push(ring);
+    const t = Math.max(0, Math.min(1, age / SONAR_DURATION_MS));
+    // Ease-out contract (receive feel): large → small
+    const ease = 1 - (1 - t) * (1 - t);
+    const radiusM = SONAR_R_MAX_M + (SONAR_R_MIN_M - SONAR_R_MAX_M) * ease;
+    const targetOp = 0.55 * (1 - t) * (1 - t * 0.35);
+    // Soft-spawn: blend new ring in over SONAR_FADE_IN_MS (no hard pop-in)
+    const fadeIn = Math.min(1, age / SONAR_FADE_IN_MS);
+    const opacity = Math.max(0, targetOp * fadeIn);
+    features.push({
+      type: "Feature",
+      properties: { id: ring.id, opacity },
+      geometry: {
+        type: "LineString",
+        coordinates: circleRingCoords(lat, lon, radiusM),
+      },
+    });
+  }
+  state.sonarRings = alive;
+  src.setData({ type: "FeatureCollection", features });
+  try {
+    state.map.triggerRepaint();
+  } catch {
+    /* ignore */
+  }
+}
+
 function ensureMarker() {
   if (!state.map || !state.spawned) return;
   const lat = state.dispLat != null ? state.dispLat : state.lat;
@@ -1631,6 +1987,139 @@ function ensureMarker() {
     state.marker.setLngLat([lon, lat]);
     state.marker.setRotation(heading);
   }
+}
+
+function parseHitSeenAtMs(raw) {
+  if (raw == null) return Date.now();
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw < 1e12 ? raw * 1000 : raw;
+  }
+  const t = Date.parse(String(raw));
+  return Number.isFinite(t) ? t : Date.now();
+}
+
+/** Merge GPS-poll recent_hits into the local ring buffer (dedupe by network_id). */
+function ingestRecentHits(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  const now = Date.now();
+  for (const h of list) {
+    const id = String(h?.network_id || "").trim();
+    if (!id) continue;
+    const lat = Number(h.lat);
+    const lon = Number(h.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const seenAt = parseHitSeenAtMs(h.seen_at);
+    if (now - seenAt > HIT_TTL_MS) continue;
+    const prev = state.recentHits.get(id);
+    if (prev && prev.seenAtMs >= seenAt) continue;
+    state.recentHits.set(id, { lon, lat, seenAtMs: seenAt });
+  }
+}
+
+function hitAgeColor(ageMs) {
+  // red → orange → yellow → green → blue over ~30s
+  const t = Math.max(0, Math.min(1, ageMs / HIT_TTL_MS));
+  if (t < 0.2) return "#ff3b30";
+  if (t < 0.4) return "#ff9500";
+  if (t < 0.6) return "#ffd60a";
+  if (t < 0.8) return "#34c759";
+  return "#5ac8fa";
+}
+
+function emptyHitCollection() {
+  return { type: "FeatureCollection", features: [] };
+}
+
+function ensureHitLayers() {
+  if (!state.map) return;
+  if (typeof state.map.isStyleLoaded === "function" && !state.map.isStyleLoaded()) {
+    return;
+  }
+  if (state.map.getSource(HIT_SRC_ID) && state.map.getLayer(HIT_LAYER_ID)) {
+    return;
+  }
+  try {
+    if (!state.map.getSource(HIT_SRC_ID)) {
+      state.map.addSource(HIT_SRC_ID, {
+        type: "geojson",
+        data: emptyHitCollection(),
+      });
+    }
+    if (!state.map.getLayer(HIT_LAYER_ID)) {
+      const layer = {
+        id: HIT_LAYER_ID,
+        type: "circle",
+        source: HIT_SRC_ID,
+        paint: {
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            12,
+            3.5,
+            16,
+            5.5,
+            19,
+            7,
+            22,
+            8,
+          ],
+          "circle-color": ["get", "color"],
+          "circle-opacity": ["get", "opacity"],
+          "circle-blur": 0.35,
+          "circle-stroke-width": 0.8,
+          "circle-stroke-color": ["get", "color"],
+          "circle-stroke-opacity": ["*", ["get", "opacity"], 0.55],
+        },
+      };
+      state.map.addLayer(layer);
+      placeDriveOverlaysBelowBuildings();
+    }
+  } catch (err) {
+    console.warn("drive hit layers not ready", err);
+  }
+}
+
+function paintRecentHits(force = false) {
+  if (!state.map) return;
+  const now = Date.now();
+  if (!force && now - (state.lastHitPaintAt || 0) < 200) return;
+  state.lastHitPaintAt = now;
+
+  ensureHitLayers();
+  const src = state.map.getSource(HIT_SRC_ID);
+  if (!src) return;
+
+  if (!state.driveSonar) {
+    src.setData(emptyHitCollection());
+    return;
+  }
+
+  const features = [];
+  for (const [id, hit] of state.recentHits) {
+    const age = now - hit.seenAtMs;
+    if (age > HIT_TTL_MS) {
+      state.recentHits.delete(id);
+      continue;
+    }
+    const fade = 1 - age / HIT_TTL_MS;
+    features.push({
+      type: "Feature",
+      properties: {
+        id,
+        color: hitAgeColor(age),
+        opacity: Math.max(0.15, 0.2 + fade * 0.75),
+      },
+      geometry: { type: "Point", coordinates: [hit.lon, hit.lat] },
+    });
+  }
+  src.setData({ type: "FeatureCollection", features });
+}
+
+function clearReceiveFx() {
+  state.recentHits.clear();
+  paintRecentHits(true);
+  clearSonarRings();
 }
 
 /** Lerp chevron pose every frame so motion stays smooth between GPS polls. */
@@ -1882,6 +2371,7 @@ function setNavSettingsOpen(open) {
   }
   if (open) {
     syncMuteIcon();
+    syncSonarUi();
     syncViewModeUi();
   }
 }
@@ -1893,16 +2383,27 @@ function loadNavPrefs() {
   } catch (_) {
     /* ignore */
   }
-  const v3 = localStorage.getItem(VIEW_3D_KEY);
-  if (v3 === "0" || v3 === "1") {
-    state.view3d = v3 === "1";
-  } else {
-    // Migrate old buildings-only pref
-    const b = localStorage.getItem(BUILDINGS_KEY);
-    state.view3d = b !== "0";
+  try {
+    const sonar = localStorage.getItem(DRIVE_SONAR_KEY);
+    if (sonar === "0" || sonar === "1") state.driveSonar = sonar === "1";
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const v3 = localStorage.getItem(VIEW_3D_KEY);
+    if (v3 === "0" || v3 === "1") {
+      state.view3d = v3 === "1";
+    } else {
+      // Migrate old buildings-only pref
+      const b = localStorage.getItem(BUILDINGS_KEY);
+      state.view3d = b !== "0";
+    }
+  } catch (_) {
+    state.view3d = true;
   }
   state.buildingsOn = state.view3d && state.webglOk;
   state.camPitch = currentPitch();
+  syncSonarUi();
 }
 
 function lerpAngleDeg(a, b, t) {
@@ -2070,15 +2571,21 @@ async function startNavigation() {
     startRoutingPoll();
     return false;
   }
-  state.navigationActive = true;
-  syncNavToggleUi();
   if (!state.levelId) {
     setNavHint("No region here - looking up a place...");
     await promptIfUnknownOnSpawn();
-    return true;
+    // Stay off until a region + route exist — avoid a lit Stop with no TBT.
+    syncNavToggleUi();
+    return false;
   }
+  state.navigationActive = true;
+  syncNavToggleUi();
   const ok = await startExplore({ auto: false, reason: "Navigation started" });
   if (ok) state.autoExploreStarted = true;
+  else {
+    state.navigationActive = false;
+    syncNavToggleUi();
+  }
   return ok;
 }
 
@@ -2388,6 +2895,10 @@ async function pushFix(unlock = true) {
       refreshFog(false);
     }
     if (data.radio) updateRadioHud(data.radio);
+    if (data.recent_hits) {
+      ingestRecentHits(data.recent_hits);
+      paintRecentHits(true);
+    }
     if (data.anomalies?.length) {
       showAnomalyToasts(data.anomalies);
     }
@@ -2507,6 +3018,10 @@ async function pollFollowGps(now) {
     ensureMarker();
     // Camera smoothed in simFrame; only update pose targets here
     if (data.radio) updateRadioHud(data.radio);
+    if (data.recent_hits) {
+      ingestRecentHits(data.recent_hits);
+      paintRecentHits();
+    }
     if (data.anomalies?.length) showAnomalyToasts(data.anomalies);
     if (data.newly_unlocked?.length) {
       showAchievementToasts(data.newly_unlocked);
@@ -2535,8 +3050,15 @@ async function pollFollowGps(now) {
       );
     }
     if (state.firstFixLevelPromptPending && !state.levelId) {
-      state.firstFixLevelPromptPending = false;
-      promptIfUnknownOnSpawn().catch(() => {});
+      promptIfUnknownOnSpawn()
+        .then((opened) => {
+          if (opened || state.promptOpen || state.levelId || state.building) {
+            state.firstFixLevelPromptPending = false;
+          }
+        })
+        .catch(() => {
+          /* keep pending for the next fix */
+        });
     }
     maybeAutoExplore();
   } finally {
@@ -2580,6 +3102,16 @@ function closeLevelPrompt(dismiss = false) {
 
 function tickYesFill(now) {
   if (!state.promptOpen) return;
+  // Freeze auto-confirm while moving — avoid multi-GB preload mid-drive.
+  const movingNow =
+    state.moving || (state.speedKmh || 0) >= WRONG_WAY_MIN_SPEED_KMH;
+  if (movingNow) {
+    state.promptFillStart = now;
+    const secEl = document.getElementById("levelPromptSec");
+    if (secEl) secEl.textContent = "pause";
+    state.promptTimer = requestAnimationFrame(tickYesFill);
+    return;
+  }
   const t = Math.min(1, (now - state.promptFillStart) / YES_FILL_MS);
   document.getElementById("levelPromptFill").style.width = `${t * 100}%`;
   document.getElementById("levelPromptSec").textContent = Math.ceil(
@@ -2752,7 +3284,7 @@ async function acceptLevelSuggestion(sug) {
     state.outsideM = 0;
     refreshFog(true);
     if (sug.existingStatus === "ready") {
-      await prepareValhallaForLevel();
+      await prepareValhallaForLevel({ restart: true });
       await resumeExploreAfterLevel();
     } else {
       showBuildOverlay(`Building ${sug.label}...`);
@@ -2826,7 +3358,7 @@ async function pollLevelJob(jobId) {
       hideBuildOverlay();
       document.getElementById("navHint").textContent = `${state.levelName} ready.`;
       refreshFog(true);
-      await prepareValhallaForLevel();
+      await prepareValhallaForLevel({ restart: true });
       await resumeExploreAfterLevel();
       return;
     }
@@ -2863,7 +3395,7 @@ async function pollLevelUntilReady(levelId) {
       hideBuildOverlay();
       document.getElementById("navHint").textContent = `${state.levelName} ready.`;
       refreshFog(true);
-      await prepareValhallaForLevel();
+      await prepareValhallaForLevel({ restart: true });
       await resumeExploreAfterLevel();
       return;
     }
@@ -2897,24 +3429,23 @@ async function trySuggestLevel(kind = "switch") {
  * prompt immediately - do not wait for the 300 m leave corridor.
  */
 async function promptIfUnknownOnSpawn() {
-  if (!state.spawned || state.promptOpen || state.building) return;
+  if (!state.spawned || state.promptOpen || state.building) return false;
   // Follow mode marks us spawned before any fix arrives; state.lat/lon are
   // still the hardcoded defaults then. pollFollowGps retries on first fix.
   if (!state.hasLiveFix) {
     state.firstFixLevelPromptPending = true;
-    return;
+    return false;
   }
 
   // No level yet: ask to build even if TBT nav is off (unlock needs road_segments).
   if (!state.levelId) {
     document.getElementById("navHint").textContent =
       "No region here - looking up a place to preload...";
-    await trySuggestLevel("create");
-    return;
+    return !!(await trySuggestLevel("create"));
   }
 
   // Already have a level - only auto-suggest switches while navigating.
-  if (!state.navigationActive) return;
+  if (!state.navigationActive) return false;
 
   const res = await WardAuth.apiFetch(
     `/api/navigate/contains?lat=${state.lat}&lon=${state.lon}&level_id=${state.levelId}`
@@ -2923,15 +3454,14 @@ async function promptIfUnknownOnSpawn() {
   if (data.inside) {
     document.getElementById("navHint").textContent =
       "Spawned. Drive to collect signals. Leave the level by 300 m to auto-load the next.";
-    return;
+    return false;
   }
   // Already outside when the drive starts -> ask now
   state.outsideM = OUTSIDE_TRIGGER_M;
   document.getElementById("navHint").textContent =
     `Spawned outside ${state.levelName} - suggesting a level...`;
-  await trySuggestLevel("create");
+  return !!(await trySuggestLevel("create"));
 }
-
 async function checkOutsideLevel(now) {
   if (!state.spawned || !state.hasLiveFix || state.promptOpen || state.building) return;
   // Switch prompts need TBT nav; create-when-no-level does not.
@@ -3057,16 +3587,20 @@ function isDriveInput() {
 }
 
 function wantsFastLoop() {
+  // Ground sonar needs continuous setData + triggerRepaint while receive FX runs
+  const sonarHot = sonarShouldAnimate();
   if (state.followLiveGps && state.spawned) {
     // Full rAF while moving, catching up after a pan, or settling after a stop.
     // Do NOT spin at 60fps during the user-gesture cooldown - MapLibre owns the map.
     return (
+      sonarHot ||
       state.moving ||
       !!state.camCatchingUp ||
       performance.now() - (state.lastMovingAt || 0) < FOLLOW_SETTLE_MS
     );
   }
   return (
+    sonarHot ||
     isDriveInput() ||
     state.speedKmh !== 0 ||
     state.moving ||
@@ -3125,12 +3659,14 @@ function setSimActive(on) {
   if (!on) {
     cancelSimTimers();
     setDriveHot(false);
+    clearSonarRings();
     if (state.map) {
       state.map.repaint = false;
     }
     return;
   }
   state.lastFrameAt = performance.now();
+  state.sonarLastSpawnAt = 0;
   if (state.map) state.map.triggerRepaint();
   wakeSimLoop();
 }
@@ -3195,6 +3731,11 @@ function simFrame(now) {
     }
   }
 
+  if (state.driveSonar) {
+    tickSonar(now);
+    if (state.recentHits.size) paintRecentHits();
+  }
+
   scheduleSimFrame();
 }
 
@@ -3217,11 +3758,14 @@ async function prepareValhallaForLevelRun(levelId, opts) {
   setNavHint("Preparing routing map for this city...");
   let res;
   let data = {};
+  // restart only when the extract changed (or caller opts in). Replans must
+  // not wipe/rebuild tiles every few seconds while Valhalla is still warming.
+  const restart = opts.restart === true;
   try {
     res = await WardAuth.apiFetch("/api/navigate/prepare", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ level_id: levelId, restart: true }),
+      body: JSON.stringify({ level_id: levelId, restart }),
     });
     data = await res.json().catch(() => ({}));
   } catch (_) {
@@ -3311,19 +3855,29 @@ async function checkValhallaHint() {
     const res = await WardAuth.apiFetch("/api/navigate/status");
     const data = await res.json();
     const meta = data.active_extract?.meta;
-    if (meta?.level_id && state.levelId && meta.level_id !== state.levelId) {
+    const metaLevel = meta?.level_id != null ? Number(meta.level_id) : null;
+    const wantLevel = state.levelId != null ? Number(state.levelId) : null;
+    const levelMismatch =
+      wantLevel != null && metaLevel != null && metaLevel !== wantLevel;
+    const missingExtract =
+      wantLevel != null &&
+      (metaLevel == null || data.active_pbf_ready === false);
+
+    if (levelMismatch || missingExtract) {
       setRoutingReady(false, "Preparing routing for this city...");
-      await prepareValhallaForLevel();
+      await prepareValhallaForLevel({ restart: levelMismatch });
       return !!state.routingReady;
     }
     if (!data.valhalla?.ok) {
+      // Tiles still building — poll only. Do not restart Valhalla on every replan.
       setRoutingReady(
         false,
-        data.valhalla?.detail || "Building routing tiles..."
+        data.valhalla?.detail ||
+          data.valhalla?.building_hint ||
+          "Building routing tiles..."
       );
       startRoutingPoll();
-      await prepareValhallaForLevel();
-      return !!state.routingReady;
+      return false;
     }
     setRoutingReady(true);
     stopRoutingPoll();
@@ -3367,8 +3921,12 @@ async function startExplore(opts = {}) {
     }
     document.getElementById("navHint").textContent = reason;
     if (state.diverted) clearManeuverHud();
-    await pushFix(true);
-    if (gen !== state.exploreGen) return false;
+    // Car path follows gpsd via GET — pushFix is a no-op while followLiveGps.
+    // Don't stall explore waiting for a POST that never runs.
+    if (!state.followLiveGps) {
+      await pushFix(true);
+      if (gen !== state.exploreGen) return false;
+    }
 
     const uiKm = Number(document.getElementById("targetKm")?.value) || 5;
     // Auto off-route: short chunk (fast). Manual start/replan: full horizon.
@@ -3399,7 +3957,7 @@ async function startExplore(opts = {}) {
           : Array.isArray(data.detail)
             ? data.detail.map((d) => d.msg || d).join("; ")
             : "Routing failed";
-      document.getElementById("navHint").textContent = detail;
+      showErrorToast(detail);
       if (state.diverted) clearManeuverHud();
       return false;
     }
@@ -3443,12 +4001,23 @@ async function resolveLevel() {
     settings.achievement_sounds !== false &&
     settings.achievement_sounds !== "false";
   {
+    const sonarOn =
+      settings.drive_sonar !== false && settings.drive_sonar !== "false";
+    state.driveSonar = sonarOn;
+    try {
+      localStorage.setItem(DRIVE_SONAR_KEY, sonarOn ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }
+  {
     const mode = String(settings.map_dark_mode || "auto").toLowerCase();
     state.mapDarkMode = ["auto", "bright", "dark", "system"].includes(mode)
       ? mode
       : "auto";
   }
   syncMuteIcon();
+  syncSonarUi();
   const anomalyToggle = document.getElementById("toggleAnomaly");
   if (anomalyToggle) anomalyToggle.checked = state.anomalyAlerts;
 
@@ -3494,7 +4063,8 @@ async function resolveLevel() {
   state.levelBoundary = lv.boundary || null;
   applyLevelProfile(lv.profile_norm || lv.profile);
   document.getElementById("statLevel").textContent = state.levelName;
-  if (lv.bbox?.length === 4) {
+  // Don't yank the map to the region center when live GPS / follow is active.
+  if (lv.bbox?.length === 4 && !state.hasLiveFix && !state.followLiveGps) {
     state.lon = (lv.bbox[0] + lv.bbox[2]) / 2;
     state.lat = (lv.bbox[1] + lv.bbox[3]) / 2;
   }
@@ -3518,7 +4088,7 @@ function initMap() {
     pitch: currentPitch(),
     bearing: 0,
     minZoom: ZOOM_MIN - 0.8,
-    maxZoom: ZOOM_MAX + 0.4,
+    maxZoom: MAP_MAX_ZOOM,
     antialias: false,
     fadeDuration: 0,
     maxTileCacheSize: 48,
@@ -3549,6 +4119,11 @@ function initMap() {
     ensureRouteLayers();
     applyRouteThemeColors();
     enableBuildings(state.view3d && state.webglOk);
+    ensureSonarLayers();
+    ensureHitLayers();
+    paintRecentHits(true);
+    placeDriveOverlaysBelowBuildings();
+    hidePoiLayers();
     fixOnewayArrows();
     bindMapCameraGestures();
   });
@@ -3635,20 +4210,6 @@ async function runUnknownAreaSim() {
   await spawnAt(lat, lon);
 }
 
-function syncViewModeUi() {
-  const btn = document.getElementById("btnViewMode");
-  const on = !!state.view3d;
-  if (btn) {
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.title = on ? "3D view (tap for 2D)" : "2D view (tap for 3D)";
-    if (!state.webglOk) btn.disabled = true;
-  }
-  const val = document.getElementById("settingsViewValue");
-  if (val) val.textContent = on ? "3D" : "2D";
-  const toggle = document.getElementById("toggleBuildings");
-  if (toggle) toggle.checked = on;
-}
-
 function syncMuteIcon() {
   const btn = document.getElementById("btnMuteSounds");
   if (!btn) return;
@@ -3657,6 +4218,27 @@ function syncMuteIcon() {
   btn.title = soundOn ? "Sounds on (tap to mute)" : "Muted (tap to enable)";
   const val = document.getElementById("settingsMuteValue");
   if (val) val.textContent = soundOn ? "On" : "Muted";
+}
+
+function syncSonarUi() {
+  const on = !!state.driveSonar;
+  document.body.classList.toggle("nav-sonar-off", !on);
+  const btn = document.getElementById("btnDriveSonar");
+  if (btn) {
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on
+      ? "Receive FX on (tap to hide sonar + dots)"
+      : "Receive FX off (tap to show)";
+  }
+  const val = document.getElementById("settingsSonarValue");
+  if (val) val.textContent = on ? "On" : "Off";
+  if (!on) clearReceiveFx();
+  else {
+    paintRecentHits(true);
+    state.sonarLastSpawnAt = 0;
+    tickSonar(performance.now());
+    wakeSimLoop();
+  }
 }
 
 async function setAchievementSounds(on) {
@@ -3671,6 +4253,39 @@ async function setAchievementSounds(on) {
   } catch (_) {
     /* keep local toggle even if settings PATCH fails */
   }
+}
+
+async function setDriveSonar(on) {
+  state.driveSonar = !!on;
+  try {
+    localStorage.setItem(DRIVE_SONAR_KEY, state.driveSonar ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  syncSonarUi();
+  try {
+    await WardAuth.apiFetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ drive_sonar: state.driveSonar }),
+    });
+  } catch (_) {
+    /* keep local toggle even if settings PATCH fails */
+  }
+}
+
+function syncViewModeUi() {
+  const btn = document.getElementById("btnViewMode");
+  const on = !!state.view3d;
+  if (btn) {
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on ? "3D view (tap for 2D)" : "2D view (tap for 3D)";
+    if (!state.webglOk) btn.disabled = true;
+  }
+  const val = document.getElementById("settingsViewValue");
+  if (val) val.textContent = on ? "3D" : "2D";
+  const toggle = document.getElementById("toggleBuildings");
+  if (toggle) toggle.checked = on;
 }
 
 function setView3d(on) {
@@ -3703,7 +4318,6 @@ function setView3d(on) {
   }
 }
 
-/** @deprecated alias for debug checkbox */
 function setBuildingsOn(on) {
   setView3d(on);
 }
@@ -3729,6 +4343,9 @@ function bindControls() {
   document.getElementById("btnMuteSounds")?.addEventListener("click", () => {
     armAchievementAudio();
     setAchievementSounds(!state.achievementSounds);
+  });
+  document.getElementById("btnDriveSonar")?.addEventListener("click", () => {
+    setDriveSonar(!state.driveSonar);
   });
   document.getElementById("btnViewMode")?.addEventListener("click", () => {
     setView3d(!state.view3d);
@@ -3774,6 +4391,9 @@ function bindControls() {
   document.getElementById("toggleAnomaly")?.addEventListener("change", (e) => {
     setAnomalyAlerts(!!e.target.checked);
   });
+  document.getElementById("toggleBuildings")?.addEventListener("change", (e) => {
+    setView3d(!!e.target.checked);
+  });
   document.getElementById("btnDriveMode")?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -3794,9 +4414,6 @@ function bindControls() {
     pickDriveMode(pick.getAttribute("data-profile"));
   });
   syncDriveModeUi();
-  document.getElementById("toggleBuildings")?.addEventListener("change", (e) => {
-    setView3d(!!e.target.checked);
-  });
   window.addEventListener("wardrivrr:theme", () => onSiteThemeChange());
   try {
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");

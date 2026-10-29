@@ -4,6 +4,10 @@ Background gpsd client → gps_state.set_fix(source=gpsd).
 Always-on for the car collection user (fog unlock + XP + Kismet positions),
 whether or not the Drive dashboard is open.
 
+Parked/idle: gps_motion pauses unlock + drive XP when the raw receiver has
+not moved ~100 m within 5 min (GPSD_STATIONARY_*). Fix updates still flow so
+Drive / Kismet can read position and the stationary flag.
+
 Runs on the API process. gpsd itself stays on the host; use
 GPSD_HOST=host.docker.internal (Linux host-gateway) or 127.0.0.1 when
 the API is on the host.
@@ -25,10 +29,22 @@ _heading_moving = False
 _session_started_at: dict[int, str] = {}
 _last_fix_mono: dict[int, float] = {}
 _last_unlock_at: dict[int, float] = {}
+_last_unlock_pos: dict[int, tuple[Any, float | None, float | None]] = {}
 _last_collection_user: int | None = None
 _collection_user_cache: tuple[int, float] | None = None
 # A gap without fixes this long starts a new drive session (HUD stats window).
 _SESSION_IDLE_S = float(os.getenv("GPSD_SESSION_IDLE_S", "1800"))
+
+
+def _moved_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    import math
+
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -84,6 +100,12 @@ def _target_user_ids() -> list[int]:
             from gps_snap import clear_last_good
 
             clear_last_good(_last_collection_user)
+        except Exception:
+            pass
+        try:
+            from gps_motion import tracker as motion_tracker
+
+            motion_tracker.clear(_last_collection_user)
         except Exception:
             pass
     _last_collection_user = uid
@@ -144,6 +166,7 @@ def _parse_tpv(msg: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
+    from gps_motion import tracker as motion_tracker
     from gps_snap import resolve_drive_profile, resolve_level_id, snap_to_road
     from gps_state import get_fix, set_fix
 
@@ -167,6 +190,10 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
         and time.time() - float(prev.get("updated_at") or 0) < 5.0
     ):
         return
+
+    # Motion filter uses raw receiver coords so road-snap cannot mask jitter
+    # or invent lateral motion along a held segment.
+    stationary = motion_tracker.update(user_id, fix["lat"], fix["lon"])
 
     level_id = resolve_level_id(user_id)
     profile = resolve_drive_profile(user_id, level_id)
@@ -194,32 +221,59 @@ def _apply_fix(user_id: int, fix: dict[str, Any]) -> None:
         raw_lat=fix["lat"],
         raw_lon=fix["lon"],
         snap=snap,
+        stationary=stationary,
     )
+    if stationary:
+        # Parked overnight: keep the live fix for Drive HUD / Kismet position,
+        # but do not unlock fog, credit drive XP, or pile observation work.
+        return
+
     unlock_stats = None
     unlock_interval = max(1.0, float(os.getenv("GPSD_UNLOCK_INTERVAL", "2.5")))
     now_mono = time.monotonic()
-    if now_mono - _last_unlock_at.get(user_id, 0.0) >= unlock_interval:
+    # Car unlock only covers the snapped segment + one ahead (~40 m), so a pure
+    # time throttle leaves fog holes above ~60 km/h. Skip only redundant work:
+    # same segment and barely moved.
+    last_seg, last_lat, last_lon = _last_unlock_pos.get(user_id, (None, None, None))
+    seg_changed = snap.get("segment_id") != last_seg
+    moved_m = (
+        _moved_m(last_lat, last_lon, use_lat, use_lon)
+        if last_lat is not None
+        else float("inf")
+    )
+    if (
+        seg_changed
+        or moved_m >= 10.0
+        or now_mono - _last_unlock_at.get(user_id, 0.0) >= unlock_interval
+    ):
         try:
-            from levels import unlock_near_point
+            from levels import get_level, unlock_near_point
 
             if level_id is not None:
-                unlock_lon = (
-                    fix["lon"] if snap.get("snap_mode") == "distance" else use_lon
-                )
-                unlock_lat = (
-                    fix["lat"] if snap.get("snap_mode") == "distance" else use_lat
-                )
-                unlock_stats = unlock_near_point(
-                    int(level_id),
-                    unlock_lon,
-                    unlock_lat,
-                    accuracy_m=fix.get("accuracy_m") or 12.0,
-                    heading_deg=fix.get("heading_deg"),
-                    segment_id=snap.get("segment_id"),
-                    profile=profile,
-                    user_id=user_id,
-                )
-                _last_unlock_at[user_id] = now_mono
+                level = get_level(user_id, int(level_id))
+                if level and level.get("status") == "ready":
+                    unlock_lon = (
+                        fix["lon"] if snap.get("snap_mode") == "distance" else use_lon
+                    )
+                    unlock_lat = (
+                        fix["lat"] if snap.get("snap_mode") == "distance" else use_lat
+                    )
+                    unlock_stats = unlock_near_point(
+                        int(level_id),
+                        unlock_lon,
+                        unlock_lat,
+                        accuracy_m=fix.get("accuracy_m") or 12.0,
+                        heading_deg=fix.get("heading_deg"),
+                        segment_id=snap.get("segment_id"),
+                        profile=profile,
+                        user_id=user_id,
+                    )
+                    _last_unlock_at[user_id] = now_mono
+                    _last_unlock_pos[user_id] = (
+                        snap.get("segment_id"),
+                        use_lat,
+                        use_lon,
+                    )
         except Exception:
             unlock_stats = None
 

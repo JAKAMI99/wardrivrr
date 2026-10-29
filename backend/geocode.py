@@ -134,19 +134,36 @@ def _save_disk() -> None:
 def reverse_geocode_cached(lat: float, lon: float, zoom: int = 16) -> dict | None:
     """Reverse geocode with grid + disk cache (~11 m cells at 4 decimal places)."""
     global _DISK_DIRTY
-    # v2: level OSM address packs + city-aware postal
-    key = f"v2:{round(float(lat), 4)}:{round(float(lon), 4)}:{zoom}"
+    # v3: never permanently cache misses (address packs arrive after first miss).
+    key = f"v3:{round(float(lat), 4)}:{round(float(lon), 4)}:{zoom}"
+    cached = _CACHE.get(key)
+    if cached:
+        exp, val = cached
+        if time.time() <= exp:
+            return val
+        _CACHE.pop(key, None)
     with _DISK_LOCK:
         disk = _load_disk()
-        if key in disk:
-            return disk[key]
+        if key in disk and disk[key] is not None:
+            hit = disk[key]
+            _set_cached(key, hit)
+            return hit
+        # Drop legacy null miss entries so later packs can fill addresses.
+        if key in disk and disk[key] is None:
+            disk.pop(key, None)
+            _DISK_DIRTY = True
     hit = reverse_geocode(lat, lon, zoom=zoom)
+    if hit is None:
+        # Short negative cache only — retry when packs finish downloading.
+        _CACHE[key] = (time.time() + 300.0, None)
+        return None
     with _DISK_LOCK:
         disk = _load_disk()
         disk[key] = hit
         _DISK_DIRTY = True
         if len(disk) % 200 == 0:
             _save_disk()
+    _set_cached(key, hit)
     return hit
 
 

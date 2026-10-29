@@ -1,5 +1,7 @@
 # Credits
 
+wardrivrr **1.0.0**
+
 This project would not be possible without the people and organisations who publish open geographic data and keep the infrastructure behind it running.
 
 ## OpenStreetMap
@@ -58,6 +60,22 @@ and transform ideas only.
 - Translations (`en@uwu.ts`): https://github.com/PrismLauncher/Translations
 - Weblate: https://hosted.weblate.org/projects/prismlauncher/launcher/en@uwu/
 - OwOify baseline: https://github.com/aqua-lzma/OwOify
+
+## DisneyClips (Kidcore decorative sticker galleries)
+
+Bluey and Winnie the Pooh clipart from DisneyClips for **non-commercial** use
+only. Images colored by Disneyclips.com — do not redistribute/upload as part of
+a bulk collection. **Attribution required** (link the gallery pages below).
+
+Local decorative stickers live under `frontend/brand/kidcore/stickers/` as
+`bluey-*.png` / `winnie-*.png` (plus generic `kc-*`). Respect DisneyClips and
+rights-holder terms.
+
+- Bluey: https://www.disneyclips.com/images3/bluey.html
+- Bluey (more): https://www.disneyclips.com/images3/bluey2.html
+- Winnie the Pooh: https://www.disneyclips.com/images/winnie-the-pooh-clipart.html
+- Winnie the Pooh (more): https://www.disneyclips.com/images/winniethepooh2.html
+
 
 ---
 

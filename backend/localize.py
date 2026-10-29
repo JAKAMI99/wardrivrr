@@ -306,9 +306,9 @@ INSERT INTO networks (
 )
 ON CONFLICT (user_id, network_id) DO UPDATE SET
     name = COALESCE(EXCLUDED.name, networks.name),
-    encryption = EXCLUDED.encryption,
+    encryption = COALESCE(EXCLUDED.encryption, networks.encryption),
     network_type = EXCLUDED.network_type,
-    channel = EXCLUDED.channel,
+    channel = COALESCE(EXCLUDED.channel, networks.channel),
     sample_count = EXCLUDED.sample_count,
     lat = EXCLUDED.lat,
     lon = EXCLUDED.lon,

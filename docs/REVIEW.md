@@ -23,13 +23,26 @@ Status legend: **Fixed** (in this branch), **Partial**, **Open**.
 | P1 | Wrong-way streak counted animation frames, not GPS fixes; replans every 1.5 s aborted each other. | `navigate.js` `checkOffRoute` / `triggerReplan` | **Fixed**: streak counts each fix once (`fixSeq`); no new replan while one is in flight. |
 | P1 | Stale fog after a region switch; forced refresh lost behind an in-flight request. | `navigate.js` `refreshFog` | **Fixed**: responses for another region are dropped; forced refreshes are queued; fog refreshes after a switch or a finished build. |
 | P1 | Region-create network error left the build overlay stuck; errors went to the hidden `#navHint`. | `navigate.js` `acceptLevelPrompt` | **Fixed**: try/catch hides the overlay; failures show a visible toast. |
-| P1 | Rebuilding a region erases fog progress and tile XP. | `levels.py` rebuild path | **Open**: snapshot explored `osm_id`s and re-apply them after the rebuild. |
-| P1 | Geocode cache never retries misses; job coalescing widens to "re-geocode everything". | `geocode.py`, `jobs.py` | **Open** |
+| P1 | Rebuilding a region erases fog progress and tile XP. | `levels.py` rebuild path | **Fixed**: snapshot explored `osm_id`s before wipe and re-apply after insert (+ after boundary clip). |
+| P1 | Geocode cache never retries misses; job coalescing widens to "re-geocode everything". | `geocode.py`, `jobs.py` | **Fixed**: misses use a 5‑min memory cache only (not disk); worker skips null writes; coalesce keeps `only_missing` unless the new job asks for a full pass. |
+| P0 | Explore/replan restarted Valhalla on every failed status check (`restart: true`). | `navigate.js` | **Fixed**: prepare only on level/extract mismatch; `restart` opt-in; server default `restart=False`. |
+| P0 | Drive-critical hints wrote only to production-hidden `#navHint`. | `navigate.js` | **Fixed**: critical status mirrored to `#navRerouting`; explore failures use `showErrorToast`. |
+| P0 | `startExplore` awaited no-op `pushFix` while following gpsd. | `navigate.js` | **Fixed**: skip POST push while `followLiveGps`. |
+| P0 | Car compose `env_file: ./.env` resolved under `deploy/` (root `.env` never injected). | `deploy/compose.car.yml` | **Fixed**: `../.env` + `JWT_SECRET_KEY` in `environment`. |
+| P1 | Level job Valhalla retry used `force=True` (docker.sock) without admin. | `levels.py` | **Fixed**: retry is restart-only (`force=False`). |
+| P1 | `docker run` Valhalla fallback published `0.0.0.0:8002`. | `valhalla_prep.py` | **Fixed**: honors `VALHALLA_BIND` (default `127.0.0.1`). |
+| P1 | gpsd unlocked incomplete levels; headless car had no `active_level_id` fallback. | `gpsd_poller.py`, `gps_snap.py` | **Fixed**: unlock only when `status==ready`; `GPSD_LEVEL_ID` / sole ready level fallback. |
+| P1 | Re-localize cleared encryption/channel on NULL samples. | `localize.py` | **Fixed**: `COALESCE` like address fields. |
+| P1 | Level auto-confirm fired while moving (multi-GB preload mid-drive). | `navigate.js` `tickYesFill` | **Fixed**: freeze countdown while moving. |
+| P0 | Failed `geofabrik_level` job left level stuck in `processing`/`segmentizing`. | `jobs.py`, `levels.py` | **Fixed**: `mark_level_build_failed` → `status=error`. |
+| P0 | Drive sets `active_level_id` on JWT user; gpsd unlocked under collection user. | `main.py` `set_active_level` | **Fixed**: mirror active level onto collection user. |
+| P1 | `delete_level` left stale `active_level_id`. | `levels.py` | **Fixed**: clear matching setting (incl. collection user). |
+| P1 | Systemd unit always `/opt/wardrivrr` + `FORCE_LOCAL_BUILD=1`. | `run.sh` | **Fixed**: rewrite paths to `$ROOT`; drop forced local build from unit. |
 | P2 | Mute toggle used POST; the backend only accepts PATCH (re-checked). | `navigate.js` | **Fixed** |
 | P2 | Drive session window never reset; Wi‑Fi type buckets overwrote each other (`=` instead of `+=`). | `gpsd_poller.py`, `drive_session.py` | **Fixed**: new session after 30 min without fixes (`GPSD_SESSION_IDLE_S`). |
 | P2 | Startup try/except hid job-worker start failures. | `main.py` `on_startup` | **Fixed**: bootstrap admin and the worker start separately and log errors. |
 | P2 | Network XP counts imported (WiGLE/backup) data. | `achievements.py` | **Open**: design decision. |
-| P2 | Observation unlock (Kismet samples within 30 m) can unlock parallel streets that were never driven. | `levels._refresh_explored_from_observations` | **Open**: now runs at most once a minute (see Performance), but the semantics are unchanged. |
+| P2 | Observation unlock (Kismet samples within 30 m) can unlock parallel streets that were never driven. | `levels._refresh_explored_from_observations` | **Partial**: still runs at end of region build; removed from Drive `/roads` polling so fog no longer jumps mid-drive from Wi‑Fi radius. |
 
 ## Performance
 
@@ -58,12 +71,12 @@ Status legend: **Fixed** (in this branch), **Partial**, **Open**.
 | P0 | SSIDs rendered as HTML in Database map popups (re-checked). | `database.js` | **Fixed**: popups are built as DOM nodes with `textContent`. |
 | P0 | Login followed `?next=` unvalidated (`javascript:`, open redirect) (re-checked). | `login.html` | **Fixed**: same-origin paths only. |
 | P0 | PostGIS published on `0.0.0.0:5432` with the default superuser password (re-checked). | `docker-compose.yml`, `deploy.sh` | **Fixed**: bound to `127.0.0.1` (`DB_BIND` to override); `deploy.sh` generates `DB_PASS` on fresh installs and warns when an existing volume still uses the default. |
-| P0 | `admin/admin` bootstrap, no login rate limit, 4-char passwords. | `auth.py` | **Open** |
+| P0 | `admin/admin` bootstrap, no login rate limit, 4-char passwords. | `auth.py` | **Fixed**: bootstrap removed; first-boot `/setup` + min length 8; login/setup rate-limited (IP+bucket, default 8 / 5 min). |
 | P1 | Unauthenticated `/api/system/status` exposed the live GPS position; `/api/health` leaked global counts. | `main.py` | **Fixed**: status requires auth; anonymous health returns liveness only. |
 | P1 | gpsd `-G`, Kismet httpd and Valhalla on all interfaces. | `deploy.sh`, `run.sh`, compose | **Partially kept**: gpsd without `-G`, Valhalla `127.0.0.1` (`VALHALLA_BIND`). Kismet httpd defaults to `0.0.0.0` again so the Web UI works on the LAN (`KISMET_HTTPD_BIND=127.0.0.1` to lock down). |
 | P1 | API key name and other `innerHTML` sinks. | `settings.js`, `nav.js`, `regions.js` | **Fixed** |
-| P1 | Docker socket (host root) reachable via endpoints any user can call. | `main.py` navigate endpoints | **Open**: admin-gate, socket proxy, pin image digests. |
-| P1 | JWT default secret fallback, 30-day tokens, token in localStorage, no revocation. | `auth.py`, `auth.js` | **Open** |
+| P1 | Docker socket (host root) reachable via endpoints any user can call. | `main.py` navigate endpoints | **Partial**: `force=True` Valhalla prepare is admin-only. Normal prepare still uses the socket (needed for Drive). Socket proxy / digest pin still **Open**. |
+| P1 | JWT default secret fallback, 30-day tokens, token in localStorage, no revocation. | `auth.py`, `auth.js` | **Partial**: no hardcoded JWT default (env or `data/.jwt_secret`). 30d / localStorage / revocation still **Open**. |
 | P2 | Geofabrik downloads uncapped; no CSP/SRI; CORS `*`. | various | **Open** |
 
 Checked and clean: SQL parameterization, subprocess list-args, path traversal

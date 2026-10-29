@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <link rel="icon" href="/static/brand/kidcore/favicon.png" type="image/png" id="wardFavicon" />
+    <title>Setup · wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/themes.css?v=15" />
+    <script src="/static/theme.js?v=23"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+      </nav>
+      <main class="home-main settings-main">
+        <header class="home-hero settings-hero">
+          <h1>Create admin</h1>
+          <p>First boot — set the admin password for this server. Username is <code>admin</code>.</p>
+        </header>
+        <section class="tools-panel settings-form-panel">
+          <form id="setupForm" class="settings-form">
+            <label>
+              Password
+              <input
+                type="password"
+                name="password"
+                id="password"
+                autocomplete="new-password"
+                minlength="8"
+                maxlength="128"
+                required
+              />
+            </label>
+            <label>
+              Confirm password
+              <input
+                type="password"
+                name="confirm"
+                id="confirm"
+                autocomplete="new-password"
+                minlength="8"
+                maxlength="128"
+                required
+              />
+            </label>
+            <div class="tools-row">
+              <button class="btn btn-primary" type="submit">Create admin</button>
+            </div>
+          </form>
+          <div class="toast" id="toast" hidden></div>
+        </section>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script>
+      const toast = document.getElementById("toast");
+      function showToast(msg, isError = false) {
+        toast.hidden = false;
+        toast.textContent = msg;
+        toast.classList.toggle("error", isError);
+      }
+      (async () => {
+        try {
+          const res = await fetch("/api/setup/status", { credentials: "same-origin" });
+          if (res.ok) {
+            const body = await res.json();
+            if (!body.required) {
+              location.href = "/login";
+            }
+          }
+        } catch (_) {}
+      })();
+      document.getElementById("setupForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const password = document.getElementById("password").value;
+        const confirm = document.getElementById("confirm").value;
+        if (password.length < 8) {
+          showToast("Password must be at least 8 characters", true);
+          return;
+        }
+        if (password !== confirm) {
+          showToast("Passwords do not match", true);
+          return;
+        }
+        const res = await fetch("/api/setup/admin", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(body.detail || "Setup failed", true);
+          return;
+        }
+        showToast("Admin created — sign in");
+        location.href = "/login";
+      });
+    </script>
+  </body>
+</html>

@@ -3,6 +3,7 @@ In-memory GPS fix per user.
 
 lat/lon are display + fog-unlock coords (road-snapped when enabled).
 raw_lat/raw_lon preserve the unsnapped GPS reading.
+stationary reflects the gpsd parked/idle filter (see gps_motion).
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ def set_fix(
     snap: dict[str, Any] | None = None,
     snapped: bool | None = None,
     snap_dist_m: float | None = None,
+    stationary: bool | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Returns (previous_fix_or_None, new_fix)."""
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
@@ -52,6 +54,7 @@ def set_fix(
         "session_started_at": session_started_at,
         "raw_lat": float(raw_lat) if raw_lat is not None else float(lat),
         "raw_lon": float(raw_lon) if raw_lon is not None else float(lon),
+        "stationary": bool(stationary) if stationary is not None else False,
         "updated_at": time.time(),
     }
     snap_meta = snap

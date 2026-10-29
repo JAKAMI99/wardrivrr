@@ -17,10 +17,18 @@ function setBadge(el, kind, text) {
   if (kind) el.classList.add(kind);
 }
 
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function fillDl(el, rows) {
   el.innerHTML = rows
     .filter(([, v]) => v != null && v !== "")
-    .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
+    .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`)
     .join("");
 }
 

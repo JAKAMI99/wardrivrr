@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#0c0e11" />
     <link rel="icon" href="/static/brand/kidcore/favicon.png" type="image/png" id="wardFavicon" />
     <title>Settings · wardrivrr</title>
-    <link rel="stylesheet" href="/static/styles.css?v=8" />
-    <link rel="stylesheet" href="/static/themes.css?v=12" />
-    <script src="/static/theme.js?v=19"></script>
+    <link rel="stylesheet" href="/static/styles.css?v=25" />
+    <link rel="stylesheet" href="/static/themes.css?v=15" />
+    <script src="/static/theme.js?v=23"></script>
   </head>
   <body>
     <div class="page-glow" aria-hidden="true"></div>
@@ -35,9 +35,6 @@
             </button>
             <button type="button" class="settings-nav-btn" data-section="data">
               Data
-            </button>
-            <button type="button" class="settings-nav-btn" data-section="advanced">
-              Advanced
             </button>
             <button type="button" class="settings-nav-btn" data-section="admin" id="adminNavBtn" hidden>
               Admin
@@ -104,7 +101,7 @@
                     type="password"
                     id="newPassword"
                     autocomplete="new-password"
-                    minlength="4"
+                    minlength="8"
                     required
                   />
                 </label>
@@ -114,7 +111,7 @@
                     type="password"
                     id="confirmPassword"
                     autocomplete="new-password"
-                    minlength="4"
+                    minlength="8"
                     required
                   />
                 </label>
@@ -145,13 +142,6 @@
               <h2>Preferences</h2>
               <form id="settingsForm" class="settings-form">
                 <label>
-                  Default localization mode
-                  <select name="default_localization_mode" id="localizationMode">
-                    <option value="2d">2D (fast, default)</option>
-                    <option value="3d">3D (prefer height in estimates)</option>
-                  </select>
-                </label>
-                <label>
                   Default precision
                   <select id="precision">
                     <option value="fast">Fast</option>
@@ -178,6 +168,12 @@
                     <option value="metric" selected>Metric (km, m)</option>
                     <option value="imperial">Imperial (mi, ft)</option>
                   </select>
+                </label>
+                <h3 class="settings-subhead">Drive / Navigate</h3>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="driveSonar" checked />
+                  Receive FX
+                  <span class="muted"> — inward sonar + live network dots on Drive</span>
                 </label>
                 <label>
                   Drive map lighting
@@ -261,24 +257,6 @@
 
             <section
               class="tools-panel settings-form-panel settings-panel"
-              id="panel-advanced"
-              data-section="advanced"
-              aria-label="Advanced tools"
-              hidden
-            >
-              <h2>Advanced</h2>
-              <p class="muted">
-                Ingest uses fast 2D. Run 3D recalculation when you can wait — altitude is kept either way.
-              </p>
-              <div class="tools-row">
-                <span class="mode-pill" id="locMode">2d</span>
-                <span class="mode-pill" id="deployMode">full</span>
-                <button class="btn" type="button" id="recompute3d">Recalculate locations in 3D</button>
-              </div>
-            </section>
-
-            <section
-              class="tools-panel settings-form-panel settings-panel"
               id="panel-admin"
               data-section="admin"
               aria-label="Admin"
@@ -287,7 +265,7 @@
               <h2>Admin · invite user</h2>
               <form id="inviteForm" class="settings-form">
                 <label>Username <input id="inviteUser" required /></label>
-                <label>Password <input type="password" id="invitePass" required /></label>
+                <label>Password <input type="password" id="invitePass" minlength="8" required /></label>
                 <label class="checkbox-row"><input type="checkbox" id="inviteAdmin" /> Admin</label>
                 <button class="btn btn-primary" type="submit">Create user</button>
               </form>
@@ -299,7 +277,7 @@
       </main>
     </div>
     <script src="/static/auth.js"></script>
-    <script src="/static/nav.js?v=8"></script>
-    <script src="/static/settings.js?v=9"></script>
+    <script src="/static/nav.js?v=10"></script>
+    <script src="/static/settings.js?v=12"></script>
   </body>
 </html>
