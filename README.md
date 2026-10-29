@@ -24,18 +24,13 @@ Drop PNGs into `docs/screenshots/` (see that folder’s README). Until then the 
 
 ---
 
-## Quick start
+## Install
 
-**Always use the `:latest` image tag** so you get the current release. Product version (**1.0.0**) is shown in this README header, on the home page, and via `/api/health` (`VERSION` / `APP_VERSION`) — not as a pinned image tag.
+Product version (**1.0.0**) is shown in this README header, on the home page, and via `/api/health` (`VERSION` / `APP_VERSION`). Prefer the published image tag **`:latest`** — not a pinned semver image tag.
 
-```bash
-docker pull ghcr.io/<owner>/wardrivrr:latest
-# Compose: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
-```
+### Docker Compose
 
-### Vehicle / Linux (recommended)
-
-First boot installs host helpers, writes `.env`, and brings the stack up:
+Recommended path. Root compose + car overlay; `./deploy.sh` / `./run.sh` write `.env` and bring the stack up on a vehicle / Linux host.
 
 ```bash
 git clone https://github.com/JAKAMI99/wardrivrr.git
@@ -60,9 +55,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now wardrivrr-stack
 ```
 
-### Docker Compose only (after `.env` exists)
-
-Same stack `./run.sh` uses — root compose + car overlay. Prefer the published image (`:latest`); local `--build` is for development.
+Compose only (after `.env` exists) — same stack `./run.sh` uses:
 
 ```bash
 cp .env.example .env
@@ -70,11 +63,10 @@ cp .env.example .env
 # WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
 mkdir -p data/kismet_logs data/valhalla data/incoming data/pbf
 
-docker pull ghcr.io/<owner>/wardrivrr:latest
 docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
 ```
 
-Health check (reports product version from `VERSION` / `APP_VERSION`):
+Health check:
 
 ```bash
 curl -fsS http://127.0.0.1:8000/api/health
@@ -96,7 +88,21 @@ docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env c
 ls -la data/
 ```
 
-### Local debug (host API)
+### Docker
+
+Images are published on GHCR. Pull `:latest` and point compose at it (local `--build` is for development only).
+
+```bash
+docker pull ghcr.io/<owner>/wardrivrr:latest
+# In .env:
+# WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
+```
+
+Replace `<owner>` with the GitHub org/user that owns the package (same as this repo). After setting `WARDRIVRR_IMAGE`, use the Compose commands above — no image build required on the car.
+
+### Manual install (bare metal)
+
+Run the API on the host with a venv; PostGIS still via compose (or your own Postgres).
 
 ```bash
 python -m venv venv
@@ -105,7 +111,7 @@ docker compose up -d postgis
 ./debug.sh                                         # or .\debug.bat
 ```
 
-Open `http://127.0.0.1:8000/setup` on a fresh database.
+Open `http://127.0.0.1:8000/setup` on a fresh database. GPS / Kismet / Valhalla still need to be installed and configured on the host if you want the full Drive stack outside Docker.
 
 ---
 
