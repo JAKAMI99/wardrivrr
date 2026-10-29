@@ -77,7 +77,9 @@ function escHtml(value) {
 async function loadWigleCredentials() {
   const hint = document.getElementById("wigleConfiguredHint");
   try {
-    const res = await WardAuth.apiFetch("/api/wigle/credentials");
+    const res = await WardAuth.apiFetch("/api/wigle/credentials", {
+      redirectOn401: false,
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return;
     const help = document.querySelector(".help-tip[href*='wigle.net']");
@@ -85,7 +87,7 @@ async function loadWigleCredentials() {
     if (hint) {
       if (data.configured) {
         hint.hidden = false;
-        hint.textContent = `Saved key · name ${data.api_name_suffix || "****"} · token ${data.api_token_suffix || "****"}`;
+        hint.textContent = `Saved key · ${data.api_key_suffix || "****"}`;
       } else {
         hint.hidden = true;
         hint.textContent = "";
@@ -96,11 +98,8 @@ async function loadWigleCredentials() {
   }
 }
 
-function readWigleFields() {
-  return {
-    api_name: document.getElementById("wigleApiName")?.value?.trim() || "",
-    api_token: document.getElementById("wigleApiToken")?.value?.trim() || "",
-  };
+function readWigleApiKey() {
+  return document.getElementById("wigleApiKey")?.value?.trim() || "";
 }
 
 async function loadKeys() {
@@ -293,23 +292,24 @@ function pulseProgress(barEl, textEl, phases) {
 }
 
 document.getElementById("wigleSaveBtn")?.addEventListener("click", async () => {
-  const { api_name, api_token } = readWigleFields();
-  if (!api_name || !api_token) {
-    showToast("Enter WiGLE API name and token", true);
+  const api_key = readWigleApiKey();
+  if (!api_key) {
+    showToast("Paste your WiGLE Encoded for Use API key", true);
     return;
   }
   const res = await WardAuth.apiFetch("/api/wigle/credentials", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ api_name, api_token }),
+    body: JSON.stringify({ api_key }),
+    redirectOn401: false,
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    showToast(body.detail || "Could not save WiGLE key", true);
+    const detail = typeof body.detail === "string" ? body.detail : "Could not save WiGLE key";
+    showToast(detail, true);
     return;
   }
-  document.getElementById("wigleApiName").value = "";
-  document.getElementById("wigleApiToken").value = "";
+  document.getElementById("wigleApiKey").value = "";
   await loadWigleCredentials();
   showToast("WiGLE API key saved");
 });
@@ -319,12 +319,9 @@ document.getElementById("wigleImportBtn")?.addEventListener("click", async () =>
   const progress = document.getElementById("wigleImportProgress");
   const bar = document.getElementById("wigleImportProgressBar");
   const text = document.getElementById("wigleImportProgressText");
-  const { api_name, api_token } = readWigleFields();
+  const api_key = readWigleApiKey();
   const payload = { skip_existing: true };
-  if (api_name && api_token) {
-    payload.api_name = api_name;
-    payload.api_token = api_token;
-  }
+  if (api_key) payload.api_key = api_key;
   setBusy(btn, progress, bar, text, true, "Listing WiGLE uploads...");
   const pulse = pulseProgress(bar, text, [
     "Listing WiGLE uploads...",
@@ -337,17 +334,19 @@ document.getElementById("wigleImportBtn")?.addEventListener("click", async () =>
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      redirectOn401: false,
     });
     const body = await res.json().catch(() => ({}));
     clearInterval(pulse);
     if (!res.ok) {
       setBusy(btn, progress, bar, text, false);
-      showToast(body.detail || "WiGLE import failed", true);
+      const detail =
+        typeof body.detail === "string" ? body.detail : "WiGLE import failed";
+      showToast(detail, true);
       return;
     }
-    if (api_name && api_token) {
-      document.getElementById("wigleApiName").value = "";
-      document.getElementById("wigleApiToken").value = "";
+    if (api_key) {
+      document.getElementById("wigleApiKey").value = "";
       await loadWigleCredentials();
     }
     finishBusy(
@@ -362,7 +361,7 @@ document.getElementById("wigleImportBtn")?.addEventListener("click", async () =>
       `WiGLE: ${fmt(body.files_ingested)} files · ${fmt(body.samples_submitted)} samples${skipped}`
     );
     if (body.failed_count) {
-      showToast(`${fmt(body.failed_count)} file(s) failed — see server logs`, true);
+      showToast(`${fmt(body.failed_count)} file(s) failed — check Status / logs`, true);
     }
   } catch (err) {
     clearInterval(pulse);

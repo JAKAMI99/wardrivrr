@@ -801,13 +801,11 @@ def ingest_upload(
 
 
 class WigleCredentialsBody(BaseModel):
-    api_name: str = Field(min_length=1, max_length=128)
-    api_token: str = Field(min_length=1, max_length=256)
+    api_key: str = Field(min_length=1, max_length=512)
 
 
 class WigleImportBody(BaseModel):
-    api_name: str | None = Field(default=None, max_length=128)
-    api_token: str | None = Field(default=None, max_length=256)
+    api_key: str | None = Field(default=None, max_length=512)
     skip_existing: bool = True
 
 
@@ -825,7 +823,7 @@ def wigle_credentials_put(
     from wigle_import import save_credentials
 
     try:
-        return save_credentials(user["id"], body.api_name, body.api_token)
+        return save_credentials(user["id"], body.api_key)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -846,8 +844,7 @@ def wigle_import_run(
     try:
         result = import_from_wigle(
             user["id"],
-            api_name=body.api_name,
-            api_token=body.api_token,
+            api_key=body.api_key,
             mode=mode,
             precision=precision,
             skip_existing=body.skip_existing,
@@ -855,7 +852,8 @@ def wigle_import_run(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except PermissionError as exc:
-        raise HTTPException(401, str(exc)) from exc
+        # 400 not 401 — wardrivrr session is fine; only WiGLE rejected the key
+        raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
         msg = str(exc)
         if "429" in msg:

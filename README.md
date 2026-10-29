@@ -110,7 +110,7 @@ Open `http://127.0.0.1:1337/setup`. Full Drive (Kismet / Valhalla / host GPS) is
 
 ## Data import
 
-**WiGLE account (one click):** In the Web UI go to **Settings → Data → WiGLE account**. Paste your **WiGLE API name** and **API token** from [wigle.net/account](https://wigle.net/account) (the same pair used for WiGLE HTTP Basic auth), click **Save API key**, then **Import from WiGLE**. wardrivrr lists your WiGLE uploads, downloads each as WiGLE CSV, and ingests them like a manual file upload. Re-import skips CSV files already saved under your incoming folder.
+**WiGLE account (one click):** In the Web UI go to **Settings → Data → WiGLE account**. Paste the **Encoded for Use** API key from [wigle.net/account](https://wigle.net/account), click **Save API key**, then **Import from WiGLE**. wardrivrr lists your WiGLE uploads, downloads each as WiGLE CSV, and ingests them like a manual file upload. Re-import skips CSV files already saved under your incoming folder.
 
 **Manual files:** The same **Settings → Data** panel accepts Kismet `.kismet` and WiGLE CSV uploads.
 

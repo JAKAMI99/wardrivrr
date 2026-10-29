@@ -201,26 +201,22 @@
             >
               <h2>WiGLE account</h2>
               <p class="muted settings-hint">
-                Pull your past WiGLE uploads into wardrivrr. Use the API name and token from your WiGLE account (Basic auth).
+                Pull your past WiGLE uploads into wardrivrr in one click.
               </p>
               <label>
                 <span class="label-with-help">
-                  WiGLE API name
+                  WiGLE API key
                   <a
                     class="help-tip"
                     href="https://wigle.net/account"
                     target="_blank"
                     rel="noopener noreferrer"
-                    title="Your WiGLE user API name goes here. Click to open WiGLE account settings where the API name and token are shown."
+                    title="Paste your WiGLE Encoded for Use API key here. Click to open WiGLE account settings where you can copy it."
                     aria-label="WiGLE API help — opens wigle.net/account"
                     >?</a
                   >
                 </span>
-                <input type="password" id="wigleApiName" autocomplete="off" spellcheck="false" />
-              </label>
-              <label>
-                WiGLE API token
-                <input type="password" id="wigleApiToken" autocomplete="off" spellcheck="false" />
+                <input type="password" id="wigleApiKey" autocomplete="off" spellcheck="false" />
               </label>
               <p class="muted settings-hint" id="wigleConfiguredHint" hidden></p>
               <div class="tools-row">
@@ -316,6 +312,6 @@
     </div>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=10"></script>
-    <script src="/static/settings.js?v=13"></script>
+    <script src="/static/settings.js?v=14"></script>
   </body>
 </html>

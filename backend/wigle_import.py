@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import re
 import time
@@ -19,6 +20,9 @@ WIGLE_ACCOUNT_URL = "https://wigle.net/account"
 WIGLE_PAGE_SIZE = 100
 WIGLE_REQUEST_TIMEOUT = 120
 
+# Single field: WiGLE "Encoded for Use" (preferred) or legacy name:token
+_KEY_API = "wigle_api_key"
+# Legacy dual fields — still read for migration
 _KEY_NAME = "wigle_api_name"
 _KEY_TOKEN = "wigle_api_token"
 
@@ -38,46 +42,75 @@ def _mask_suffix(value: str | None, *, tail: int = 4) -> str | None:
     return f"{'*' * (len(text) - tail)}{text[-tail:]}"
 
 
-def credentials_status(user_id: int) -> dict:
+def _legacy_combined(user_id: int) -> str:
     name = (get_user_setting(user_id, _KEY_NAME, "") or "").strip()
     token = (get_user_setting(user_id, _KEY_TOKEN, "") or "").strip()
-    configured = bool(name and token)
+    if name and token:
+        return f"{name}:{token}"
+    return ""
+
+
+def _stored_key(user_id: int) -> str:
+    key = (get_user_setting(user_id, _KEY_API, "") or "").strip()
+    if key:
+        return key
+    return _legacy_combined(user_id)
+
+
+def credentials_status(user_id: int) -> dict:
+    key = _stored_key(user_id)
     return {
-        "configured": configured,
-        "api_name_suffix": _mask_suffix(name) if name else None,
-        "api_token_suffix": _mask_suffix(token) if token else None,
+        "configured": bool(key),
+        "api_key_suffix": _mask_suffix(key) if key else None,
         "account_url": WIGLE_ACCOUNT_URL,
     }
 
 
-def save_credentials(user_id: int, api_name: str, api_token: str) -> dict:
-    name = (api_name or "").strip()
-    token = (api_token or "").strip()
-    if not name or not token:
-        raise ValueError("WiGLE API name and token are both required")
-    set_user_setting(user_id, _KEY_NAME, name)
-    set_user_setting(user_id, _KEY_TOKEN, token)
+def save_credentials(user_id: int, api_key: str) -> dict:
+    key = (api_key or "").strip()
+    if not key:
+        raise ValueError("WiGLE API key is required")
+    # Normalize so we always store something usable as Basic auth material
+    _basic_auth_header(key)  # validate shape early
+    set_user_setting(user_id, _KEY_API, key)
+    # Clear legacy split fields so status stays consistent
+    set_user_setting(user_id, _KEY_NAME, "")
+    set_user_setting(user_id, _KEY_TOKEN, "")
     return credentials_status(user_id)
 
 
-def _load_credentials(
-    user_id: int,
-    *,
-    api_name: str | None = None,
-    api_token: str | None = None,
-) -> tuple[str, str]:
-    name = (api_name or get_user_setting(user_id, _KEY_NAME, "") or "").strip()
-    token = (api_token or get_user_setting(user_id, _KEY_TOKEN, "") or "").strip()
-    if not name or not token:
+def _basic_auth_header(api_key: str) -> str:
+    """Accept Encoded-for-Use (base64) or legacy `APIName:APIToken`."""
+    key = (api_key or "").strip()
+    if not key:
+        raise ValueError("WiGLE API key is empty")
+
+    # Already looks like base64 of name:token (WiGLE "Encoded for Use")
+    if ":" not in key:
+        try:
+            decoded = base64.b64decode(key, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise ValueError(
+                "WiGLE API key must be the Encoded for Use value from wigle.net/account "
+                "(or name:token)."
+            ) from exc
+        if ":" not in decoded:
+            raise ValueError(
+                "WiGLE API key does not decode to name:token. Copy Encoded for Use from wigle.net/account."
+            )
+        return "Basic " + key
+
+    # Legacy plaintext name:token
+    return "Basic " + base64.b64encode(key.encode("utf-8")).decode("ascii")
+
+
+def _load_auth_header(user_id: int, *, api_key: str | None = None) -> str:
+    key = (api_key or _stored_key(user_id) or "").strip()
+    if not key:
         raise ValueError(
-            "WiGLE API credentials are not saved. Enter API name and token first."
+            "WiGLE API key is not saved. Paste Encoded for Use from wigle.net/account first."
         )
-    return name, token
-
-
-def _basic_auth_header(api_name: str, api_token: str) -> str:
-    raw = f"{api_name}:{api_token}".encode("utf-8")
-    return "Basic " + base64.b64encode(raw).decode("ascii")
+    return _basic_auth_header(key)
 
 
 def _http_get(
@@ -102,11 +135,11 @@ def _http_get(
         body = exc.read().decode("utf-8", errors="replace")[:500]
         if exc.code == 401:
             raise PermissionError(
-                "WiGLE rejected the API credentials (401). Check API name and token at wigle.net/account."
+                "WiGLE rejected the API key (401). Copy Encoded for Use from wigle.net/account."
             ) from exc
         if exc.code == 429:
             raise RuntimeError(
-                "WiGLE rate limit reached (429). Wait and try again, or import fewer files at a time."
+                "WiGLE rate limit reached (429). Wait and try again."
             ) from exc
         raise RuntimeError(f"WiGLE HTTP {exc.code}: {body or exc.reason}") from exc
     except urllib.error.URLError as exc:
@@ -162,17 +195,14 @@ def _csv_header_ok(path: Path) -> bool:
 def import_from_wigle(
     user_id: int,
     *,
-    api_name: str | None = None,
-    api_token: str | None = None,
+    api_key: str | None = None,
     mode: str = "2d",
     precision: str = "balanced",
     skip_existing: bool = True,
 ) -> dict:
-    name, token = _load_credentials(user_id, api_name=api_name, api_token=api_token)
-    if api_name and api_token:
-        save_credentials(user_id, name, token)
-
-    auth_header = _basic_auth_header(name, token)
+    if api_key and api_key.strip():
+        save_credentials(user_id, api_key.strip())
+    auth_header = _load_auth_header(user_id, api_key=api_key)
     transactions = _list_transactions(auth_header)
     incoming = user_incoming(user_id)
 
