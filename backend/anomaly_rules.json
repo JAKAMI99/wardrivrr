@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "notes": "Fingerprints grounded in public sources. Flipper uses Wall-of-Flippers-style MAC/name checks (service UUIDs are not stored). Starlink OUI omitted (BSSID randomization). SBB FreeSurf is app/BT, not a public SSID.",
+  "rules": [
+    {
+      "id": "flipper_zero",
+      "title": "Flipper Zero",
+      "toast": "Flipper Zero nearby",
+      "flavour": "Wall of Flippers fingerprint — BLE MAC OUI or Flipper name.",
+      "sound": "blip",
+      "priority": 100,
+      "network_types": ["BT", "BLE"],
+      "mac_prefixes": ["80:e1:26", "80:e1:27", "0c:fa:22"],
+      "name_prefixes": ["flipper"],
+      "counts_for": "flipper_networks"
+    },
+    {
+      "id": "pwnagotchi",
+      "title": "Pwnagotchi",
+      "toast": "Pwnagotchi beacon",
+      "flavour": "Classic de:ad:be:ef:de:ad beacon MAC (or JSON peer SSID).",
+      "sound": "blip",
+      "priority": 90,
+      "network_types": ["WIFI"],
+      "mac_exact": ["de:ad:be:ef:de:ad"],
+      "name_contains_any": ["\"pwnd", "\"identity\"", "\"session_id\""]
+    },
+    {
+      "id": "wifi_pineapple",
+      "title": "WiFi Pineapple",
+      "toast": "WiFi Pineapple pattern",
+      "flavour": "BSSID with 13:37 in the middle bytes (Hak5 / community detectors).",
+      "sound": "blip",
+      "priority": 80,
+      "network_types": ["WIFI"],
+      "mac_byte12": "13:37"
+    },
+    {
+      "id": "starlink",
+      "title": "Starlink",
+      "toast": "Starlink hotspot",
+      "flavour": "Default STARLINK SSID (user-renamed kits won’t match).",
+      "sound": "space",
+      "priority": 70,
+      "network_types": ["WIFI"],
+      "ssid_exact": ["STARLINK"],
+      "ssid_prefixes": ["STARLINK-"],
+      "counts_for": "starlink_networks"
+    },
+    {
+      "id": "train_wifionice",
+      "title": "WIFIonICE",
+      "toast": "Deutsche Bahn Wi‑Fi",
+      "flavour": "Official ICE/IC SSID WIFIonICE.",
+      "sound": "train",
+      "priority": 60,
+      "network_types": ["WIFI"],
+      "ssid_exact": ["WIFIonICE", "WIFIOnICE"]
+    },
+    {
+      "id": "train_oebb",
+      "title": "ÖBB Railjet Wi‑Fi",
+      "toast": "ÖBB train Wi‑Fi",
+      "flavour": "Official ÖBB SSID OEBB.",
+      "sound": "train",
+      "priority": 55,
+      "network_types": ["WIFI"],
+      "ssid_exact": ["OEBB"]
+    }
+  ]
+}

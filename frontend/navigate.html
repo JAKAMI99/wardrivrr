@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0d0f" />
+    <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
+    <title>Drive · wardrivrr</title>
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/styles.css?v=25" />
+    <link rel="stylesheet" href="/static/themes.css?v=25" />
+    <script src="/static/theme.js?v=31"></script>
+    <link rel="stylesheet" href="/static/navigate.css?v=57" />
+  </head>
+  <body class="nav-body" data-nav-night="0">
+    <div class="app-shell nav-shell">
+      <nav class="site-nav nav-site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links"></div>
+      </nav>
+
+      <main class="nav-main">
+        <div id="navMap" class="nav-map" role="application" aria-label="Navigation map"></div>
+
+        <section class="nav-hud-side" aria-live="polite" hidden>
+          <div class="nav-maneuver next" id="maneuverNext">
+            <div class="nav-turn-arrow" id="maneuverNextArrow" aria-hidden="true"></div>
+            <div class="nav-turn-meta">
+              <span class="nav-maneuver-dist" id="maneuverNextDist">-</span>
+              <span class="nav-maneuver-unit" id="maneuverNextUnit"></span>
+              <span class="nav-maneuver-sr" id="maneuverNextText"></span>
+            </div>
+          </div>
+        </section>
+
+        <div class="nav-rerouting" id="navRerouting" hidden role="status" aria-live="polite">
+          Rerouting...
+        </div>
+
+        <div
+          class="nav-routing-wait"
+          id="navRoutingWait"
+          hidden
+          role="status"
+          aria-live="polite"
+        >
+          <strong>Routing not ready</strong>
+          <span id="navRoutingWaitDetail">Generating the routing map...</span>
+        </div>
+
+        <div id="levelPrompt" class="nav-level-prompt" hidden>
+          <div class="nav-level-card">
+            <p class="nav-level-title">Preload region?</p>
+            <p class="nav-level-name" id="levelPromptName" data-place-name>-</p>
+            <p class="muted nav-level-sub">
+              No region covers this spot yet. Auto-confirm in
+              <span id="levelPromptSec">20</span>s
+            </p>
+            <div class="nav-level-actions">
+              <button type="button" class="btn" id="levelPromptNo">Not now</button>
+              <button type="button" class="btn btn-primary nav-yes-fill" id="levelPromptYes">
+                <span class="nav-yes-fill-bar" id="levelPromptFill"></span>
+                <span class="nav-yes-fill-label">Yes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="navBuildOverlay" class="nav-build-overlay" hidden>
+          <div class="nav-build-card">
+            <h2 id="navBuildTitle">Building your region...</h2>
+            <p class="muted" id="navBuildMessage">Starting...</p>
+            <div class="nav-build-progress">
+              <div class="nav-build-track">
+                <div class="nav-build-fill" id="navBuildFill"></div>
+              </div>
+              <div class="nav-build-meta">
+                <span id="navBuildPct">0%</span>
+                <span id="navBuildEta">-</span>
+              </div>
+            </div>
+            <ul class="nav-build-stages" id="navBuildStages">
+              <li data-stage="extract">Find roads</li>
+              <li data-stage="roads">Build playable segments</li>
+              <li data-stage="finish">Finish up</li>
+            </ul>
+          </div>
+        </div>
+
+        <section class="nav-hud-stats" aria-label="Drive stats">
+          <div class="nav-stat">
+            <span id="statSpeed">0</span>
+            <small>km/h</small>
+          </div>
+          <div class="nav-stat nav-stat-radio" title="New · seen this drive">
+            <span class="nav-stat-new" id="statWifiNew">0</span>
+            <span class="nav-stat-seen" id="statWifiSeen">0</span>
+            <small>Wi-Fi</small>
+          </div>
+          <div class="nav-stat nav-stat-radio" title="Bluetooth + BLE - new · seen this drive">
+            <span class="nav-stat-new" id="statBlueNew">0</span>
+            <span class="nav-stat-seen" id="statBlueSeen">0</span>
+            <small>Blue</small>
+          </div>
+          <div class="nav-stat nav-stat-level" id="statLevelCell" title="Unlocked / total road tiles in this region">
+            <span id="statLevel" data-place-name>-</span>
+            <small id="statTiles">-/-</small>
+          </div>
+          <a class="nav-stat nav-stat-xp" href="/stats" title="Stats - level, XP, achievements">
+            <div class="nav-xp-top">
+              <span id="statXpLevel">-</span>
+              <span class="nav-xp-meta" id="statXpMeta"></span>
+            </div>
+            <div class="nav-xp-track" aria-hidden="true">
+              <div class="nav-xp-fill" id="statXpFill"></div>
+            </div>
+            <small>XP</small>
+          </a>
+        </section>
+
+        <!-- Compact chrome: play + vehicle + settings -->
+        <section class="nav-toolbar nav-toolbar-icons" aria-label="Map controls">
+          <button type="button" class="nav-icon-btn nav-icon-btn-lg nav-nav-toggle is-muted-look" id="btnNavToggle" title="Start navigation" aria-label="Start navigation" aria-pressed="false">
+            <svg class="nav-play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+            <svg class="nav-stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
+              <rect x="6" y="6" width="12" height="12" rx="1.5"/>
+            </svg>
+          </button>
+          <button type="button" class="nav-icon-btn is-on" id="btnDriveMode" title="Vehicle routing" aria-label="Vehicle routing" aria-expanded="false" aria-controls="navModeSheet">
+            <span class="nav-vehicle-glyph" id="btnDriveModeIcon" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="nav-icon-btn is-muted-look" id="btnNavSettings" title="Drive settings" aria-label="Drive settings" aria-expanded="false" aria-controls="navSettingsSheet">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.4-1.04-.72-1.62-.94l-.36-2.54a.49.49 0 0 0-.48-.41h-3.84a.49.49 0 0 0-.48.41l-.36 2.54c-.58.22-1.12.54-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.86 14.52a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.4 1.04.72 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .43-.17.48-.41l.36-2.54c.58-.22 1.12-.54 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+            </svg>
+          </button>
+          <p class="nav-hint muted" id="navHint" hidden>Waiting for GPS...</p>
+        </section>
+
+        <div id="navSettingsSheet" class="nav-mode-sheet" hidden>
+          <div class="nav-mode-card nav-settings-card" role="dialog" aria-labelledby="navSettingsTitle">
+            <header class="nav-mode-head">
+              <h2 id="navSettingsTitle">Drive settings</h2>
+              <button type="button" class="btn" id="btnSettingsClose">Close</button>
+            </header>
+            <div class="nav-settings-rows">
+              <button type="button" class="nav-settings-row" id="btnMuteSounds" aria-pressed="false">
+                <span class="nav-settings-label">Sounds</span>
+                <span class="nav-settings-value" id="settingsMuteValue">On</span>
+              </button>
+              <button type="button" class="nav-settings-row" id="btnViewMode" aria-pressed="true">
+                <span class="nav-settings-label">Map view</span>
+                <span class="nav-settings-value" id="settingsViewValue">3D</span>
+              </button>
+              <button type="button" class="nav-settings-row" id="btnDriveSonar" aria-pressed="true">
+                <span class="nav-settings-label">Receive FX</span>
+                <span class="nav-settings-value" id="settingsSonarValue">On</span>
+              </button>
+              <a class="nav-settings-row nav-settings-link" href="/regions">Regions</a>
+              <a class="nav-settings-row nav-settings-link" href="/status">Status</a>
+              <a class="nav-settings-row nav-settings-link" href="/settings#preferences">All settings</a>
+            </div>
+          </div>
+        </div>
+
+        <div id="navModeSheet" class="nav-mode-sheet" hidden>
+          <div class="nav-mode-card" role="dialog" aria-labelledby="navModeTitle">
+            <header class="nav-mode-head">
+              <h2 id="navModeTitle">Vehicle routing</h2>
+              <button type="button" class="btn" id="btnModeClose">Close</button>
+            </header>
+            <p class="nav-mode-current">
+              Routing as: <strong id="navModeLabel">-</strong>
+            </p>
+            <p class="muted nav-mode-blurb" id="navModeBlurb">-</p>
+            <p class="muted nav-mode-hint">
+              Changes routing and which roads count as explored. Manage maps under Regions.
+            </p>
+            <ul class="nav-mode-presets" id="navModePresets"></ul>
+            <a class="btn btn-primary nav-mode-levels" href="/regions">View regions</a>
+          </div>
+        </div>
+
+        <section class="nav-toolbar nav-debug-toolbar" id="navDebugToolbar" hidden aria-label="Debug controls">
+          <button type="button" class="btn btn-primary" id="btnSpawn">Spawn</button>
+          <button
+            type="button"
+            class="btn"
+            id="btnSimUnknown"
+            title="Clear active region and spawn in Köln (or ?lat=&lon=)"
+          >
+            Sim unknown area
+          </button>
+          <button type="button" class="btn" id="btnFollowGps" title="Track GPS from tools/drive_sim replay">
+            Follow live GPS
+          </button>
+          <button type="button" class="btn" id="btnStart" disabled>Start explore</button>
+          <button type="button" class="btn" id="btnReplan" disabled>Replan</button>
+          <label class="nav-toggle" title="Requires WebGL">
+            <input type="checkbox" id="toggleBuildings" />
+            3D view
+          </label>
+          <label class="nav-toggle" title="Flipper, Starlink, train SSIDs - toasts &amp; Flipper/Starlink XP">
+            <input type="checkbox" id="toggleAnomaly" checked />
+            Special detections
+          </label>
+          <label class="nav-km">
+            Horizon
+            <select id="targetKm">
+              <option value="3">3 km</option>
+              <option value="5" selected>5 km</option>
+              <option value="8">8 km</option>
+              <option value="12">12 km</option>
+            </select>
+          </label>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=10"></script>
+    <script src="/static/navigate.js?v=79"></script>
+  </body>
+</html>

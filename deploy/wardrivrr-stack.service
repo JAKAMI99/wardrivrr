@@ -1,0 +1,22 @@
+[Unit]
+Description=wardrivrr Docker stack (api + postgis + optional valhalla)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Install: copy this unit and replace every /opt/wardrivrr with the real clone
+# path (or symlink the clone to /opt/wardrivrr). ./deploy.sh already writes
+# matching HOST_* into .env when run from the clone.
+WorkingDirectory=/opt/wardrivrr
+# FORCE_LOCAL_BUILD comes from .env via run.sh — do not force rebuild every boot.
+ExecStart=/bin/bash /opt/wardrivrr/run.sh
+ExecStop=/usr/bin/docker compose -f /opt/wardrivrr/docker-compose.yml -f /opt/wardrivrr/deploy/compose.car.yml --env-file /opt/wardrivrr/.env stop
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

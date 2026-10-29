@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0d0f" />
+    <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
+    <title>Regions · wardrivrr</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="/static/styles.css?v=28" />
+    <link rel="stylesheet" href="/static/themes.css?v=25" />
+    <script src="/static/theme.js?v=31"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links"></div>
+      </nav>
+
+      <main class="home-main settings-main">
+        <header class="home-hero settings-hero">
+          <h1>Regions</h1>
+          <p>Preload a city or district. Drive can also pick one from your location.</p>
+        </header>
+
+        <section class="tools-panel wizard-panel" aria-label="Preload region">
+          <div class="wizard-steps" id="wizardSteps" aria-hidden="true">
+            <span data-step="1" class="active">Place</span>
+            <span data-step="2">Area</span>
+            <span data-step="3">Confirm</span>
+            <span data-step="4">Build</span>
+          </div>
+
+          <div class="wizard-pane" id="step1">
+            <h2>Find a place</h2>
+            <p class="muted">City or town — e.g. Berlin, Germany</p>
+            <form id="searchForm" class="settings-form">
+              <label>
+                Place
+                <input id="placeQuery" placeholder="Berlin, Germany" autocomplete="off" required />
+              </label>
+              <div class="tools-row">
+                <button class="btn btn-primary" type="submit" id="searchBtn">Search</button>
+              </div>
+            </form>
+            <div id="placeResults" class="levels-search-results"></div>
+          </div>
+
+          <div class="wizard-pane" id="step2" hidden>
+            <h2 id="previewTitle">Choose area</h2>
+            <p class="muted" id="previewSub">Preparing map data…</p>
+            <div class="level-preview-wrap" id="previewWrap">
+              <div id="previewMap" class="level-preview-map is-loading" role="img" aria-label="Area preview"></div>
+              <div class="level-preview-overlay" id="previewOverlay" hidden>
+                <p id="prepareStatus">Downloading map pack…</p>
+                <div class="level-progress">
+                  <div class="level-progress-track">
+                    <div class="level-progress-fill" id="prepareFill"></div>
+                  </div>
+                  <div class="level-progress-meta">
+                    <span id="preparePct">0%</span>
+                    <span id="prepareEta">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="areaChoices" class="area-choices" hidden></div>
+            <div class="tools-row wizard-nav">
+              <button class="btn" type="button" data-back="1">Back</button>
+              <button class="btn btn-primary" type="button" id="areaNextBtn" data-next="3" disabled>
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div class="wizard-pane" id="step3" hidden>
+            <h2>Confirm</h2>
+            <div class="confirm-card" id="confirmCard">
+              <p id="confirmPlace"></p>
+              <p class="confirm-size" id="confirmSize"></p>
+              <p class="muted" id="confirmHint">Roads are clipped to this outline. Vehicle mode is chosen in Drive.</p>
+              <details class="confirm-details">
+                <summary>Pack details</summary>
+                <p id="confirmTech" class="muted"></p>
+              </details>
+            </div>
+            <input type="hidden" id="levelName" />
+            <div class="tools-row wizard-nav">
+              <button class="btn" type="button" data-back="2">Back</button>
+              <button class="btn btn-primary" type="button" id="generateBtn">Preload</button>
+            </div>
+          </div>
+
+          <div class="wizard-pane" id="step4" hidden>
+            <h2 id="progressTitle">Building…</h2>
+            <p class="muted" id="progressMessage">Starting…</p>
+            <div class="level-progress">
+              <div class="level-progress-track">
+                <div class="level-progress-fill" id="progressFill"></div>
+              </div>
+              <div class="level-progress-meta">
+                <span id="progressPct">0%</span>
+                <span id="progressEta">-</span>
+              </div>
+            </div>
+            <ul class="level-stage-list" id="stageList">
+              <li data-stage="extract">Find roads</li>
+              <li data-stage="roads">Build segments</li>
+              <li data-stage="finish">Finish</li>
+            </ul>
+          </div>
+
+          <div class="wizard-pane wizard-done" id="stepDone" hidden>
+            <div class="done-burst" aria-hidden="true"></div>
+            <h2>Ready</h2>
+            <p id="doneText" class="muted">Region ready.</p>
+            <div class="tools-row">
+              <button class="btn btn-primary" type="button" id="doneLoad">View regions</button>
+              <button class="btn" type="button" id="doneAnother">Preload another</button>
+            </div>
+          </div>
+
+          <div class="toast" id="toast" hidden></div>
+        </section>
+
+        <section class="tools-panel" aria-label="Your regions" id="regionsListSection">
+          <div class="regions-list-head">
+            <h2>Your regions</h2>
+            <label class="regions-sort" data-kidcore-skip>
+              Sort
+              <select id="regionsSort" data-kidcore-skip>
+                <option value="created" selected>Created</option>
+                <option value="completion">Progress</option>
+                <option value="name">Name</option>
+                <option value="size">Road km</option>
+              </select>
+            </label>
+          </div>
+          <div id="levelsList" class="levels-list">Loading…</div>
+        </section>
+      </main>
+    </div>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=10"></script>
+    <script src="/static/regions.js?v=27"></script>
+  </body>
+</html>

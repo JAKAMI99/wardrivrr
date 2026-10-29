@@ -1,0 +1,22 @@
+# Default until Machine setup runs in the Web UI.
+# Passwords / sources are overwritten from /machine-setup.
+
+server_name=wardrivrr
+httpd_bind_address=0.0.0.0
+httpd_port=2501
+httpd_username=wardrivrr
+httpd_password=changeme
+
+gps=gpsd:host=127.0.0.1,port=2947
+
+# Placeholders — replace via Web UI Machine setup
+# source=wlan0:name=MonitorWifi:type=linuxwifi
+# source=hci0:name=linuxbt:type=linuxbluetooth
+
+log_prefix=/home/kismet/logs/wardrivrr
+log_types=kismet,kis_db
+log_title_timestamp=true
+
+channel_hop=true
+channel_hop_speed=5/sec
+retry_on_source_error=true

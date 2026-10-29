@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
+    <title>Status · wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css?v=17" />
+    <link rel="stylesheet" href="/static/themes.css?v=25" />
+    <script src="/static/theme.js?v=31"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links">
+          <a href="/">Home</a>
+          <a href="/database">Database</a>
+          <a href="/stats">Stats</a>
+          <a href="/regions">Regions</a>
+          <a href="/discover">Discover</a>
+          <a href="/navigate">Navigate</a>
+          
+          <a href="/api">API</a>
+          <a class="active" href="/status">Status</a>
+          <a href="/settings">Settings</a>
+        </div>
+      </nav>
+
+      <main class="home-main settings-main">
+        <header class="home-hero settings-hero">
+          <h1>Status</h1>
+          <p>
+            Services and machine.
+            <span id="deployModeLabel">Mode …</span>
+          </p>
+        </header>
+
+        <div class="section-head">
+          <div>
+            <h2>Live services</h2>
+            <p>Refreshes every few seconds · <span id="statusUpdated">-</span></p>
+          </div>
+          <button class="btn btn-ghost" type="button" id="refreshStatus">Refresh now</button>
+        </div>
+
+        <section class="status-grid" aria-label="Service status">
+          <article class="status-card" id="cardGps">
+            <div class="status-card-top">
+              <span class="module-kicker">GPS · gpsd</span>
+              <span class="badge" id="gpsBadge">...</span>
+            </div>
+            <h3 id="gpsTitle">GPS</h3>
+            <p id="gpsDetail">Checking...</p>
+            <dl class="status-dl" id="gpsMeta"></dl>
+          </article>
+
+          <article class="status-card" id="cardKismet">
+            <div class="status-card-top">
+              <span class="module-kicker">Capture</span>
+              <span class="badge" id="kismetBadge">...</span>
+            </div>
+            <h3 id="kismetTitle">Kismet</h3>
+            <p id="kismetDetail">Checking...</p>
+            <dl class="status-dl" id="kismetMeta"></dl>
+            <a
+              class="btn status-webui-btn"
+              id="kismetWebui"
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+              >Open WebUI</a
+            >
+          </article>
+
+          <article class="status-card" id="cardValhalla">
+            <div class="status-card-top">
+              <span class="module-kicker">Routing</span>
+              <span class="badge" id="valhallaBadge">...</span>
+            </div>
+            <h3 id="valhallaTitle">Valhalla</h3>
+            <p id="valhallaDetail">Checking...</p>
+            <dl class="status-dl" id="valhallaMeta"></dl>
+          </article>
+
+          <article class="status-card" id="cardDb">
+            <div class="status-card-top">
+              <span class="module-kicker">PostGIS</span>
+              <span class="badge" id="dbBadge">...</span>
+            </div>
+            <h3 id="dbTitle">Database</h3>
+            <p id="dbDetail">Checking...</p>
+            <dl class="status-dl" id="dbMeta"></dl>
+          </article>
+
+          <article class="status-card status-card-wide" id="cardHost">
+            <div class="status-card-top">
+              <span class="module-kicker">Machine</span>
+              <span class="badge" id="hostBadge">...</span>
+            </div>
+            <h3 id="hostTitle">Machine</h3>
+            <p id="hostDetail">Checking...</p>
+            <div class="host-meters" aria-label="CPU, memory, and disk use">
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>CPU</span>
+                  <span id="hostCpuPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostCpuMeter">
+                  <div class="host-meter-fill" id="hostCpuFill"></div>
+                </div>
+              </div>
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>RAM</span>
+                  <span id="hostRamPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostRamMeter">
+                  <div class="host-meter-fill" id="hostRamFill"></div>
+                </div>
+              </div>
+              <div class="host-meter">
+                <div class="host-meter-label">
+                  <span>Disk</span>
+                  <span id="hostDiskPct">-</span>
+                </div>
+                <div class="host-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100" id="hostDiskMeter">
+                  <div class="host-meter-fill" id="hostDiskFill"></div>
+                </div>
+              </div>
+            </div>
+            <dl class="status-dl" id="hostMeta"></dl>
+            <div class="status-actions">
+              <button class="btn btn-ghost status-action-btn" type="button" id="freeStorageBtn">
+                Free storage
+              </button>
+              <p class="status-action-hint" id="freeStorageHint">
+                Removes unused cached map packs (kept ~7 days).
+              </p>
+            </div>
+          </article>
+        </section>
+
+        <div class="section-head">
+          <div>
+            <h2>Data stats</h2>
+            <p>Database counts.</p>
+          </div>
+        </div>
+        <section class="stat-strip" aria-label="Database stats">
+          <div class="stat">
+            <span class="label">Networks</span>
+            <div class="value" id="statNetworks">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">Wi-Fi</span>
+            <div class="value" id="statWifi">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">Bluetooth</span>
+            <div class="value" id="statBt">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">BLE</span>
+            <div class="value" id="statBle">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">Samples</span>
+            <div class="value" id="statSamples">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">From Kismet</span>
+            <div class="value" id="statKismetSamples">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">From WiGLE</span>
+            <div class="value" id="statWigleSamples">-</div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/status.js?v=7"></script>
+  </body>
+</html>

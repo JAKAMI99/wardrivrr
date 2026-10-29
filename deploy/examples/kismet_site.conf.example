@@ -1,0 +1,24 @@
+# Copy to /etc/kismet/kismet_site.conf
+# Passwords must match .env: KISMET_USER / KISMET_PASSWORD
+
+server_name=wardrivrr
+# 0.0.0.0 so phones / LAN can open the Web UI; API still uses KISMET_URL=127.0.0.1
+httpd_bind_address=0.0.0.0
+httpd_port=2501
+httpd_username=wardrivrr
+httpd_password=changeme
+
+gps=gpsd:host=127.0.0.1,port=2947
+
+# Monitor Wi-Fi adapter (not the hotspot uplink)
+source=wlan1:name=MonitorWifi:type=linuxwifi
+source=hci0:name=linuxbt:type=linuxbluetooth
+
+# Absolute path under the clone so the API can ingest kis_db
+log_prefix=/opt/wardrivrr/data/kismet_logs/wardrivrr
+log_types=kismet,kis_db
+log_title_timestamp=true
+
+channel_hop=true
+channel_hop_speed=5/sec
+retry_on_source_error=true

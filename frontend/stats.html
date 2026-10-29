@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
+    <title>Stats · wardrivrr</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/themes.css?v=25" />
+    <script src="/static/theme.js?v=31"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links"></div>
+      </nav>
+
+      <main class="home-main stats-main explorer-hub">
+        <header class="home-hero settings-hero explorer-hero" id="explorerHero">
+          <p class="stats-kicker" id="statsTz">Stats</p>
+          <div class="explorer-level-row">
+            <div class="explorer-level-num" id="explorerLevel">-</div>
+            <div class="explorer-level-meta">
+              <h1 id="statsHeadline">Loading...</h1>
+              <p id="statsNudge" class="stats-nudge">Pulling your progress...</p>
+              <p class="explorer-xp-total" id="explorerXpTotal"></p>
+            </div>
+          </div>
+          <div class="meter explorer-meter" aria-hidden="true">
+            <div class="meter-fill" id="explorerXpFill"></div>
+          </div>
+          <p class="meter-caption" id="explorerXpCaption">-</p>
+        </header>
+
+        <section class="xp-breakdown" aria-label="XP breakdown" id="xpBreakdown">
+          <h2 class="hub-section-title">XP breakdown</h2>
+          <div class="xp-breakdown-list" id="xpBreakdownList"></div>
+        </section>
+
+        <div class="period-tabs" role="tablist" aria-label="Time range">
+          <button type="button" class="period-tab active" data-period="today" role="tab" aria-selected="true">
+            Today
+          </button>
+          <button type="button" class="period-tab" data-period="week" role="tab" aria-selected="false">
+            7 days
+          </button>
+          <button type="button" class="period-tab" data-period="all_time" role="tab" aria-selected="false">
+            All time
+          </button>
+        </div>
+
+        <section class="stat-strip stats-hero-strip" aria-label="Period totals" id="periodStrip">
+          <div class="stat stat-glow">
+            <span class="label">New networks</span>
+            <div class="value" id="pNetworks">-</div>
+            <div class="hint" id="pNetworksHint">first seen in range</div>
+          </div>
+          <div class="stat">
+            <span class="label">Wi-Fi</span>
+            <div class="value" id="pWifi">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">Bluetooth</span>
+            <div class="value" id="pBt">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">BLE</span>
+            <div class="value" id="pBle">-</div>
+          </div>
+          <div class="stat">
+            <span class="label">Samples</span>
+            <div class="value" id="pSamples">-</div>
+            <div class="hint">raw sightings</div>
+          </div>
+        </section>
+
+        <section class="stats-grid stats-grid-tight" aria-label="Continuity">
+          <article class="stats-card streak-card">
+            <div class="stats-card-top">
+              <span class="module-kicker">Continuity</span>
+              <span class="badge" id="streakBadge">Streak</span>
+            </div>
+            <div class="streak-value" id="streakCurrent">0</div>
+            <p class="stats-card-copy" id="streakCopy">Days in a row with at least one new network</p>
+            <dl class="status-dl">
+              <dt>Best streak</dt>
+              <dd id="streakBest">-</dd>
+              <dt>Today</dt>
+              <dd id="streakToday">-</dd>
+            </dl>
+          </article>
+
+          <article class="stats-card">
+            <div class="stats-card-top">
+              <span class="module-kicker">Next milestones</span>
+            </div>
+            <h3>Wi-Fi</h3>
+            <p class="stats-card-copy" id="mileWifiLabel">-</p>
+            <div class="meter" aria-hidden="true">
+              <div class="meter-fill" id="mileWifiFill"></div>
+            </div>
+            <p class="meter-caption" id="mileWifiCaption">-</p>
+            <h3 class="stats-subhead">All radios</h3>
+            <p class="stats-card-copy" id="mileNetLabel">-</p>
+            <div class="meter" aria-hidden="true">
+              <div class="meter-fill meter-fill-alt" id="mileNetFill"></div>
+            </div>
+            <p class="meter-caption" id="mileNetCaption">-</p>
+          </article>
+
+          <article class="stats-card">
+            <div class="stats-card-top">
+              <span class="module-kicker">Personal best</span>
+            </div>
+            <h3 id="bestDayTitle">Best day</h3>
+            <div class="streak-value streak-value-sm" id="bestDayCount">-</div>
+            <p class="stats-card-copy" id="bestDayCopy">Most new networks in a single day</p>
+            <dl class="status-dl">
+              <dt>vs yesterday</dt>
+              <dd id="vsYesterday">-</dd>
+              <dt>First find</dt>
+              <dd id="spanFirst">-</dd>
+            </dl>
+          </article>
+        </section>
+
+        <section class="hub-achievements" id="achievements" aria-label="Achievements">
+          <div class="hub-section-head">
+            <h2 class="hub-section-title">Achievements</h2>
+            <p class="muted" id="achSub">Loading badges...</p>
+          </div>
+          <div class="ach-grid" id="achGrid"></div>
+        </section>
+
+        <section class="radio-capture-strip" aria-label="Radio capture" id="radioStrip">
+          <h2 class="hub-section-title">Radio capture</h2>
+          <dl class="status-dl radio-strip-dl" id="radioStripDl">
+            <dt>Kismet</dt>
+            <dd id="radioKismet">-</dd>
+            <dt>Wi-Fi</dt>
+            <dd id="radioWifi">-</dd>
+            <dt>Bluetooth</dt>
+            <dd id="radioBt">-</dd>
+          </dl>
+        </section>
+      </main>
+    </div>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/stats.js?v=4"></script>
+  </body>
+</html>

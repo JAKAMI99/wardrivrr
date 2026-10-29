@@ -1,0 +1,10 @@
+# Legacy overlay — prefer root docker-compose.yml (zero .env).
+#
+#   DATA_ROOT=/var/lib/wardrivrr docker compose up -d
+#
+# This file is kept only for older run.sh / deploy.sh flows. New installs
+# should not need it.
+
+services:
+  api:
+    image: ${WARDRIVRR_IMAGE:-ghcr.io/jakami99/wardrivrr:latest}

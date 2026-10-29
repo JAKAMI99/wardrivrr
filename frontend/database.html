@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0e11" />
+    <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
+    <title>Database · wardrivrr</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    />
+    <link rel="stylesheet" href="/static/styles.css?v=7" />
+    <link rel="stylesheet" href="/static/themes.css?v=25" />
+    <script src="/static/theme.js?v=31"></script>
+  </head>
+  <body>
+    <div class="page-glow" aria-hidden="true"></div>
+    <div class="app-shell">
+      <nav class="site-nav" aria-label="Primary">
+        <a class="site-brand" href="/">wardrivrr <span>explore</span></a>
+        <div class="site-links">
+          <a href="/">Home</a>
+          <a class="active" href="/database">Database</a>
+          <a href="/stats">Stats</a>
+          <a href="/regions">Regions</a>
+          <a href="/discover">Discover</a>
+          <a href="/navigate">Navigate</a>
+          
+          <a href="/api">API</a>
+          <a href="/status">Status</a>
+          <a href="/settings">Settings</a>
+        </div>
+      </nav>
+
+      <div class="db-shell">
+        <header class="tool-bar">
+          <div class="brand-line">
+            <strong>Database</strong>
+            <span id="status">starting...</span>
+            <span id="locMode" class="mode-pill">2d</span>
+          </div>
+          <div class="top-actions">
+            <button id="toggleFilters" type="button">Filters</button>
+          </div>
+        </header>
+
+        <form id="filters" class="filters open">
+          <label>
+            Type
+            <select name="network_type">
+              <option value="">All</option>
+              <option value="WIFI" selected>WIFI</option>
+              <option value="BT">Bluetooth</option>
+              <option value="BLE">BLE</option>
+              <option value="GSM">GSM</option>
+              <option value="LTE">LTE</option>
+            </select>
+          </label>
+          <label>
+            Encryption
+            <select name="encryption">
+              <option value="">All</option>
+              <option value="WPA3">WPA3</option>
+              <option value="WPA2">WPA2</option>
+              <option value="WPA">WPA</option>
+              <option value="WEP">WEP</option>
+              <option value="None">None</option>
+            </select>
+          </label>
+          <label>
+            SSID / name
+            <input name="name" type="search" placeholder="Guest14" autocomplete="off" />
+          </label>
+          <label>
+            BSSID / MAC
+            <input name="network_id" type="search" placeholder="aa:bb:cc:..." autocomplete="off" />
+          </label>
+          <label class="vendor-filter">
+            Vendor
+            <select name="vendor" id="vendorFilter">
+              <option value="">All vendors</option>
+            </select>
+          </label>
+          <label>
+            From
+            <input
+              name="seen_after"
+              type="text"
+              inputmode="numeric"
+              placeholder="dd.mm.yyyy"
+              pattern="\d{2}\.\d{2}\.\d{4}"
+              autocomplete="off"
+              title="Date as dd.mm.yyyy"
+            />
+          </label>
+          <label>
+            To
+            <input
+              name="seen_before"
+              type="text"
+              inputmode="numeric"
+              placeholder="dd.mm.yyyy"
+              pattern="\d{2}\.\d{2}\.\d{4}"
+              autocomplete="off"
+              title="Date as dd.mm.yyyy"
+            />
+          </label>
+          <label class="check">
+            <input name="exclude_no_ssid" type="checkbox" checked />
+            Exclude no SSID
+          </label>
+          <label class="check">
+            <input name="in_view" type="checkbox" />
+            Only current map view
+          </label>
+          <div class="actions">
+            <button type="submit">Search</button>
+            <button id="clear" type="button">Clear</button>
+          </div>
+        </form>
+
+        <div id="banner" hidden></div>
+        <div id="map" role="application" aria-label="Network map"></div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="/static/auth.js"></script>
+    <script src="/static/nav.js?v=8"></script>
+    <script src="/static/database.js?v=10"></script>
+  </body>
+</html>
