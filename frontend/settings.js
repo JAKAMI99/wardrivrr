@@ -322,49 +322,91 @@ document.getElementById("wigleImportBtn")?.addEventListener("click", async () =>
   const api_key = readWigleApiKey();
   const payload = { skip_existing: true };
   if (api_key) payload.api_key = api_key;
-  setBusy(btn, progress, bar, text, true, "Listing WiGLE uploads...");
-  const pulse = pulseProgress(bar, text, [
-    "Listing WiGLE uploads...",
-    "Downloading CSV files...",
-    "Parsing WiGLE CSV...",
-    "Localizing networks...",
-  ]);
+  setBusy(btn, progress, bar, text, true, "Listing WiGLE uploads…");
+  if (bar) {
+    bar.classList.remove("indeterminate");
+    bar.style.width = "2%";
+  }
+  let summary = null;
   try {
     const res = await WardAuth.apiFetch("/api/wigle/import", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
       body: JSON.stringify(payload),
       redirectOn401: false,
     });
-    const body = await res.json().catch(() => ({}));
-    clearInterval(pulse);
     if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
       setBusy(btn, progress, bar, text, false);
       const detail =
-        typeof body.detail === "string" ? body.detail : "WiGLE import failed";
+        typeof errBody.detail === "string" ? errBody.detail : "WiGLE import failed";
       showToast(detail, true);
       return;
+    }
+    const reader = res.body?.getReader?.();
+    if (!reader) {
+      setBusy(btn, progress, bar, text, false);
+      showToast("WiGLE import: no response stream", true);
+      return;
+    }
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let ev;
+        try {
+          ev = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (ev.message && text) text.textContent = ev.message;
+        if (ev.stage === "file" && ev.total && bar) {
+          const pct = Math.max(2, Math.min(99, (Number(ev.current) / Number(ev.total)) * 100));
+          bar.style.width = `${pct}%`;
+        } else if (ev.stage === "listed" && bar) {
+          bar.style.width = "5%";
+        }
+        if (ev.stage === "done") summary = ev;
+        if (ev.stage === "error") {
+          setBusy(btn, progress, bar, text, false);
+          showToast(ev.message || "WiGLE import failed", true);
+          return;
+        }
+      }
     }
     if (api_key) {
       document.getElementById("wigleApiKey").value = "";
       await loadWigleCredentials();
+    }
+    if (!summary) {
+      setBusy(btn, progress, bar, text, false);
+      showToast("WiGLE import finished with no summary", true);
+      return;
     }
     finishBusy(
       btn,
       progress,
       bar,
       text,
-      `Done · ${fmt(body.samples_submitted)} samples`
+      `Done · ${fmt(summary.files_ingested)}/${fmt(summary.transactions)} files · ${fmt(summary.samples_submitted)} samples`
     );
-    const skipped = body.skipped_existing ? ` · ${fmt(body.skipped_existing)} skipped` : "";
+    const skipped = summary.skipped_existing
+      ? ` · ${fmt(summary.skipped_existing)} skipped`
+      : "";
     showToast(
-      `WiGLE: ${fmt(body.files_ingested)} files · ${fmt(body.samples_submitted)} samples${skipped}`
+      `WiGLE: ${fmt(summary.files_ingested)} files · ${fmt(summary.samples_submitted)} samples${skipped}`
     );
-    if (body.failed_count) {
-      showToast(`${fmt(body.failed_count)} file(s) failed — check Status / logs`, true);
+    if (summary.failed_count) {
+      showToast(`${fmt(summary.failed_count)} file(s) failed — check Status / logs`, true);
     }
   } catch (err) {
-    clearInterval(pulse);
     setBusy(btn, progress, bar, text, false);
     showToast(String(err), true);
   }

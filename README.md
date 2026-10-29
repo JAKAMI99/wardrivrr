@@ -93,6 +93,45 @@ curl -fsS http://127.0.0.1:1337/api/health
 # → {"ok":true,"version":"1.0.0",...}
 ```
 
+### Updating a deploy
+
+Keep the same `DATA_ROOT` (and compose project directory). Updating only replaces the API image/container — PostGIS data, Machine setup, regions, and Kismet logs stay on the host.
+
+From the clone on the mini:
+
+```bash
+cd /path/to/wardrivrr
+export DATA_ROOT=/var/lib/wardrivrr   # same path you used at install
+git pull
+```
+
+**If you use Option 1 (GHCR image):**
+
+```bash
+docker compose pull api
+docker compose up -d --force-recreate api
+```
+
+**If you use Option 2 (local build):**
+
+```bash
+docker compose up -d --build --force-recreate api
+```
+
+Check:
+
+```bash
+curl -fsS http://127.0.0.1:1337/api/health
+docker compose ps
+docker compose logs -f --tail=80 api
+```
+
+Notes:
+
+- Hard-refresh the browser (or bump past a cached `?v=` asset) after UI changes.
+- You usually do **not** need to recreate PostGIS, Valhalla, or Kismet for an API-only update. Recreate `kismet` only if `docker-compose.yml` Kismet mounts/image changed: `docker compose up -d --force-recreate kismet`.
+- If Machine setup or compose mounts changed, recreate `api` so new volume binds apply (as above).
+
 ### Manual install (bare metal)
 
 Host API + PostGIS for development:
@@ -110,7 +149,7 @@ Open `http://127.0.0.1:1337/setup`. Full Drive (Kismet / Valhalla / host GPS) is
 
 ## Data import
 
-**WiGLE account (one click):** In the Web UI go to **Settings → Data → WiGLE account**. Paste the **Encoded for Use** API key from [wigle.net/account](https://wigle.net/account), click **Save API key**, then **Import from WiGLE**. wardrivrr lists your WiGLE uploads, downloads each as WiGLE CSV, and ingests them like a manual file upload. Re-import skips CSV files already saved under your incoming folder.
+**WiGLE account (one click):** In the Web UI go to **Settings → Data → WiGLE account**. Paste the **Encoded for Use** API key from [wigle.net/account](https://wigle.net/account), click **Save API key**, then **Import from WiGLE**. Progress shows `3/100 · downloading …` while files stream in. wardrivrr pages through *all* WiGLE uploads (100 per API page — not a hard cap), downloads each as WiGLE CSV, and ingests them like a manual file upload. Re-import skips CSV files already saved under your incoming folder.
 
 **Manual files:** The same **Settings → Data** panel accepts Kismet `.kismet` and WiGLE CSV uploads.
 

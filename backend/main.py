@@ -11,7 +11,13 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from psycopg2 import OperationalError
 from pydantic import BaseModel, Field
@@ -833,6 +839,11 @@ def wigle_import_run(
     body: WigleImportBody | None = None,
     user: dict = Depends(get_current_user),
 ):
+    """Stream NDJSON progress lines (`3/100 · downloading …`), then stage=done."""
+    import json as _json
+    import queue
+    import threading
+
     from wigle_import import import_from_wigle
 
     body = body or WigleImportBody()
@@ -841,31 +852,62 @@ def wigle_import_run(
         get_user_setting(user["id"], "default_localize_precision", "balanced")
         or "balanced"
     )
+    user_id = user["id"]
+
+    # Validate credentials before opening the stream (clear HTTP errors).
     try:
-        result = import_from_wigle(
-            user["id"],
-            api_key=body.api_key,
-            mode=mode,
-            precision=precision,
-            skip_existing=body.skip_existing,
-        )
+        from wigle_import import _load_auth_header, save_credentials
+
+        if body.api_key and body.api_key.strip():
+            save_credentials(user_id, body.api_key.strip())
+        _load_auth_header(user_id, api_key=body.api_key)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    except PermissionError as exc:
-        # 400 not 401 — wardrivrr session is fine; only WiGLE rejected the key
-        raise HTTPException(400, str(exc)) from exc
-    except RuntimeError as exc:
-        msg = str(exc)
-        if "429" in msg:
-            raise HTTPException(429, msg) from exc
-        raise HTTPException(502, msg) from exc
-    try:
-        from achievements import evaluate_achievements
 
-        result["newly_unlocked"] = evaluate_achievements(user["id"])
-    except Exception:
-        result["newly_unlocked"] = []
-    return result
+    def event_stream():
+        q: queue.Queue = queue.Queue()
+        sentinel = object()
+
+        def progress_cb(event: dict) -> None:
+            q.put(event)
+
+        def worker() -> None:
+            try:
+                result = import_from_wigle(
+                    user_id,
+                    api_key=body.api_key,
+                    mode=mode,
+                    precision=precision,
+                    skip_existing=body.skip_existing,
+                    progress_cb=progress_cb,
+                )
+                try:
+                    from achievements import evaluate_achievements
+
+                    result["newly_unlocked"] = evaluate_achievements(user_id)
+                except Exception:
+                    result["newly_unlocked"] = []
+                # import_from_wigle already emitted stage=done; send enriched summary
+                q.put(result)
+            except PermissionError as exc:
+                q.put({"stage": "error", "message": str(exc)})
+            except RuntimeError as exc:
+                q.put({"stage": "error", "message": str(exc)})
+            except ValueError as exc:
+                q.put({"stage": "error", "message": str(exc)})
+            except Exception as exc:
+                q.put({"stage": "error", "message": f"WiGLE import failed: {exc}"})
+            finally:
+                q.put(sentinel)
+
+        threading.Thread(target=worker, daemon=True).start()
+        while True:
+            item = q.get()
+            if item is sentinel:
+                break
+            yield _json.dumps(item, default=str) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 # ----- Export / import -----

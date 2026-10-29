@@ -155,13 +155,18 @@ def _sanitize_filename(name: str, transid: str) -> str:
 
 
 def _list_transactions(auth_header: str) -> list[dict]:
+    """Page through all uploads.
+
+    WiGLE `pageend` is the *page size* (default 100), not an exclusive end index.
+    Older code used pageend=pagestart+100 and stopped when totalResults was 0/missing
+    after a full page — that capped imports at exactly 100 files.
+    """
     transactions: list[dict] = []
     pagestart = 0
     while True:
-        pageend = pagestart + WIGLE_PAGE_SIZE
         url = (
             f"{WIGLE_API_BASE}/api/v2/file/transactions"
-            f"?pagestart={pagestart}&pageend={pageend}"
+            f"?pagestart={pagestart}&pageend={WIGLE_PAGE_SIZE}"
         )
         raw = _http_get(url, auth_header=auth_header, accept="application/json")
         try:
@@ -175,9 +180,12 @@ def _list_transactions(auth_header: str) -> list[dict]:
         if not batch:
             break
         transactions.extend(batch)
-        total = int(data.get("totalResults") or 0)
         pagestart += len(batch)
-        if pagestart >= total or len(batch) < WIGLE_PAGE_SIZE:
+        total = int(data.get("totalResults") or 0)
+        # Full page → keep going even if totalResults is missing/wrong.
+        if len(batch) < WIGLE_PAGE_SIZE:
+            break
+        if total > 0 and pagestart >= total:
             break
         time.sleep(0.25)
     return transactions
@@ -199,13 +207,27 @@ def import_from_wigle(
     mode: str = "2d",
     precision: str = "balanced",
     skip_existing: bool = True,
+    progress_cb=None,
 ) -> dict:
+    """Import all WiGLE uploads. progress_cb receives dict events for UI streaming."""
+
+    def emit(**event: object) -> None:
+        if progress_cb is not None:
+            try:
+                progress_cb(event)
+            except Exception:
+                pass
+
     if api_key and api_key.strip():
         save_credentials(user_id, api_key.strip())
     auth_header = _load_auth_header(user_id, api_key=api_key)
-    transactions = _list_transactions(auth_header)
-    incoming = user_incoming(user_id)
 
+    emit(stage="listing", message="Listing WiGLE uploads…")
+    transactions = _list_transactions(auth_header)
+    total = len(transactions)
+    emit(stage="listed", total=total, message=f"Found {total} upload(s)")
+
+    incoming = user_incoming(user_id)
     downloaded = 0
     skipped = 0
     empty = 0
@@ -214,17 +236,40 @@ def import_from_wigle(
     total_samples = 0
     total_networks = 0
 
-    for item in transactions:
+    for index, item in enumerate(transactions, start=1):
         transid = (item.get("transid") or "").strip()
         file_name = (item.get("fileName") or item.get("filename") or "").strip()
         if not transid:
+            emit(
+                stage="file",
+                current=index,
+                total=total,
+                status="skipped",
+                message=f"{index}/{total} · missing transid",
+            )
             continue
         dest_name = _sanitize_filename(file_name, transid)
         dest = incoming / dest_name
         if skip_existing and dest.is_file() and dest.stat().st_size > 0:
             skipped += 1
+            emit(
+                stage="file",
+                current=index,
+                total=total,
+                file=dest_name,
+                status="skipped",
+                message=f"{index}/{total} · skipped (already have {dest_name})",
+            )
             continue
 
+        emit(
+            stage="file",
+            current=index,
+            total=total,
+            file=dest_name,
+            status="downloading",
+            message=f"{index}/{total} · downloading {dest_name}",
+        )
         csv_url = f"{WIGLE_API_BASE}/api/v2/file/csv/{transid}"
         try:
             payload = _http_get(
@@ -234,11 +279,28 @@ def import_from_wigle(
             )
         except Exception as exc:
             failed.append({"transid": transid, "file": dest_name, "error": str(exc)})
+            emit(
+                stage="file",
+                current=index,
+                total=total,
+                file=dest_name,
+                status="failed",
+                message=f"{index}/{total} · failed {dest_name}",
+                error=str(exc)[:200],
+            )
             continue
 
         text = payload.decode("utf-8-sig", errors="replace").strip()
         if not text:
             empty += 1
+            emit(
+                stage="file",
+                current=index,
+                total=total,
+                file=dest_name,
+                status="empty",
+                message=f"{index}/{total} · empty {dest_name}",
+            )
             continue
 
         dest.write_bytes(payload)
@@ -251,8 +313,24 @@ def import_from_wigle(
                 }
             )
             dest.unlink(missing_ok=True)
+            emit(
+                stage="file",
+                current=index,
+                total=total,
+                file=dest_name,
+                status="failed",
+                message=f"{index}/{total} · not a WiGLE CSV ({dest_name})",
+            )
             continue
 
+        emit(
+            stage="file",
+            current=index,
+            total=total,
+            file=dest_name,
+            status="ingesting",
+            message=f"{index}/{total} · ingesting {dest_name}",
+        )
         downloaded += 1
         try:
             result = ingest_file_for_user(
@@ -265,14 +343,33 @@ def import_from_wigle(
             files_ingested.append(result)
             total_samples += int(result.get("samples_submitted") or 0)
             total_networks += int(result.get("networks_updated") or 0)
+            emit(
+                stage="file",
+                current=index,
+                total=total,
+                file=dest_name,
+                status="ingested",
+                samples=int(result.get("samples_submitted") or 0),
+                message=f"{index}/{total} · done {dest_name}",
+            )
         except Exception as exc:
             failed.append({"transid": transid, "file": dest_name, "error": str(exc)})
+            emit(
+                stage="file",
+                current=index,
+                total=total,
+                file=dest_name,
+                status="failed",
+                message=f"{index}/{total} · ingest failed {dest_name}",
+                error=str(exc)[:200],
+            )
             continue
 
         time.sleep(0.35)
 
-    return {
-        "transactions": len(transactions),
+    summary = {
+        "stage": "done",
+        "transactions": total,
         "downloaded": downloaded,
         "skipped_existing": skipped,
         "empty": empty,
@@ -281,4 +378,10 @@ def import_from_wigle(
         "networks_updated": total_networks,
         "failed": failed[:20],
         "failed_count": len(failed),
+        "message": (
+            f"Done · {len(files_ingested)}/{total} files · "
+            f"{total_samples} samples"
+        ),
     }
+    emit(**summary)
+    return summary
