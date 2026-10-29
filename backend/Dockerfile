@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.title="wardrivrr" \
       org.opencontainers.image.version="${WARDRIVRR_VERSION}" \
       org.opencontainers.image.source="https://github.com/JAKAMI99/wardrivrr"
 
-# docker CLI: API seeds/clips PBFs then recreates Valhalla via host docker.sock (car overlay).
+# docker CLI: API seeds/clips PBFs then recreates Valhalla via host docker.sock (host overlay).
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
     osm2pgsql \

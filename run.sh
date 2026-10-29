@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Boot: restart host gpsd + Kismet, API image, compose up.
-# Does not install packages — run ./deploy.sh once first for that.
+# Boot: restart host gpsd, ensure host Kismet is off, compose up (incl. wardrivrr_kismet).
+# Does not install packages — run ./deploy.sh once first, or use plain docker compose.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ require_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
     return 0
   fi
-  echo "Root is required to (re)start gpsd, Kismet, and helper systemd units."
+  echo "Root is required to (re)start gpsd and helper systemd units."
   read -r -p "Continue and authenticate with sudo? [Y/n]: " ok
   ok=${ok:-Y}
   if [[ ! "$ok" =~ ^[Yy]$ ]]; then
@@ -87,25 +87,26 @@ fi
 # Valhalla active.osm.pbf is produced by the API for the selected level
 # (city/district clip) — never auto-seed from a full regional pack.
 
-# gpsd
+# gpsd (required)
 if [[ ! -f /etc/default/gpsd ]] || ! grep -q '^DEVICES=' /etc/default/gpsd 2>/dev/null; then
-  GPS_DEV="/dev/ttyACM0"
-  [[ -e /dev/ttyUSB0 ]] && GPS_DEV="/dev/ttyUSB0"
-  [[ -e /dev/ttyACM0 ]] && GPS_DEV="/dev/ttyACM0"
-  # No -G: gpsd only needs to serve host-local clients (API, Kismet)
-  sudo tee /etc/default/gpsd >/dev/null <<EOF
-DEVICES="$GPS_DEV"
-GPSD_OPTIONS="-n"
-USBAUTO="true"
-START_DAEMON="true"
-EOF
+  echo "ERROR: gpsd not configured — run ./deploy.sh once (GPS receiver required)."
+  exit 1
 fi
 sudo systemctl disable --now gpsd.socket 2>/dev/null || true
 sudo systemctl enable gpsd 2>/dev/null || true
 sudo systemctl restart gpsd 2>/dev/null || sudo systemctl start gpsd 2>/dev/null || true
 echo "gpsd: $(systemctl is-active gpsd 2>/dev/null || echo unknown)"
 
-# Kismet — keep site conf httpd auth in sync with .env, then install + restart
+# Host Kismet must stay off — Compose owns wardrivrr_kismet on :2501/:3501
+sudo systemctl disable --now kismet 2>/dev/null || true
+sudo systemctl disable --now wardrivrr-kismet 2>/dev/null || true
+if systemctl is-active kismet >/dev/null 2>&1; then
+  echo "ERROR: host kismet.service is still active — stop it before Compose Kismet can start."
+  exit 1
+fi
+
+# Seed Compose conf from deploy template / .env if data conf missing
+mkdir -p data/kismet data/kismet_logs/wardrivrr
 if [[ -s deploy/kismet/kismet_site.conf ]]; then
   _ku="$(grep -E '^KISMET_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
   _kp="$(grep -E '^KISMET_PASSWORD=' .env 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
@@ -115,21 +116,14 @@ if [[ -s deploy/kismet/kismet_site.conf ]]; then
   if [[ -n "$_kp" ]]; then
     sed -i -E "s|^httpd_password=.*|httpd_password=${_kp}|" deploy/kismet/kismet_site.conf
   fi
-  sudo mkdir -p /etc/kismet
-  sudo cp -f deploy/kismet/kismet_site.conf /etc/kismet/kismet_site.conf
-elif [[ ! -s /etc/kismet/kismet_site.conf ]]; then
-  echo "WARNING: no kismet_site.conf - run ./deploy.sh"
-fi
-if command -v kismet >/dev/null 2>&1; then
-  sudo systemctl disable --now wardrivrr-kismet 2>/dev/null || true
-  sudo systemctl enable kismet 2>/dev/null || true
-  sudo systemctl restart kismet 2>/dev/null || sudo systemctl start kismet 2>/dev/null || true
-  echo "kismet: $(systemctl is-active kismet 2>/dev/null || echo unknown)"
-else
-  echo "kismet: not installed (run ./deploy.sh)"
+  if [[ ! -s data/kismet/kismet_site.conf ]]; then
+    cp -f deploy/kismet/kismet_site.conf data/kismet/kismet_site.conf
+  fi
+elif [[ ! -s data/kismet/kismet_site.conf ]]; then
+  echo "WARNING: no data/kismet/kismet_site.conf — configure Machine setup in the UI"
 fi
 
-COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env)
+COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.host.yml --env-file .env)
 "${COMPOSE[@]}" config --quiet
 
 PULLED=0
@@ -146,7 +140,7 @@ if [[ "$PULLED" != "1" ]]; then
   "${COMPOSE[@]}" build api
 fi
 
-SERVICES=(api postgis)
+SERVICES=(api postgis kismet)
 if [[ -f data/valhalla/active.osm.pbf ]] && [[ -s data/valhalla/active.osm.pbf ]]; then
   SERVICES+=(valhalla)
   echo "Valhalla: starting (level extract already present)"
@@ -156,6 +150,7 @@ else
 fi
 
 "${COMPOSE[@]}" up -d --remove-orphans "${SERVICES[@]}"
+echo "kismet: compose wardrivrr_kismet"
 
 if [[ -f deploy/wardrivrr-stack.service ]]; then
   # Rewrite /opt/wardrivrr placeholders to this clone so boot works off-path.
@@ -168,7 +163,8 @@ if [[ -f deploy/wardrivrr-stack.service ]]; then
   sudo cp -f "$_unit" /etc/systemd/system/wardrivrr-stack.service
   rm -f "$_unit"
   sudo systemctl daemon-reload
-  sudo systemctl enable wardrivrr-stack docker gpsd kismet 2>/dev/null || true
+  sudo systemctl enable wardrivrr-stack docker gpsd 2>/dev/null || true
+  sudo systemctl disable kismet 2>/dev/null || true
 fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

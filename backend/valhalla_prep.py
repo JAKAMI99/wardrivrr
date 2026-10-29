@@ -307,9 +307,9 @@ def _compose_cmd() -> list[str]:
         "-f",
         str(root / "docker-compose.yml"),
     ]
-    car = root / "deploy" / "compose.car.yml"
-    if car.is_file():
-        compose.extend(["-f", str(car)])
+    host_overlay = root / "deploy" / "compose.host.yml"
+    if host_overlay.is_file():
+        compose.extend(["-f", str(host_overlay)])
     env_file = root / ".env"
     if env_file.is_file():
         compose.extend(["--env-file", str(env_file)])

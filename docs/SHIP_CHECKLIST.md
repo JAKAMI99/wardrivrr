@@ -26,7 +26,7 @@ Release: **1.0.0** · Status: **Done** · **User tonight** · **Open**
 - [x] Kismet REST watermark inclusive-second + future-clock reset
 - [x] Drive: Valhalla restart gated; visible routing errors; skip no-op pushFix in follow
 - [x] Drive: pause level auto-confirm while moving; Start stays off until route exists
-- [x] Car compose loads root `../.env`; default image `wardrivrr-api:local`
+- [x] Host compose loads root `../.env`; default image `wardrivrr-api:local`
 - [x] Level-job Valhalla retry no longer `force=True`; docker-run Valhalla binds loopback
 - [x] gpsd unlock requires ready level; headless level fallback (`GPSD_LEVEL_ID` / sole ready)
 - [x] Localize COALESCE for encryption/channel; status.js escapes fillDl

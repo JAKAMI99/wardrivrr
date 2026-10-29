@@ -28,10 +28,10 @@ Status legend: **Fixed** (in this branch), **Partial**, **Open**.
 | P0 | Explore/replan restarted Valhalla on every failed status check (`restart: true`). | `navigate.js` | **Fixed**: prepare only on level/extract mismatch; `restart` opt-in; server default `restart=False`. |
 | P0 | Drive-critical hints wrote only to production-hidden `#navHint`. | `navigate.js` | **Fixed**: critical status mirrored to `#navRerouting`; explore failures use `showErrorToast`. |
 | P0 | `startExplore` awaited no-op `pushFix` while following gpsd. | `navigate.js` | **Fixed**: skip POST push while `followLiveGps`. |
-| P0 | Car compose `env_file: ./.env` resolved under `deploy/` (root `.env` never injected). | `deploy/compose.car.yml` | **Fixed**: `../.env` + `JWT_SECRET_KEY` in `environment`. |
+| P0 | Host compose `env_file: ./.env` resolved under `deploy/` (root `.env` never injected). | `deploy/compose.host.yml` | **Fixed**: `../.env` + `JWT_SECRET_KEY` in `environment`. |
 | P1 | Level job Valhalla retry used `force=True` (docker.sock) without admin. | `levels.py` | **Fixed**: retry is restart-only (`force=False`). |
 | P1 | `docker run` Valhalla fallback published `0.0.0.0:8002`. | `valhalla_prep.py` | **Fixed**: honors `VALHALLA_BIND` (default `127.0.0.1`). |
-| P1 | gpsd unlocked incomplete levels; headless car had no `active_level_id` fallback. | `gpsd_poller.py`, `gps_snap.py` | **Fixed**: unlock only when `status==ready`; `GPSD_LEVEL_ID` / sole ready level fallback. |
+| P1 | gpsd unlocked incomplete levels; headless host had no `active_level_id` fallback. | `gpsd_poller.py`, `gps_snap.py` | **Fixed**: unlock only when `status==ready`; `GPSD_LEVEL_ID` / sole ready level fallback. |
 | P1 | Re-localize cleared encryption/channel on NULL samples. | `localize.py` | **Fixed**: `COALESCE` like address fields. |
 | P1 | Level auto-confirm fired while moving (multi-GB preload mid-drive). | `navigate.js` `tickYesFill` | **Fixed**: freeze countdown while moving. |
 | P0 | Failed `geofabrik_level` job left level stuck in `processing`/`segmentizing`. | `jobs.py`, `levels.py` | **Fixed**: `mark_level_build_failed` → `status=error`. |
@@ -89,7 +89,7 @@ on regions/jobs/keys/networks, bcrypt passwords, hashed API keys.
   is added by the achievements schema; the new indexes build `CONCURRENTLY` in
   a background thread, which takes a while on large `signal_samples` but
   doesn't block writes.
-- **DB password on the car:** the existing volume still uses the default.
+- **DB password on the host:** the existing volume still uses the default.
   Rotate it with `ALTER USER explorer PASSWORD '…'`, then set `DB_PASS` in
   `.env`. With the port bound to localhost this is no longer reachable from
   the network.

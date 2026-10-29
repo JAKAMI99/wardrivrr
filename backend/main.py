@@ -1067,7 +1067,7 @@ def gps_get_fix(
 
     fix = get_fix(user["id"])
     stats_uid = int(user["id"])
-    # gpsd / Kismet always land on the car collection account. If the WebUI
+    # gpsd / Kismet always land on the collection account. If the WebUI
     # user differs, still serve the live receiver so Drive is not stuck on
     # "Waiting for GPS…" with a healthy dongle.
     try:
@@ -1480,7 +1480,7 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
 
 @app.get("/api/system/status")
 def system_status(user: dict = Depends(get_current_user)):
-    # Includes the car's live GPS position - never serve it anonymously.
+    # Includes the live GPS position - never serve it anonymously.
     return collect_system_status(user_id=user["id"])
 
 
@@ -1501,7 +1501,7 @@ def machine_setup_get(user: dict = Depends(get_current_user)):
 
 @app.post("/api/system/machine-setup")
 def machine_setup_post(body: MachineSetupBody, user: dict = Depends(require_admin)):
-    """Write Kismet conf + machine.json, restart wardrivrr_kismet."""
+    """Write Kismet conf + machine.json; restart Compose wardrivrr_kismet."""
     from machine_setup import apply_machine_setup
 
     try:

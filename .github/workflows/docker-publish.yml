@@ -70,7 +70,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # One manifest for amd64 and arm64 hosts.
-          # The ARM build adds CI time and registry storage, but avoids emulation in the car.
+          # The ARM build adds CI time and registry storage, but avoids emulation on the mini.
           platforms: linux/amd64,linux/arm64
           provenance: true
           sbom: true

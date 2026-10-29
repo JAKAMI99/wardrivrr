@@ -24,7 +24,7 @@ Local (host API / debug, PostGIS reachable):
     exit 0
 }
 
-$compose = @("compose", "-f", "docker-compose.yml", "-f", "deploy/compose.car.yml")
+$compose = @("compose", "-f", "docker-compose.yml", "-f", "deploy/compose.host.yml")
 
 if ($Local) {
     if ($Password) {

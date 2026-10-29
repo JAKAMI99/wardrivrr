@@ -1,7 +1,7 @@
 """
 Background gpsd client → gps_state.set_fix(source=gpsd).
 
-Always-on for the car collection user (fog unlock + XP + Kismet positions),
+Always-on for the collection user (fog unlock + XP + Kismet positions),
 whether or not the Drive dashboard is open.
 
 Parked/idle: gps_motion pauses unlock + drive XP when the raw receiver has
@@ -56,7 +56,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
 
 def collection_user_id() -> int:
     """
-    Always-on car account for gpsd + Kismet collection (no Drive UI required).
+    Always-on collection account for gpsd + Kismet (no Drive UI required).
 
     Prefer GPSD_USER_ID / KISMET_USER_ID, else the first user (admin).
     """
@@ -91,7 +91,7 @@ def _lookup_first_user_id() -> int:
 
 
 def _target_user_ids() -> list[int]:
-    """gpsd always writes the car collection user — independent of Drive open."""
+    """gpsd always writes the collection user — independent of Drive open."""
     global _last_collection_user
     uid = collection_user_id()
     if _last_collection_user is not None and _last_collection_user != uid:

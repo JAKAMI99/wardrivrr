@@ -22,8 +22,9 @@
         <header class="home-hero settings-hero">
           <h1>Machine setup</h1>
           <p>
-            Pick Wi‑Fi, Bluetooth, and the Kismet password. Apply restarts the Kismet container —
-            no <code>.env</code> or bash scripts.
+            Pick Wi‑Fi, Bluetooth, and the Kismet password. Apply writes conf and restarts the
+            Compose <code>wardrivrr_kismet</code> container — no host Kismet install, and host
+            <strong>gpsd</strong> must already be serving your GPS on <code>127.0.0.1:2947</code>.
           </p>
         </header>
 
@@ -45,7 +46,7 @@
               GPS serial device <span class="muted">(optional)</span>
               <select id="gpsDevice" name="gps_device"></select>
             </label>
-            <p class="muted settings-hint">gpsd still needs to be running on the host. This is a hint for Status.</p>
+            <p class="muted settings-hint">Optional hint only — GPS itself comes from host gpsd on <code>:2947</code> (required).</p>
 
             <label>
               Kismet username

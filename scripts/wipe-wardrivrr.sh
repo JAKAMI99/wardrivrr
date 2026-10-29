@@ -89,7 +89,7 @@ for root in "${ROOTS[@]+"${ROOTS[@]}"}"; do
     cd "$root" || exit 0
     if [[ -f docker-compose.yml ]]; then
       COMPOSE=(docker compose --project-directory "$root" -f docker-compose.yml)
-      [[ -f deploy/compose.car.yml ]] && COMPOSE+=(-f deploy/compose.car.yml)
+      [[ -f deploy/compose.host.yml ]] && COMPOSE+=(-f deploy/compose.host.yml)
       [[ -f .env ]] && COMPOSE+=(--env-file .env)
       "${COMPOSE[@]}" down -v --remove-orphans 2>/dev/null || true
     fi

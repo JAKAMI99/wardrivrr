@@ -13,7 +13,7 @@ RemainAfterExit=yes
 WorkingDirectory=/opt/wardrivrr
 # FORCE_LOCAL_BUILD comes from .env via run.sh — do not force rebuild every boot.
 ExecStart=/bin/bash /opt/wardrivrr/run.sh
-ExecStop=/usr/bin/docker compose -f /opt/wardrivrr/docker-compose.yml -f /opt/wardrivrr/deploy/compose.car.yml --env-file /opt/wardrivrr/.env stop
+ExecStop=/usr/bin/docker compose -f /opt/wardrivrr/docker-compose.yml -f /opt/wardrivrr/deploy/compose.host.yml --env-file /opt/wardrivrr/.env stop
 TimeoutStartSec=900
 StandardOutput=journal
 StandardError=journal

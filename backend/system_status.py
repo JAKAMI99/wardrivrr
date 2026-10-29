@@ -225,7 +225,10 @@ def _parse_kismet_source_line(line: str) -> dict | None:
 
 def _kismet_sources_from_conf() -> list[dict]:
     candidates = [
+        Path("/app/data/kismet/kismet_site.conf"),
         ROOT / "deploy" / "kismet" / "kismet_site.conf",
+        # Package installs use /etc; finchsec Docker image uses /usr/local/etc
+        Path("/usr/local/etc/kismet_site.conf"),
         Path("/etc/kismet/kismet_site.conf"),
     ]
     out: list[dict] = []
@@ -779,7 +782,7 @@ def _count_files(path: Path) -> int:
 def storage_status(user_id: int | None = None) -> dict:
     """
     Upload queue = manual .kismet / WiGLE drops under data/users/<id>/incoming.
-    Live Kismet capture writes to KISMET_LOG_DIR — that is what car setups fill.
+    Live Kismet capture writes to KISMET_LOG_DIR — that is what onboard setups fill.
     Showing 0 B in the upload queue is normal when you only use live ingest.
     """
     incoming = (

@@ -20,3 +20,6 @@ log_title_timestamp=true
 channel_hop=true
 channel_hop_speed=5/sec
 retry_on_source_error=true
+
+# Avoid clashing with an existing host Kismet remote-capture listener
+remote_capture_listen=

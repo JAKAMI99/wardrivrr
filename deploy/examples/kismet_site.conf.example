@@ -1,4 +1,5 @@
-# Copy to /etc/kismet/kismet_site.conf
+# Compose (finchsec image): $DATA_ROOT/kismet/kismet_site.conf → /usr/local/etc/kismet_site.conf
+# Host package install: /etc/kismet/kismet_site.conf
 # Passwords must match .env: KISMET_USER / KISMET_PASSWORD
 
 server_name=wardrivrr

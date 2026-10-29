@@ -18,7 +18,7 @@ from db import connect_dict
 
 MIN_PASSWORD_LENGTH = 8
 
-# In-memory login / setup throttle (per process). Enough for a car mini-PC.
+# In-memory login / setup throttle (per process). Enough for a host mini-PC.
 _AUTH_ATTEMPTS: dict[str, list[float]] = {}
 _AUTH_LOCK = threading.Lock()
 _AUTH_WINDOW_S = float(os.getenv("AUTH_RATE_WINDOW_S", "300"))

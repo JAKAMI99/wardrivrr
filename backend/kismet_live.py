@@ -141,7 +141,7 @@ def _remember_seen(keys: list[str]) -> None:
 
 
 def _target_user_id() -> int:
-    """Same car account as gpsd — never gated on Drive / navigation_active."""
+    """Same collection account as gpsd — never gated on Drive / navigation_active."""
     try:
         from gpsd_poller import collection_user_id
 

@@ -39,5 +39,5 @@ if [[ -f .env ]]; then
 fi
 
 echo "=== Recreate API with host networking (after git pull) ==="
-echo "  git pull && docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d --force-recreate api"
+echo "  git pull && docker compose -f docker-compose.yml -f deploy/compose.host.yml --env-file .env up -d --force-recreate api"
 echo "Done. BT already runs via Kismet hci0; Alfa = uncomment source=wlx when plugged in."

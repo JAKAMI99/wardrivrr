@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 PASSWORD="${1:-}"
-COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.car.yml)
+COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.host.yml)
 
 usage() {
   cat <<'EOF'

@@ -63,8 +63,8 @@ const MODE_PRESETS = [
 ];
 
 function isLevelComplete(lv) {
-  const car = lv?.by_profile?.small_car;
-  if (car && typeof car.complete === "boolean") return car.complete;
+  const driveStats = lv?.by_profile?.small_car;
+  if (driveStats && typeof driveStats.complete === "boolean") return driveStats.complete;
   if (lv && typeof lv.complete === "boolean") return lv.complete;
   return Number(lv?.explored_pct || 0) >= COMPLETE_PCT;
 }

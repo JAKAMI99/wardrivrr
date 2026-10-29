@@ -7,7 +7,7 @@
 #   sudo systemctl restart wardrivrr-kismet   # or: kismet --no-ncurses
 
 server_name=wardrivrr
-server_description=teslian car mini-PC
+server_description=teslian mini-PC
 
 # Web UI + API live ingest (phone / Docker host.docker.internal:2501)
 httpd_bind_address=0.0.0.0

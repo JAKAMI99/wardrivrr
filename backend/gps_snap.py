@@ -47,7 +47,7 @@ def snap_threshold_m() -> float:
 
 
 def resolve_level_id(user_id: int) -> int | None:
-    """Active Drive region, with car-headless fallbacks when unset."""
+    """Active Drive region, with headless-host fallbacks when unset."""
     try:
         from db import get_user_setting
 

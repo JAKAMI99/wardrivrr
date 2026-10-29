@@ -32,11 +32,20 @@ Product version (**1.0.0**) is shown in this README header, on the home page, an
 
 One command. Optional: set a host data directory. No `.env` file. Wi‑Fi / Bluetooth / Kismet password are configured in the Web UI after login.
 
+**Host prerequisites**
+
+- Linux with Docker Compose v2 (API + Kismet use host networking for radio).
+- **No existing Kismet** on the host (no `kismet.service`, nothing on `:2501` / `:3501`). Compose runs Kismet in Docker; a host install will conflict and crash-loop the container:
+  ```bash
+  sudo systemctl stop kismet 2>/dev/null; sudo systemctl disable kismet 2>/dev/null
+  ```
+- **gpsd** must already be installed and talking to your GPS receiver on `127.0.0.1:2947` (wardrivrr does not install or configure gpsd).
+
 ```bash
 git clone https://github.com/JAKAMI99/wardrivrr.git
 cd wardrivrr
 
-# Persist data somewhere durable (absolute path recommended on a car):
+# Persist data somewhere durable (absolute path recommended on the host mini):
 export DATA_ROOT=/var/lib/wardrivrr
 # Or omit DATA_ROOT to use ./data next to the compose file.
 
@@ -47,7 +56,7 @@ Then open `http://<host-ip>:1337/`:
 
 1. **Setup** — create the admin password (no default login)
 2. **Login** — as `admin`
-3. **Machine setup** — dropdowns for Wi‑Fi, Bluetooth, optional GPS serial, Kismet password → **Apply & restart Kismet**
+3. **Machine setup** — dropdowns for Wi‑Fi, Bluetooth, optional GPS serial hint, Kismet password → **Apply & restart Kismet**
 4. **Regions** → **Drive**
 
 Health check:
@@ -56,8 +65,6 @@ Health check:
 curl -fsS http://127.0.0.1:1337/api/health
 # → {"ok":true,"version":"1.0.0",...}
 ```
-
-Requires Linux with Docker Compose v2 (API/Kismet use host networking for radio). Keep gpsd running on the host if you want live GPS (`127.0.0.1:2947`).
 
 ### Docker images
 
@@ -92,7 +99,7 @@ On a new install there is **no** default password. The UI redirects to `/setup` 
 
 ## Reset admin password
 
-**Docker (vehicle stack):**
+**Docker (host stack):**
 
 ```bash
 ./scripts/reset-admin-password.sh 'YourNewPassword'
@@ -123,9 +130,11 @@ Omit the password argument to be prompted interactively.
 
 | Knob | Notes |
 | --- | --- |
-| `DATA_ROOT` | Host path for persistent data (map packs, Kismet conf/logs, JWT file, Valhalla). Default `./data`. Prefer an absolute path on a vehicle. |
+| `DATA_ROOT` | Host path for persistent data (map packs, Kismet conf/logs, JWT file, Valhalla). Default `./data`. Prefer an absolute path on the mini. |
 | `WARDRIVRR_IMAGE` | Optional image override; default `ghcr.io/jakami99/wardrivrr:latest`. |
-| Machine setup (Web UI) | Wi‑Fi / Bluetooth / Kismet password — stored under `$DATA_ROOT/machine.json` + `kismet/kismet_site.conf`. |
+| Machine setup (Web UI) | Wi‑Fi / Bluetooth / Kismet password — stored under `$DATA_ROOT/machine.json` + `kismet/kismet_site.conf`; restarts the Compose `kismet` container. |
+| Host Kismet | **Must not** be installed; use the Compose service only. |
+| gpsd | **Required** on the host (`127.0.0.1:2947`) before live GPS / Drive. |
 | JWT | Auto-written to `$DATA_ROOT/.jwt_secret` if unset. |
 
 | Service | Port |
