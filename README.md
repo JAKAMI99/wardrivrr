@@ -20,7 +20,7 @@ Local-first wardriving on OpenStreetMap: GPS unlocks road segments as you drive,
 | ![Status](docs/screenshots/status.png) | ![Explorer stats](docs/screenshots/stats.png) |
 | GPS, Kismet, routing, disk at a glance | Levels, achievements, radio totals |
 
-Drop PNGs into `docs/screenshots/` (see that folder’s README). Until then the slots above are placeholders.
+Drop PNGs into `docs/screenshots/` (see that folder’s README). Still missing: `drive.png`, `stats.png`.
 
 ---
 
