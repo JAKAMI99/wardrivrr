@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0c0e11" />
     <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
     <title>Settings · wardrivrr</title>
-    <link rel="stylesheet" href="/static/styles.css?v=25" />
+    <link rel="stylesheet" href="/static/styles.css?v=26" />
     <link rel="stylesheet" href="/static/themes.css?v=25" />
     <script src="/static/theme.js?v=31"></script>
   </head>
@@ -199,6 +199,44 @@
               aria-label="Data"
               hidden
             >
+              <h2>WiGLE account</h2>
+              <p class="muted settings-hint">
+                Pull your past WiGLE uploads into wardrivrr. Use the API name and token from your WiGLE account (Basic auth).
+              </p>
+              <label>
+                <span class="label-with-help">
+                  WiGLE API name
+                  <a
+                    class="help-tip"
+                    href="https://wigle.net/account"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Your WiGLE user API name goes here. Click to open WiGLE account settings where the API name and token are shown."
+                    aria-label="WiGLE API help — opens wigle.net/account"
+                    >?</a
+                  >
+                </span>
+                <input type="password" id="wigleApiName" autocomplete="off" spellcheck="false" />
+              </label>
+              <label>
+                WiGLE API token
+                <input type="password" id="wigleApiToken" autocomplete="off" spellcheck="false" />
+              </label>
+              <p class="muted settings-hint" id="wigleConfiguredHint" hidden></p>
+              <div class="tools-row">
+                <button class="btn" type="button" id="wigleSaveBtn">Save API key</button>
+                <button class="btn btn-primary btn-busyable" type="button" id="wigleImportBtn">
+                  <span class="btn-label">Import from WiGLE</span>
+                  <span class="btn-spinner" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="job-progress" id="wigleImportProgress" hidden>
+                <div class="job-progress-bar" id="wigleImportProgressBar"></div>
+                <span class="job-progress-text" id="wigleImportProgressText">Connecting...</span>
+              </div>
+
+              <hr class="settings-divider" />
+
               <h2>Import capture file</h2>
               <p class="muted">Kismet <code>.kismet</code> or WiGLE CSV.</p>
               <input type="file" id="uploadFile" accept=".kismet,.csv,.wiglecsv,.db" />
@@ -278,6 +316,6 @@
     </div>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=10"></script>
-    <script src="/static/settings.js?v=12"></script>
+    <script src="/static/settings.js?v=13"></script>
   </body>
 </html>

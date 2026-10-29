@@ -74,6 +74,35 @@ function escHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+async function loadWigleCredentials() {
+  const hint = document.getElementById("wigleConfiguredHint");
+  try {
+    const res = await WardAuth.apiFetch("/api/wigle/credentials");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return;
+    const help = document.querySelector(".help-tip[href*='wigle.net']");
+    if (help && data.account_url) help.href = data.account_url;
+    if (hint) {
+      if (data.configured) {
+        hint.hidden = false;
+        hint.textContent = `Saved key · name ${data.api_name_suffix || "****"} · token ${data.api_token_suffix || "****"}`;
+      } else {
+        hint.hidden = true;
+        hint.textContent = "";
+      }
+    }
+  } catch {
+    /* optional */
+  }
+}
+
+function readWigleFields() {
+  return {
+    api_name: document.getElementById("wigleApiName")?.value?.trim() || "",
+    api_token: document.getElementById("wigleApiToken")?.value?.trim() || "",
+  };
+}
+
 async function loadKeys() {
   const res = await WardAuth.apiFetch("/api/keys");
   const keys = await res.json().catch(() => []);
@@ -262,6 +291,85 @@ function pulseProgress(barEl, textEl, phases) {
   }, 900);
   return id;
 }
+
+document.getElementById("wigleSaveBtn")?.addEventListener("click", async () => {
+  const { api_name, api_token } = readWigleFields();
+  if (!api_name || !api_token) {
+    showToast("Enter WiGLE API name and token", true);
+    return;
+  }
+  const res = await WardAuth.apiFetch("/api/wigle/credentials", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_name, api_token }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showToast(body.detail || "Could not save WiGLE key", true);
+    return;
+  }
+  document.getElementById("wigleApiName").value = "";
+  document.getElementById("wigleApiToken").value = "";
+  await loadWigleCredentials();
+  showToast("WiGLE API key saved");
+});
+
+document.getElementById("wigleImportBtn")?.addEventListener("click", async () => {
+  const btn = document.getElementById("wigleImportBtn");
+  const progress = document.getElementById("wigleImportProgress");
+  const bar = document.getElementById("wigleImportProgressBar");
+  const text = document.getElementById("wigleImportProgressText");
+  const { api_name, api_token } = readWigleFields();
+  const payload = { skip_existing: true };
+  if (api_name && api_token) {
+    payload.api_name = api_name;
+    payload.api_token = api_token;
+  }
+  setBusy(btn, progress, bar, text, true, "Listing WiGLE uploads...");
+  const pulse = pulseProgress(bar, text, [
+    "Listing WiGLE uploads...",
+    "Downloading CSV files...",
+    "Parsing WiGLE CSV...",
+    "Localizing networks...",
+  ]);
+  try {
+    const res = await WardAuth.apiFetch("/api/wigle/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    clearInterval(pulse);
+    if (!res.ok) {
+      setBusy(btn, progress, bar, text, false);
+      showToast(body.detail || "WiGLE import failed", true);
+      return;
+    }
+    if (api_name && api_token) {
+      document.getElementById("wigleApiName").value = "";
+      document.getElementById("wigleApiToken").value = "";
+      await loadWigleCredentials();
+    }
+    finishBusy(
+      btn,
+      progress,
+      bar,
+      text,
+      `Done · ${fmt(body.samples_submitted)} samples`
+    );
+    const skipped = body.skipped_existing ? ` · ${fmt(body.skipped_existing)} skipped` : "";
+    showToast(
+      `WiGLE: ${fmt(body.files_ingested)} files · ${fmt(body.samples_submitted)} samples${skipped}`
+    );
+    if (body.failed_count) {
+      showToast(`${fmt(body.failed_count)} file(s) failed — see server logs`, true);
+    }
+  } catch (err) {
+    clearInterval(pulse);
+    setBusy(btn, progress, bar, text, false);
+    showToast(String(err), true);
+  }
+});
 
 document.getElementById("uploadBtn").addEventListener("click", async () => {
   const file = document.getElementById("uploadFile").files[0];
@@ -494,6 +602,7 @@ document.getElementById("passwordForm")?.addEventListener("submit", async (e) =>
   fillAccountUsername(user);
   bindSettingsNav();
   await loadSettings();
+  await loadWigleCredentials();
   await loadExplorerXp();
   await loadKeys();
   await loadAdmin(user);

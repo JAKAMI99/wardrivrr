@@ -28,9 +28,9 @@ Drop PNGs into `docs/screenshots/` (see that folder’s README). Until then the 
 
 Product version (**1.0.0**) is shown in this README header, on the home page, and via `/api/health`. Image tag: **`:latest`**.
 
-### Docker Compose (recommended)
+### Docker Compose
 
-One command. Optional: set a host data directory. No `.env` file. Wi‑Fi / Bluetooth / Kismet password are configured in the Web UI after login.
+Optional: set a host data directory. No `.env` file. Wi‑Fi / Bluetooth / Kismet password are configured in the Web UI after login.
 
 **Host prerequisites**
 
@@ -48,8 +48,35 @@ cd wardrivrr
 # Persist data somewhere durable (absolute path recommended on the host mini):
 export DATA_ROOT=/var/lib/wardrivrr
 # Or omit DATA_ROOT to use ./data next to the compose file.
+```
 
+**Option 1 — pull published image (default)**
+
+Compose uses `ghcr.io/jakami99/wardrivrr:latest`:
+
+```bash
 docker compose up -d
+```
+
+Override the tag if needed:
+
+```bash
+WARDRIVRR_IMAGE=ghcr.io/jakami99/wardrivrr:latest docker compose up -d
+```
+
+**Option 2 — build local Docker image**
+
+Build the API from this tree (useful when GHCR is private, offline, or you changed the backend):
+
+```bash
+docker compose build api
+docker compose up -d
+```
+
+Force recreate after a rebuild:
+
+```bash
+docker compose up -d --build --force-recreate api
 ```
 
 Then open `http://<host-ip>:1337/`:
@@ -66,16 +93,6 @@ curl -fsS http://127.0.0.1:1337/api/health
 # → {"ok":true,"version":"1.0.0",...}
 ```
 
-### Docker images
-
-Published on GHCR. Compose defaults to `ghcr.io/jakami99/wardrivrr:latest`. Override if needed:
-
-```bash
-WARDRIVRR_IMAGE=ghcr.io/jakami99/wardrivrr:latest docker compose up -d
-```
-
-Local builds: `docker compose build api && docker compose up -d`.
-
 ### Manual install (bare metal)
 
 Host API + PostGIS for development:
@@ -88,6 +105,16 @@ docker compose up -d postgis
 ```
 
 Open `http://127.0.0.1:1337/setup`. Full Drive (Kismet / Valhalla / host GPS) is meant for the Compose path above.
+
+---
+
+## Data import
+
+**WiGLE account (one click):** In the Web UI go to **Settings → Data → WiGLE account**. Paste your **WiGLE API name** and **API token** from [wigle.net/account](https://wigle.net/account) (the same pair used for WiGLE HTTP Basic auth), click **Save API key**, then **Import from WiGLE**. wardrivrr lists your WiGLE uploads, downloads each as WiGLE CSV, and ingests them like a manual file upload. Re-import skips CSV files already saved under your incoming folder.
+
+**Manual files:** The same **Settings → Data** panel accepts Kismet `.kismet` and WiGLE CSV uploads.
+
+**Backups:** Full user backups include `user_settings.json`, which may contain your saved WiGLE API credentials — treat export zips like secrets.
 
 ---
 

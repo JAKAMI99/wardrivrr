@@ -800,6 +800,76 @@ def ingest_upload(
         raise HTTPException(400, str(exc)) from exc
 
 
+class WigleCredentialsBody(BaseModel):
+    api_name: str = Field(min_length=1, max_length=128)
+    api_token: str = Field(min_length=1, max_length=256)
+
+
+class WigleImportBody(BaseModel):
+    api_name: str | None = Field(default=None, max_length=128)
+    api_token: str | None = Field(default=None, max_length=256)
+    skip_existing: bool = True
+
+
+@app.get("/api/wigle/credentials")
+def wigle_credentials_get(user: dict = Depends(get_current_user)):
+    from wigle_import import credentials_status
+
+    return credentials_status(user["id"])
+
+
+@app.put("/api/wigle/credentials")
+def wigle_credentials_put(
+    body: WigleCredentialsBody, user: dict = Depends(get_current_user)
+):
+    from wigle_import import save_credentials
+
+    try:
+        return save_credentials(user["id"], body.api_name, body.api_token)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/wigle/import")
+def wigle_import_run(
+    body: WigleImportBody | None = None,
+    user: dict = Depends(get_current_user),
+):
+    from wigle_import import import_from_wigle
+
+    body = body or WigleImportBody()
+    mode = get_user_setting(user["id"], "default_localization_mode", "2d") or "2d"
+    precision = (
+        get_user_setting(user["id"], "default_localize_precision", "balanced")
+        or "balanced"
+    )
+    try:
+        result = import_from_wigle(
+            user["id"],
+            api_name=body.api_name,
+            api_token=body.api_token,
+            mode=mode,
+            precision=precision,
+            skip_existing=body.skip_existing,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "429" in msg:
+            raise HTTPException(429, msg) from exc
+        raise HTTPException(502, msg) from exc
+    try:
+        from achievements import evaluate_achievements
+
+        result["newly_unlocked"] = evaluate_achievements(user["id"])
+    except Exception:
+        result["newly_unlocked"] = []
+    return result
+
+
 # ----- Export / import -----
 
 
