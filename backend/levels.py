@@ -580,9 +580,13 @@ def create_level(
             dist_bit = (name or "").strip()
         name = fixed_level_name(city_bit, dist_bit)
         parent_label = city_bit
+        # Sub-region created before / without parent id: link to existing city root.
+        if parent_geoname_id is None and parent_label:
+            parent_geoname_id = _lookup_city_geoname_id(user_id, parent_label)
     else:
         city_bit = (name or parent_label or "").split(",")[0].strip()
         name = fixed_level_name(city_bit)
+        # Keep parent_label = city name so orphan districts can attach by label.
         parent_label = name
 
     dup = find_duplicate_level(
@@ -660,8 +664,91 @@ def create_level(
                 (level["id"],),
             )
             level = cur.fetchone()
+            # Whole city after sub-regions: stamp parent_geoname_id on orphans.
+            if kind == "city" and geoname_id is not None and parent_label:
+                cur.execute(
+                    """
+                    UPDATE levels
+                    SET parent_geoname_id = %s, updated_at = NOW()
+                    WHERE user_id = %s
+                      AND place_kind IN ('district', 'city_part')
+                      AND parent_geoname_id IS NULL
+                      AND status <> 'error'
+                      AND lower(trim(coalesce(parent_label, '')))
+                          = lower(trim(%s))
+                    """,
+                    (geoname_id, user_id, parent_label),
+                )
         conn.commit()
         return level
+    finally:
+        conn.close()
+
+
+def _lookup_city_geoname_id(user_id: int, city_label: str) -> int | None:
+    """Resolve parent_geoname_id for a district from an existing city level."""
+    label = (city_label or "").split(",")[0].strip()
+    if not label:
+        return None
+    conn = connect_dict()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT geoname_id
+                FROM levels
+                WHERE user_id = %s
+                  AND place_kind = 'city'
+                  AND geoname_id IS NOT NULL
+                  AND status <> 'error'
+                  AND (
+                    lower(trim(coalesce(parent_label, ''))) = lower(trim(%s))
+                    OR lower(trim(coalesce(name, ''))) = lower(trim(%s))
+                  )
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (user_id, label, label),
+            )
+            row = cur.fetchone()
+            if row and row.get("geoname_id") is not None:
+                return int(row["geoname_id"])
+    finally:
+        conn.close()
+    return None
+
+
+def heal_orphan_district_parents(user_id: int) -> int:
+    """Attach districts missing parent_geoname_id to a matching city root.
+
+    Fixes the case where sub-regions were generated first (null parent id) and
+    the whole-city root was added later with a geoname_id.
+    """
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE levels AS d
+                SET parent_geoname_id = c.geoname_id,
+                    updated_at = NOW()
+                FROM levels AS c
+                WHERE d.user_id = %s
+                  AND c.user_id = d.user_id
+                  AND d.place_kind IN ('district', 'city_part')
+                  AND d.parent_geoname_id IS NULL
+                  AND d.status <> 'error'
+                  AND c.place_kind = 'city'
+                  AND c.geoname_id IS NOT NULL
+                  AND c.status <> 'error'
+                  AND lower(trim(coalesce(d.parent_label, '')))
+                      = lower(trim(coalesce(c.parent_label, c.name, '')))
+                """,
+                (user_id,),
+            )
+            n = cur.rowcount or 0
+        conn.commit()
+        return int(n)
     finally:
         conn.close()
 
@@ -709,6 +796,9 @@ def _attach_by_profile(levels: list[dict]) -> list[dict]:
 
 
 def list_levels(user_id: int) -> list[dict]:
+    # Persist parent links when a whole-city root exists but older districts
+    # were stored without parent_geoname_id (Regions UI folder merge).
+    heal_orphan_district_parents(user_id)
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
@@ -1380,7 +1470,10 @@ def process_level_job(user_id: int, level_id: int, progress_cb=None) -> dict:
 
     shared = pbf_path_for_extract(level.get("geofabrik_id") or "")
     if shared.exists() and shared.stat().st_size > 1000:
-        # Use the kept regional pack in place — no copy, no download stage
+        # Use the cached regional pack in place — no copy, no download stage
+        from pbf_cache import touch_pack
+
+        touch_pack(shared)
         dest = shared
         size = shared.stat().st_size
         report(0.05, "extract", "Using saved regional map pack…", 5)
@@ -1705,6 +1798,9 @@ def build_level_addresses_job(
         shared = pbf_path_for_extract(level.get("geofabrik_id") or "")
         level_pbf = level_dir(user_id, level_id) / "extract.osm.pbf"
         if shared.exists():
+            from pbf_cache import touch_pack
+
+            touch_pack(shared)
             dest = shared
         elif level_pbf.exists():
             dest = level_pbf

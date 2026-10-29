@@ -3,18 +3,39 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from db import connect_dict
-from paths import user_exports
+from paths import ROOT, user_exports
 
 ExportKind = Literal["user_calculated", "full", "calculated_only", "raw_only"]
 
+# Integer schema version for the zip layout / CSV columns.
+# Bump only when restore semantics change; keep restoring older versions.
+CURRENT_FORMAT_VERSION = 1
+LEGACY_FORMAT_MARKER = "wardrivrr-backup-v1"
+MANIFEST_NAME = "wardrivrr-backup.json"
 
-def _samples_csv(user_id: int) -> str:
+
+def _read_app_version() -> str:
+    env = (os.getenv("WARDRIVRR_VERSION") or "").strip()
+    if env:
+        return env
+    for path in (ROOT / "VERSION", Path("/app/VERSION")):
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+            if text:
+                return text.splitlines()[0].strip()
+        except OSError:
+            continue
+    return "1.0.0"
+
+
+def _samples_csv(user_id: int) -> tuple[str, int]:
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
@@ -54,10 +75,10 @@ def _samples_csv(user_id: int) -> str:
         if out.get("seen_at") is not None:
             out["seen_at"] = out["seen_at"].isoformat()
         w.writerow(out)
-    return buf.getvalue()
+    return buf.getvalue(), len(rows)
 
 
-def _networks_csv(user_id: int) -> str:
+def _networks_csv(user_id: int) -> tuple[str, int]:
     conn = connect_dict()
     try:
         with conn.cursor() as cur:
@@ -105,7 +126,7 @@ def _networks_csv(user_id: int) -> str:
             if out.get(ts) is not None:
                 out[ts] = out[ts].isoformat()
         w.writerow(out)
-    return buf.getvalue()
+    return buf.getvalue(), len(rows)
 
 
 def _user_settings(user_id: int) -> dict:
@@ -121,28 +142,98 @@ def _user_settings(user_id: int) -> dict:
         conn.close()
 
 
+def _build_manifest(
+    *,
+    kind: ExportKind,
+    exported_at: str,
+    user_id: int,
+    counts: dict[str, int],
+) -> dict[str, Any]:
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {
+        "format": LEGACY_FORMAT_MARKER,
+        "format_version": CURRENT_FORMAT_VERSION,
+        "app_version": _read_app_version(),
+        "kind": kind,
+        "exported_at": exported_at,
+        "created_at": created_at,
+        "user_id": user_id,
+        "counts": counts,
+    }
+
+
+def resolve_format_version(meta: dict[str, Any] | None, manifest: dict[str, Any] | None = None) -> int:
+    """Resolve integer format_version from new or legacy archives.
+
+    Prefer wardrivrr-backup.json, then meta.json format_version, then the
+    legacy string marker wardrivrr-backup-v1 → version 1.
+    """
+    for source in (manifest, meta):
+        if not source:
+            continue
+        if "format_version" in source:
+            try:
+                version = int(source["format_version"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Invalid format_version in backup manifest") from exc
+            if version < 1:
+                raise ValueError(f"Invalid backup format_version {version}")
+            if version > CURRENT_FORMAT_VERSION:
+                raise ValueError(
+                    f"Backup format_version {version} is newer than this app "
+                    f"supports (max {CURRENT_FORMAT_VERSION}). Upgrade wardrivrr "
+                    "to restore this archive."
+                )
+            return version
+
+    if meta and meta.get("format") == LEGACY_FORMAT_MARKER:
+        return 1
+    if manifest and manifest.get("format") == LEGACY_FORMAT_MARKER:
+        return 1
+    raise ValueError("Unsupported backup format (missing format_version)")
+
+
 def create_export(user_id: int, kind: ExportKind = "user_calculated") -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = user_exports(user_id) / f"wardrivrr_{kind}_{ts}.zip"
+    counts: dict[str, int] = {"samples": 0, "networks": 0, "settings": 0}
+    samples_csv = networks_csv = None
+    settings: dict | None = None
+
+    if kind in ("user_calculated", "full", "raw_only"):
+        samples_csv, counts["samples"] = _samples_csv(user_id)
+    if kind in ("user_calculated", "full", "calculated_only"):
+        networks_csv, counts["networks"] = _networks_csv(user_id)
+    if kind in ("user_calculated", "full"):
+        settings = _user_settings(user_id)
+        counts["settings"] = len(settings)
+
+    manifest = _build_manifest(kind=kind, exported_at=ts, user_id=user_id, counts=counts)
+    # meta.json stays the restore identity file; includes format_version for new zips.
     meta = {
-        "format": "wardrivrr-backup-v1",
+        "format": LEGACY_FORMAT_MARKER,
+        "format_version": CURRENT_FORMAT_VERSION,
+        "app_version": manifest["app_version"],
         "kind": kind,
         "exported_at": ts,
+        "created_at": manifest["created_at"],
         "user_id": user_id,
+        "counts": counts,
     }
+
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("meta.json", json.dumps(meta, indent=2))
-        if kind in ("user_calculated", "full", "raw_only"):
-            zf.writestr("signal_samples.csv", _samples_csv(user_id))
-            # raw file manifest
-            incoming = Path(__file__).resolve().parents[1] / "data" / "users" / str(user_id) / "incoming"
+        zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2))
+        if samples_csv is not None:
+            zf.writestr("signal_samples.csv", samples_csv)
+            incoming = ROOT / "data" / "users" / str(user_id) / "incoming"
             if incoming.exists():
                 names = [p.name for p in incoming.iterdir() if p.is_file()]
                 zf.writestr("incoming_manifest.json", json.dumps(names, indent=2))
-        if kind in ("user_calculated", "full", "calculated_only"):
-            zf.writestr("networks.csv", _networks_csv(user_id))
-        if kind in ("user_calculated", "full"):
-            zf.writestr("user_settings.json", json.dumps(_user_settings(user_id), indent=2))
+        if networks_csv is not None:
+            zf.writestr("networks.csv", networks_csv)
+        if settings is not None:
+            zf.writestr("user_settings.json", json.dumps(settings, indent=2))
         if kind == "full":
             zf.writestr(
                 "app_meta.json",
@@ -162,8 +253,18 @@ def import_backup(
         if "meta.json" not in names:
             raise ValueError("Not a wardrivrr backup (missing meta.json)")
         meta = json.loads(zf.read("meta.json"))
-        if meta.get("format") != "wardrivrr-backup-v1":
-            raise ValueError("Unsupported backup format")
+        manifest = None
+        if MANIFEST_NAME in names:
+            try:
+                manifest = json.loads(zf.read(MANIFEST_NAME))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid {MANIFEST_NAME} in backup") from exc
+
+        format_version = resolve_format_version(meta, manifest)
+        stats["format_version"] = format_version
+        # v1 payload layout: CSVs + optional settings (this and legacy zips).
+        if format_version != 1:
+            raise ValueError(f"No restore handler for format_version {format_version}")
 
         conn = connect_dict()
         try:

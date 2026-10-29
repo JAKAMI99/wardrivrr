@@ -88,5 +88,5 @@ Release: **1.0.0** · Status: **Done** · **User tonight** · **Open**
 ## Do not break
 
 - Brand stickers under `frontend/brand/**/stickers/` stay in the image / tree — never delete.
-- Bluey / Winnie the Pooh cuts are user-supplied local assets (not scraped by agents/CI; do not commit scraped Disney art). To restore: drop transparent PNGs or sheets into `frontend/brand/kidcore/` (`s-l1600.jpg` for Bluey; `winnie*` / `pooh*` / `winniethepooh*` for Pooh), then run `python tools/extract_kidcore_stickers.py` and `python tools/prep_kidcore_stickers.py` (franchise ships as `bluey-*` / `winnie-*` in `stickers/` + `stickers.json`). Gallery links: `CREDITS.md` (DisneyClips) — respect their / rights-holder terms.
+- Bluey / Winnie the Pooh cuts are user-supplied local assets (not scraped by agents/CI; do not commit scraped Disney art). To restore: drop transparent PNGs or sheets into `frontend/brand/kidcore/` (`s-l1600.jpg` for Bluey; `winnie*` / `pooh*` / `winniethepooh*` for Pooh), then run `python tools/extract_kidcore_stickers.py` and `python tools/prep_kidcore_stickers.py` (ships into `stickers/{bluey,winnie_pooh,random_character,legacy}/` + `stickers.json` packs). Gallery links: `CREDITS.md` (DisneyClips) — respect their / rights-holder terms.
 - Docker `./data` (and related) bind mounts stay intact for persistence across recreate.

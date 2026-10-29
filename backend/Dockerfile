@@ -1,5 +1,5 @@
 # Build from repo root:
-#   docker build -f backend/Dockerfile -t wardrivrr-api:1.0.0 .
+#   docker build -f backend/Dockerfile -t wardrivrr-api:latest .
 FROM python:3.11-slim
 
 ARG WARDRIVRR_VERSION=1.0.0

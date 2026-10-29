@@ -26,6 +26,13 @@ Drop PNGs into `docs/screenshots/` (see that folder’s README). Until then the 
 
 ## Quick start
 
+**Always use the `:latest` image tag** so you get the current release. Product version (**1.0.0**) is shown in this README header, on the home page, and via `/api/health` (`VERSION` / `APP_VERSION`) — not as a pinned image tag.
+
+```bash
+docker pull ghcr.io/<owner>/wardrivrr:latest
+# Compose: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
+```
+
 ### Vehicle / Linux (recommended)
 
 First boot installs host helpers, writes `.env`, and brings the stack up:
@@ -55,17 +62,19 @@ sudo systemctl enable --now wardrivrr-stack
 
 ### Docker Compose only (after `.env` exists)
 
-Same stack `./run.sh` uses — root compose + car overlay:
+Same stack `./run.sh` uses — root compose + car overlay. Prefer the published image (`:latest`); local `--build` is for development.
 
 ```bash
 cp .env.example .env
 # Set DB_PASS, HOST_PROJECT, HOST_DATA_ROOT (absolute clone paths), KISMET_PASSWORD, …
+# WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest
 mkdir -p data/kismet_logs data/valhalla data/incoming data/pbf
 
-docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d --build
+docker pull ghcr.io/<owner>/wardrivrr:latest
+docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
 ```
 
-Health check:
+Health check (reports product version from `VERSION` / `APP_VERSION`):
 
 ```bash
 curl -fsS http://127.0.0.1:8000/api/health
@@ -143,7 +152,8 @@ Omit the password argument to be prompted interactively.
 | `DB_PASS` | Required for real deploys. `deploy.sh` generates a strong value on fresh installs; change the `.env.example` placeholder before shipping. |
 | `HOST_PROJECT` / `HOST_DATA_ROOT` | Absolute host paths required for the car overlay (Valhalla via docker.sock). `./run.sh` / `./deploy.sh` write these. |
 | `GPSD_*` / `KISMET_*` | Host services; car overlay uses host networking. |
-| `WARDRIVRR_VERSION` | Optional override; defaults to the repo `VERSION` file (`1.0.0`). |
+| `WARDRIVRR_IMAGE` | Published image; use `ghcr.io/<owner>/wardrivrr:latest` (always pull current). |
+| `WARDRIVRR_VERSION` | Optional product-version override; defaults to the repo `VERSION` file. |
 
 | Service | Port |
 | --- | --- |
@@ -153,7 +163,7 @@ Omit the password argument to be prompted interactively.
 | Kismet (host) | `2501` |
 | gpsd (host) | `2947` |
 
-**Maps & routing:** create a **Region** in the UI → regional Geofabrik pack in `data/pbf/` → clip + Valhalla tiles for that place only → **Drive**. Do not create a second region for the same area.
+**Maps & routing:** create a **Region** in the UI → regional Geofabrik pack cached in `data/pbf/` (~7 days) → clip + Valhalla tiles for that place only → **Drive**. Live routing uses Valhalla tiles / `data/valhalla/active.osm.pbf`, not the regional pack. Do not create a second region for the same area.
 
 Compose starts **Valhalla** only when `data/valhalla/active.osm.pbf` already exists from a prior region. Empty checkout → API + PostGIS until the first region is ready.
 
@@ -174,7 +184,7 @@ Ship checklist: [docs/SHIP_CHECKLIST.md](docs/SHIP_CHECKLIST.md).
 | `deploy/` | Compose overlay, systemd, Kismet examples |
 | `scripts/` | Helpers (Docker ensure, wipe, ingest, password reset, offline data) |
 | `data/` | Map packs, Valhalla runtime, Kismet logs, `.jwt_secret` (gitignored) |
-| `VERSION` | Release version (`1.0.0`) |
+| `VERSION` | Product version (also home page / `/api/health`) |
 
 ---
 

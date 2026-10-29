@@ -1,5 +1,5 @@
 # Build API+frontend image and push to GitHub Container Registry (trusted CI source).
-# Consumers should `docker pull ghcr.io/<owner>/wardrivrr` — local build is fallback only.
+# Consumers should `docker pull ghcr.io/<owner>/wardrivrr:latest` — local build is fallback only.
 
 name: Docker publish
 

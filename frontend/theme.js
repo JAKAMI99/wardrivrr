@@ -11,32 +11,6 @@
   const IDS = ["classic", "kidcore", "crt"];
   const ORIG_KEY = "__kidcoreOrig";
 
-  /** Floating sticker / phrase pool (picked at random each mount) */
-  const PHRASE_POOL = [
-    "don't grow up",
-    "stay childish",
-    "keep exploring",
-    "hewwo from toy box",
-    "pwease be soft",
-    "best fwends forever",
-    "no nap · only explore",
-    "dino hug zone",
-    "rawr means hewwo",
-    "smol adventure",
-    "snack break soon",
-    "PACI POWER",
-    "TOY BOX",
-    "☆ BEST FWENDS ☆",
-    "make weighties",
-    "vroom vroom",
-    ":3",
-    ">:3",
-    "UwU",
-    "OwO",
-    "nya~",
-    "rawr :3",
-  ];
-
   /**
    * Full-phrase toddler rewrites (applied before word swaps).
    * Longest / most specific first so short tokens don't steal matches.
@@ -151,11 +125,19 @@
     [/Uploading.../g, "Sending..."],
   ];
 
-  const FLOAT_EMOJI = ["🎒", "🧸", "⭐", "🖍️", "🌈", "🐸", "🎮", "🦕", "🦖", "💫", "🎀"];
+  const FLOAT_EMOJI = ["🎒", "🧸", "⭐", "🖍️", "🌈", "🐸", "🎮", "🦕", "🦖", "💫", "🎀", "🦄"];
+  const CLASSIC_FAVICON = "/static/brand/classic/favicon.png";
+  const CRT_FAVICON = "/static/brand/crt/favicon.png";
   const KIDCORE_FAVICON = "/static/brand/kidcore/favicon.png";
   const KIDCORE_STICKERS_MANIFEST = "/static/brand/kidcore/stickers.json";
-  /** Filled async from stickers.json; decor falls back to emoji until loaded */
-  let kidcoreStickerUrls = null;
+  const CHAR_PACKS = ["bluey", "winnie_pooh", "random_character"];
+  /** Fixed mid/lower-right hero — never in the rotating float pool */
+  const BLUEY_HERO_FILE = "bluey-19.png";
+  const BLUEY_HERO_SRC = "/static/brand/kidcore/stickers/bluey/bluey-19.png";
+  /** Full-viewport float slots (kc-i1–12); CSS keeps clear of Bluey hero only */
+  const KIDCORE_FLOAT_COUNT = 12;
+  /** Filled async from stickers.json packs; decor falls back to emoji until loaded */
+  let kidcorePacks = null; // { bluey: urls[], winnie_pooh: urls[], random_character: urls[], legacy: urls[] }
   let kidcoreStickersPromise = null;
 
   const META = {
@@ -277,27 +259,17 @@
       document.head?.appendChild(link);
     }
     if (!link.id) link.id = "wardFavicon";
-    // Snapshot the HTML default once so classic/crt can restore it.
-    // Site ships with kidcore favicon as the default (no separate classic asset).
-    if (link.dataset.wardClassicHref === undefined) {
-      link.dataset.wardClassicHref =
-        link.getAttribute("href") || KIDCORE_FAVICON;
-    }
     return link;
   }
 
   function setFavicon(theme) {
     const link = ensureFaviconLink();
-    if (theme === "kidcore") {
-      link.href = KIDCORE_FAVICON;
-      link.type = "image/png";
-      return;
-    }
-    // Prefer HTML default; if missing, keep kidcore so the tab never goes blank
-    const classic = link.dataset.wardClassicHref || KIDCORE_FAVICON;
-    link.href = classic || KIDCORE_FAVICON;
-    if (/\.png(\?|$)/i.test(link.href)) link.type = "image/png";
-    else link.removeAttribute("type");
+    const id = normalize(theme);
+    let href = CLASSIC_FAVICON;
+    if (id === "kidcore") href = KIDCORE_FAVICON;
+    else if (id === "crt") href = CRT_FAVICON;
+    link.href = href;
+    link.type = "image/png";
   }
 
   function pick(arr, n) {
@@ -307,6 +279,25 @@
       [copy[i], copy[j]] = [copy[j], copy[i]];
     }
     return copy.slice(0, Math.min(n, copy.length));
+  }
+
+  function isBlueyHeroUrl(url) {
+    return typeof url === "string" && /(?:^|\/)bluey-19\.png(?:\?|$)/i.test(url);
+  }
+
+  function urlsFromPackList(base, folder, files) {
+    const list = Array.isArray(files) ? files : [];
+    return list
+      .map((f) => {
+        if (typeof f !== "string") return "";
+        if (f.startsWith("http") || f.startsWith("/")) return f;
+        // Prefer pack-relative "bluey/bluey-01.png" or bare filename under folder/
+        if (f.includes("/")) return `${base}/${f}`;
+        return `${base}/${folder}/${f}`;
+      })
+      .filter(Boolean)
+      // Hero is a fixed decor img — keep it out of random rotation pools
+      .filter((u) => !isBlueyHeroUrl(u) && !u.endsWith(`/${BLUEY_HERO_FILE}`));
   }
 
   function fetchKidcoreStickersOnce() {
@@ -320,17 +311,45 @@
           /\/$/,
           ""
         );
+        const packsIn = body?.packs && typeof body.packs === "object" ? body.packs : null;
+        if (packsIn) {
+          const packs = {
+            bluey: urlsFromPackList(base, "bluey", packsIn.bluey),
+            winnie_pooh: urlsFromPackList(base, "winnie_pooh", packsIn.winnie_pooh),
+            random_character: urlsFromPackList(
+              base,
+              "random_character",
+              packsIn.random_character
+            ),
+            legacy: urlsFromPackList(base, "legacy", packsIn.legacy),
+          };
+          const n =
+            packs.bluey.length +
+            packs.winnie_pooh.length +
+            packs.random_character.length +
+            packs.legacy.length;
+          if (!n) throw new Error("stickers.json packs are empty");
+          return packs;
+        }
+        // Legacy flat stickers[] — treat as random_character
         const list = Array.isArray(body?.stickers) ? body.stickers : [];
         if (!list.length) {
           throw new Error("stickers.json returned empty list");
         }
-        return list.map((f) => `${base}/${f}`);
+        return {
+          bluey: [],
+          winnie_pooh: [],
+          random_character: list.map((f) =>
+            f.includes("/") ? `${base}/${f}` : `${base}/${f}`
+          ),
+          legacy: [],
+        };
       });
   }
 
   function loadKidcoreStickers() {
-    if (kidcoreStickerUrls && kidcoreStickerUrls.length) {
-      return Promise.resolve(kidcoreStickerUrls);
+    if (kidcorePacks) {
+      return Promise.resolve(kidcorePacks);
     }
     if (kidcoreStickersPromise) return kidcoreStickersPromise;
     // Retry once on empty/failed load (cache race, cold StaticFiles, etc.)
@@ -341,20 +360,48 @@
           fetchKidcoreStickersOnce
         );
       })
-      .then((urls) => {
-        kidcoreStickerUrls = urls;
-        return kidcoreStickerUrls;
+      .then((packs) => {
+        kidcorePacks = packs;
+        return kidcorePacks;
       })
       .catch((err) => {
         console.warn(
           "[wardrivrr] kidcore stickers unavailable — falling back to emoji floats. Check /static/brand/kidcore/stickers.json (Docker image must COPY frontend/brand).",
           err
         );
-        kidcoreStickerUrls = null;
+        kidcorePacks = null;
         kidcoreStickersPromise = null;
-        return [];
+        return null;
       });
     return kidcoreStickersPromise;
+  }
+
+  /** Round-robin pick across character packs so Bluey / Pooh / random don't clump. */
+  function pickCharacterUrls(packs, count = KIDCORE_FLOAT_COUNT) {
+    if (!packs) return [];
+    const keys = CHAR_PACKS.filter((k) => (packs[k] || []).length);
+    if (!keys.length) return [];
+    const pools = {};
+    const idx = {};
+    for (const k of keys) {
+      // Defense in depth: exclude hero even if an older manifest still lists it
+      const filtered = (packs[k] || []).filter((u) => !isBlueyHeroUrl(u));
+      pools[k] = pick(filtered, filtered.length);
+      idx[k] = 0;
+    }
+    const out = [];
+    while (out.length < count) {
+      let added = false;
+      for (const k of keys) {
+        if (out.length >= count) break;
+        if (idx[k] < pools[k].length) {
+          out.push(pools[k][idx[k]++]);
+          added = true;
+        }
+      }
+      if (!added) break;
+    }
+    return out;
   }
 
   /**
@@ -498,6 +545,14 @@
     }
     if (el.closest(".kidcore-decor")) return true;
     if (el.closest("[data-kidcore-skip]")) return true;
+    // Real geographic level/region names — never Cute Engwish (Schwelm ≠ Schwewm)
+    if (
+      el.closest(
+        "[data-place-name], .level-card-name, .nav-level-name, #statLevel, #confirmPlace, #previewTitle, .level-place-hint"
+      )
+    ) {
+      return true;
+    }
     if (el.closest(".maplibregl-map, .maplibregl-ctrl, .nav-map")) return true;
     if (el.isContentEditable) return true;
     return false;
@@ -705,42 +760,50 @@
     }, 45000);
   }
 
-  function imgStickerHtml(urls, count = 6) {
-    const picked = pick(urls || [], count);
+  function blueyHeroHtml() {
+    // Always-on fixed hero (not in rotation). CSS anchors mid/lower-right.
+    return `<img class="kc-img kc-bluey-hero" src="${BLUEY_HERO_SRC}" alt="" decoding="async" draggable="false" />`;
+  }
+
+  function imgStickerHtml(urls, count = KIDCORE_FLOAT_COUNT) {
+    const picked = urls || [];
     if (!picked.length) {
-      return pick(FLOAT_EMOJI, 4)
+      // Emoji fallbacks share the same full-viewport scatter (kc-f1–12)
+      return pick(FLOAT_EMOJI, KIDCORE_FLOAT_COUNT)
         .map((e, i) => `<span class="kc-float kc-f${i + 1}">${e}</span>`)
         .join("");
     }
     return picked
+      .slice(0, count)
       .map(
         (src, i) =>
-          `<img class="kc-img kc-i${(i % 8) + 1}" src="${src}" alt="" decoding="async" draggable="false" />`
+          `<img class="kc-img kc-i${(i % KIDCORE_FLOAT_COUNT) + 1}" src="${src}" alt="" decoding="async" draggable="false" />`
       )
       .join("");
   }
 
-  function phraseStickerHtml() {
-    return pick(PHRASE_POOL, 3)
-      .map((p, i) => {
-        const cls = `kc-sticker kc-s${(i % 6) + 1}${
-          /:3|>:3|UwU|OwO|nya/i.test(p) ? " kc-emo" : ""
-        }`;
-        return `<span class="${cls}">${p}</span>`;
-      })
-      .join("");
+  function legacyPngHtml(packs) {
+    const urls = packs?.legacy || [];
+    if (!urls.length) return "";
+    // At most one word-art PNG, parked in a phrase-zone slot
+    const src = pick(urls, 1)[0];
+    return `<img class="kc-img kc-legacy kc-leg1" src="${src}" alt="" decoding="async" draggable="false" />`;
   }
 
   function buildDecorHtml() {
-    // 8 edge-biased PNG stickers + phrase chips (CSS keeps center form zone clear)
-    return imgStickerHtml(kidcoreStickerUrls, 8) + phraseStickerHtml();
+    // Fixed Bluey hero (lower-right) + scattered image floats (no text chips)
+    const chars = pickCharacterUrls(kidcorePacks, KIDCORE_FLOAT_COUNT);
+    return (
+      blueyHeroHtml() +
+      imgStickerHtml(chars, KIDCORE_FLOAT_COUNT) +
+      legacyPngHtml(kidcorePacks)
+    );
   }
 
   function refreshPhrases(layer) {
     if (!layer) return;
-    layer.querySelectorAll(".kc-sticker").forEach((el) => el.remove());
-    layer.querySelectorAll(".kc-img, .kc-float").forEach((el) => el.remove());
-    // Rotate image stickers + a few text stickers
+    // Drop any leftover text chips from older builds, then rotate image floats
+    layer.querySelectorAll(".kc-sticker, .kc-img, .kc-float").forEach((el) => el.remove());
     const wrap = document.createElement("div");
     wrap.innerHTML = buildDecorHtml();
     while (wrap.firstChild) layer.appendChild(wrap.firstChild);

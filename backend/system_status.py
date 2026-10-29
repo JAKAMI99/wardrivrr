@@ -788,6 +788,18 @@ def storage_status(user_id: int | None = None) -> dict:
     kismet_files = _count_files(kismet_dir)
 
     disk = shutil.disk_usage(ROOT)
+    map_packs: dict = {}
+    try:
+        from pbf_cache import cache_stats
+
+        map_packs = cache_stats()
+    except Exception:
+        map_packs = {
+            "map_packs_count": 0,
+            "map_packs_bytes": 0,
+            "map_packs_human": "0 B",
+            "map_packs_retention_days": 7,
+        }
     return {
         # Legacy keys kept for older UIs
         "raw_incoming_bytes": uploads_bytes,
@@ -799,6 +811,7 @@ def storage_status(user_id: int | None = None) -> dict:
         "kismet_logs_bytes": kismet_bytes,
         "kismet_logs_human": _bytes_human(kismet_bytes),
         "kismet_logs_files": kismet_files,
+        **map_packs,
         "disk_total_bytes": disk.total,
         "disk_used_bytes": disk.used,
         "disk_free_bytes": disk.free,

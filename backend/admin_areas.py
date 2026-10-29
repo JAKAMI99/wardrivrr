@@ -14,9 +14,10 @@ import sqlite3
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "cities" / "admin_areas.sqlite"
-PBF_DIR = ROOT / "data" / "pbf"
+from paths import DATA
+
+DB_PATH = DATA / "cities" / "admin_areas.sqlite"
+PBF_DIR = DATA / "pbf"
 
 MIN_ADMIN_LEVEL = 4
 MAX_ADMIN_LEVEL = 10
@@ -123,11 +124,12 @@ def prepare_extract(
     progress_cb=None,
 ) -> dict:
     """
-    Ensure regional PBF is on disk (kept forever) and admin areas are indexed.
+    Ensure regional PBF is on disk (cached ~7 days) and admin areas are indexed.
 
     progress_cb(progress 0-1, stage, message, eta_seconds|None)
     """
     from geofabrik import download_pbf, resolve_feature
+    from pbf_cache import touch_pack
 
     eid = (extract_id or "").strip()
     if not eid:
@@ -145,6 +147,7 @@ def prepare_extract(
     pbf = pbf_path_for_extract(eid)
     downloaded = False
     if pbf.exists() and pbf.stat().st_size > 1000:
+        touch_pack(pbf)
         report(0.45, "ready", "Map pack already on disk…", 5)
     else:
         report(0.02, "download", "Downloading regional map data…", None)

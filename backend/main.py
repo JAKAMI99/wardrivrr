@@ -383,6 +383,12 @@ def on_startup():
     except Exception as exc:
         print(f"[startup] gpsd poller: {exc}")
     try:
+        from pbf_cache import start_pbf_cache_cleaner
+
+        start_pbf_cache_cleaner()
+    except Exception as exc:
+        print(f"[startup] pbf cache cleaner: {exc}")
+    try:
         from kismet_live import start_kismet_live
 
         start_kismet_live()
@@ -1467,6 +1473,14 @@ def navigate_explore(body: ExploreRouteBody, user: dict = Depends(get_current_us
 def system_status(user: dict = Depends(get_current_user)):
     # Includes the car's live GPS position - never serve it anonymously.
     return collect_system_status(user_id=user["id"])
+
+
+@app.post("/api/system/storage/free-packs")
+def free_map_packs(user: dict = Depends(get_current_user)):
+    """Delete unused cached regional Geofabrik packs under data/pbf/."""
+    from pbf_cache import free_unused_packs
+
+    return free_unused_packs()
 
 
 @app.post("/api/localize/recompute")

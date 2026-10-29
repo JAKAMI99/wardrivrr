@@ -1,5 +1,4 @@
 # Vehicle host overlay (with root compose):
-# Release: WARDRIVRR_VERSION=1.0.0
 #   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
 # gpsd + Kismet stay on the host; API reaches them via host-gateway.
 
@@ -23,8 +22,7 @@ services:
       - ../.env
 
   api:
-    # WARDRIVRR_IMAGE may be a tag or an immutable digest, for example:
-    # ghcr.io/owner/wardrivrr@sha256:...
+    # Prefer ghcr.io/<owner>/wardrivrr:latest; digest pin optional.
     # Default local tag matches ./deploy.sh / .env.car.example (not a fake OWNER).
     image: ${WARDRIVRR_IMAGE:-wardrivrr-api:local}
     build:

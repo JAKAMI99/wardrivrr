@@ -2,6 +2,10 @@ const toast = document.getElementById("toast");
 let selectedPlace = null;
 let searchCity = null;
 let areaOptions = [];
+/** Index into areaOptions currently highlighted on the map / list */
+let selectedAreaIndex = null;
+/** Avoid re-fitting the map on every highlight change */
+let areaMapFitKey = null;
 let previewMap = null;
 let previewLayer = null;
 let activeJobId = null;
@@ -16,6 +20,33 @@ let existingOsmIds = new Set();
 let areaSelectSeq = 0;
 let preparePollInFlight = false;
 let areaChoicesGen = 0;
+
+/** Distinct fills for whole-city + each sub-region on the area picker map */
+const AREA_COLORS = [
+  "#00c2e0",
+  "#ff595e",
+  "#ffca3a",
+  "#8ac926",
+  "#1982c4",
+  "#9b5de5",
+  "#ff9f1c",
+  "#ef476f",
+  "#06d6a0",
+  "#3a86ff",
+  "#f72585",
+  "#fb5607",
+];
+
+function areaColor(i) {
+  return AREA_COLORS[Math.abs(Number(i) || 0) % AREA_COLORS.length];
+}
+
+function isAreaOwned(place) {
+  return (
+    place?.osm_relation_id != null &&
+    existingOsmIds.has(String(place.osm_relation_id))
+  );
+}
 
 function fmt(n) {
   if (n == null || Number.isNaN(Number(n))) return "-";
@@ -104,7 +135,7 @@ function unloadedRowHtml(place, key) {
     <article class="level-card is-part is-unloaded is-minimal">
       <header>
         <h3 class="level-card-title">
-          <span class="level-card-name"><em class="place-kind place-kind-sub">Sub-region</em>${escapeHtml(title)}</span>
+          <span class="level-card-name"><em class="place-kind place-kind-sub">Sub-region</em><span data-place-name>${escapeHtml(title)}</span></span>
         </h3>
         <button type="button" class="btn level-generate-btn" data-generate="${escapeHtml(key)}" data-kidcore-skip>Generate</button>
       </header>
@@ -196,9 +227,10 @@ function fmtArea(km2) {
   return `~${v < 10 ? v.toFixed(1) : Math.round(v)} km²`;
 }
 
-function showToast(message, isError = false) {
+function showToast(message, isError = false, { html = false } = {}) {
   toast.hidden = false;
-  toast.textContent = message;
+  if (html) toast.innerHTML = message;
+  else toast.textContent = message;
   toast.classList.toggle("error", isError);
 }
 
@@ -207,6 +239,9 @@ function setMapLoading(loading) {
   const overlay = document.getElementById("previewOverlay");
   mapEl?.classList.toggle("is-loading", !!loading);
   if (overlay) overlay.hidden = !loading;
+  if (!loading) {
+    document.getElementById("prepareFill")?.classList.remove("is-running");
+  }
 }
 
 function setAreaNextEnabled(on) {
@@ -228,7 +263,11 @@ function goStep(n) {
   if (n === 2) {
     requestAnimationFrame(() => {
       ensurePreviewMap();
-      paintPreview();
+      if (areaOptions.length) {
+        paintAreaChoicesMap(selectedAreaIndex, { fit: false });
+      } else {
+        paintPreview();
+      }
     });
   }
 }
@@ -244,28 +283,199 @@ function ensurePreviewMap() {
   }).addTo(previewMap);
 }
 
+function clearPreviewLayer() {
+  if (!previewMap || !previewLayer) return;
+  previewMap.removeLayer(previewLayer);
+  previewLayer = null;
+}
+
+/** Single outline (prepare / download stage before area choices exist). */
 function paintPreview(place = selectedPlace) {
   if (!previewMap || !place) return;
-  if (previewLayer) {
-    previewMap.removeLayer(previewLayer);
-    previewLayer = null;
-  }
+  clearPreviewLayer();
   const boundary = place.boundary;
   if (boundary && boundary.type) {
     previewLayer = L.geoJSON(boundary, {
       style: {
-        color: "#00e5ff",
+        color: areaColor(0),
         weight: 2,
-        fillColor: "#00e5ff",
+        fillColor: areaColor(0),
         fillOpacity: 0.18,
       },
     }).addTo(previewMap);
     previewMap.fitBounds(previewLayer.getBounds(), { padding: [28, 28] });
-  } else {
+  } else if (place.lat != null && place.lon != null) {
     previewLayer = L.marker([place.lat, place.lon]).addTo(previewMap);
     previewMap.setView([place.lat, place.lon], 12);
   }
   setTimeout(() => previewMap.invalidateSize(), 50);
+}
+
+/**
+ * Paint every candidate (root + sub-regions) with distinct colors.
+ * Clicking a polygon selects that option; list selection stays in sync.
+ */
+function paintAreaChoicesMap(selectedIndex, { fit = false } = {}) {
+  ensurePreviewMap();
+  if (!areaOptions.length) {
+    paintPreview(selectedPlace);
+    return;
+  }
+  clearPreviewLayer();
+  const group = L.featureGroup();
+  previewLayer = group;
+
+  // Draw root (city) first so sub-region fills sit on top and receive clicks.
+  // Selected sub-area is painted last so its white outline isn't buried under siblings.
+  const order = areaOptions.map((_, i) => i).sort((a, b) => {
+    const aRoot = !isDistrict(areaOptions[a]);
+    const bRoot = !isDistrict(areaOptions[b]);
+    if (aRoot === bRoot) return a - b;
+    return aRoot ? -1 : 1;
+  });
+  if (
+    selectedIndex != null &&
+    Number.isFinite(Number(selectedIndex)) &&
+    isDistrict(areaOptions[selectedIndex])
+  ) {
+    const sel = Number(selectedIndex);
+    const at = order.indexOf(sel);
+    if (at >= 0) {
+      order.splice(at, 1);
+      order.push(sel);
+    }
+  }
+
+  for (const i of order) {
+    const place = areaOptions[i];
+    const boundary = place?.boundary;
+    if (!boundary?.type) continue;
+    const color = areaColor(i);
+    const selected =
+      selectedIndex != null && Number(selectedIndex) === i;
+    const owned = isAreaOwned(place);
+    const root = !isDistrict(place);
+    const layer = L.geoJSON(boundary, {
+      style: {
+        color: selected ? "#ffffff" : color,
+        weight: selected ? 3.25 : root ? 2.25 : 1.5,
+        fillColor: color,
+        fillOpacity: owned
+          ? 0.06
+          : selected
+            ? root
+              ? 0.22
+              : 0.42
+            : root
+              ? 0.1
+              : 0.28,
+        opacity: owned ? 0.45 : 1,
+        className: owned ? "area-poly is-owned" : "area-poly",
+      },
+      // Keep owned polys interactive so clicks don't fall through to the root.
+      interactive: true,
+      bubblingMouseEvents: false,
+    });
+    layer.on("click", (e) => {
+      L.DomEvent.stopPropagation(e);
+      if (owned) {
+        showToast("Already in your regions", true);
+        return;
+      }
+      selectAreaOption(i);
+    });
+    layer.on("mouseover", () => {
+      const mapEl = document.getElementById("previewMap");
+      if (mapEl) mapEl.style.cursor = owned ? "not-allowed" : "pointer";
+    });
+    layer.on("mouseout", () => {
+      const mapEl = document.getElementById("previewMap");
+      if (mapEl) mapEl.style.cursor = "";
+    });
+    group.addLayer(layer);
+  }
+
+  group.addTo(previewMap);
+  const withGeom = areaOptions.filter((p) => p?.boundary?.type).length;
+  const fitKey = `${areaChoicesGen}:${withGeom}`;
+  if (group.getLayers().length && (fit || areaMapFitKey !== fitKey)) {
+    try {
+      previewMap.fitBounds(group.getBounds(), { padding: [28, 28], maxZoom: 13 });
+      areaMapFitKey = fitKey;
+    } catch {
+      /* empty bounds */
+    }
+  }
+  setTimeout(() => previewMap.invalidateSize(), 50);
+}
+
+function syncAreaChoiceList(index) {
+  document.querySelectorAll(".area-choice-btn").forEach((btn) => {
+    const i = Number(btn.dataset.areaI);
+    const on = i === index;
+    btn.classList.toggle("is-selected", on);
+    if (on) {
+      const c = areaColor(i);
+      btn.style.borderColor = c;
+      btn.style.boxShadow = `inset 3px 0 0 ${c}`;
+      btn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } else {
+      btn.style.borderColor = "";
+      btn.style.boxShadow = "";
+    }
+  });
+}
+
+/** Fetch any missing district outlines so the map can show every candidate. */
+async function ensureAreaBoundaries(gen) {
+  const jobs = areaOptions.map(async (place, i) => {
+    if (place?.boundary?.type) return;
+    if (place?.osm_relation_id == null && (place?.lat == null || place?.lon == null)) {
+      return;
+    }
+    try {
+      const params = new URLSearchParams();
+      if (place.osm_relation_id != null) {
+        params.set("osm_relation_id", String(place.osm_relation_id));
+      } else {
+        params.set("lat", String(place.lat));
+        params.set("lon", String(place.lon));
+        if (place.name) params.set("name", place.name);
+        if (place.map_pack?.id) params.set("geofabrik_id", place.map_pack.id);
+      }
+      const bRes = await WardAuth.apiFetch(`/api/levels/places/boundary?${params}`);
+      const bData = await bRes.json().catch(() => ({}));
+      if (gen !== areaChoicesGen) return;
+      if (bRes.ok && bData.boundary) {
+        areaOptions[i] = {
+          ...areaOptions[i],
+          boundary: bData.boundary,
+          bbox: bData.bbox || areaOptions[i].bbox,
+          boundary_approximate: false,
+        };
+        if (selectedAreaIndex === i && selectedPlace) {
+          selectedPlace = {
+            ...selectedPlace,
+            boundary: bData.boundary,
+            bbox: bData.bbox || selectedPlace.bbox,
+            boundary_approximate: false,
+          };
+        }
+      }
+    } catch {
+      /* leave without geometry */
+    }
+  });
+  await Promise.all(jobs);
+  if (gen !== areaChoicesGen) return;
+  paintAreaChoicesMap(selectedAreaIndex, { fit: true });
+  if (
+    selectedPlace?.boundary?.type &&
+    selectedAreaIndex != null &&
+    !isAreaOwned(areaOptions[selectedAreaIndex])
+  ) {
+    setAreaNextEnabled(true);
+  }
 }
 
 function isCityLevel(p) {
@@ -303,8 +513,8 @@ function jobProgressText(job) {
 function placeButtonHtml(p, i) {
   return `
     <button type="button" class="level-extract-btn" data-i="${i}">
-      <strong>${escapeHtml(p.label)}</strong>
-      <span class="muted">${escapeHtml(p.display_name || "")}</span>
+      <strong data-place-name>${escapeHtml(p.label)}</strong>
+      <span class="muted" data-place-name>${escapeHtml(p.display_name || "")}</span>
     </button>`;
 }
 
@@ -326,6 +536,8 @@ async function beginPrepare(city) {
   searchCity = city;
   selectedPlace = null;
   areaOptions = [];
+  selectedAreaIndex = null;
+  areaMapFitKey = null;
   setAreaNextEnabled(false);
   document.getElementById("areaChoices").hidden = true;
   document.getElementById("areaChoices").innerHTML = "";
@@ -333,6 +545,7 @@ async function beginPrepare(city) {
   document.getElementById("previewSub").textContent = "";
   document.getElementById("prepareStatus").textContent = "Starting download...";
   document.getElementById("prepareFill").style.width = "2%";
+  document.getElementById("prepareFill")?.classList.add("is-running");
   document.getElementById("preparePct").textContent = "0%";
   document.getElementById("prepareEta").textContent = "estimating...";
   setMapLoading(true);
@@ -396,6 +609,7 @@ async function pollPrepareJob() {
       prepareTimer = null;
       prepareJobId = null;
       document.getElementById("prepareFill").style.width = "100%";
+      document.getElementById("prepareFill")?.classList.remove("is-running");
       document.getElementById("preparePct").textContent = "100%";
       await showAreaChoices(result);
       return;
@@ -404,6 +618,7 @@ async function pollPrepareJob() {
       clearInterval(prepareTimer);
       prepareTimer = null;
       prepareJobId = null;
+      document.getElementById("prepareFill")?.classList.remove("is-running");
       setMapLoading(false);
       document.getElementById("previewSub").textContent =
         job.error || "Prepare failed";
@@ -416,6 +631,8 @@ async function pollPrepareJob() {
 
 async function showAreaChoices(result) {
   const gen = ++areaChoicesGen;
+  areaMapFitKey = null;
+  selectedAreaIndex = null;
   setMapLoading(false);
   prepareMeta = result;
   await refreshExistingLevels();
@@ -441,7 +658,7 @@ async function showAreaChoices(result) {
     html += areaChoiceHtml(city, 0);
   }
   if (districts.length) {
-    html += `<p class="area-choices-heading muted">Sub-regions</p>`;
+    html += `<p class="area-choices-heading muted">Sub-regions · tap the map or a row</p>`;
     districts.forEach((d, i) => {
       html += areaChoiceHtml(d, (city ? 1 : 0) + i);
     });
@@ -449,73 +666,81 @@ async function showAreaChoices(result) {
   box.innerHTML = html;
   box.hidden = false;
   document.getElementById("previewSub").textContent =
-    "Pick the whole city or a sub-region - boundary shows on the map first";
+    "Whole city selected by default — tap a coloured area or a row to pick a sub-region";
   box.querySelectorAll("[data-area-i]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.disabled) return;
       selectAreaOption(Number(btn.dataset.areaI));
     });
   });
-  // Pre-select first available (not already owned). Prefer leaving a user
-  // pick alone if showAreaChoices races with itself.
-  const firstFree = areaOptions.findIndex(
-    (p) => p.osm_relation_id == null || !existingOsmIds.has(String(p.osm_relation_id))
-  );
-  if (firstFree >= 0) selectAreaOption(firstFree);
+
+  // Default: entire root (whole city). Fall back to first free sub-region if
+  // the city pack is already owned.
+  let defaultIdx = -1;
+  if (city && !isAreaOwned(city)) {
+    defaultIdx = 0;
+  } else {
+    defaultIdx = areaOptions.findIndex((p) => !isAreaOwned(p));
+  }
+  ensurePreviewMap();
+  paintAreaChoicesMap(defaultIdx >= 0 ? defaultIdx : null, { fit: true });
+  if (defaultIdx >= 0) {
+    await selectAreaOption(defaultIdx);
+  }
+  // Fill in any missing district polygons without blocking the default pick.
+  ensureAreaBoundaries(gen);
 }
 
 function areaChoiceHtml(p, i) {
   const kind = isDistrict(p) ? "Sub-region" : "Whole city";
-  const owned =
-    p.osm_relation_id != null && existingOsmIds.has(String(p.osm_relation_id));
+  const owned = isAreaOwned(p);
+  const color = areaColor(i);
   return `
     <button type="button" class="area-choice-btn ${owned ? "is-owned" : ""}" data-area-i="${i}" ${
       owned ? "disabled" : ""
     }>
-      <strong>${escapeHtml(p.label)}</strong>
-      <span>${
-        owned
-          ? "Already in your regions"
-          : `${escapeHtml(kind)} · ${escapeHtml(fmtArea(p.area_km2))}`
-      }</span>
+      <span class="area-choice-swatch" style="background:${color}" aria-hidden="true"></span>
+      <span class="area-choice-copy">
+        <strong data-place-name>${escapeHtml(p.label)}</strong>
+        <span>${
+          owned
+            ? "Already in your regions"
+            : `${escapeHtml(kind)} · ${escapeHtml(fmtArea(p.area_km2))}`
+        }</span>
+      </span>
     </button>`;
 }
 
 async function selectAreaOption(index) {
   const place = areaOptions[index];
-  if (!place) return;
+  if (!place || isAreaOwned(place)) return;
   const seq = ++areaSelectSeq;
+  selectedAreaIndex = index;
   // Deep-enough copy so later stale fetches cannot leak into areaOptions
   selectedPlace = {
     ...place,
     boundary: place.boundary || null,
     map_pack: place.map_pack ? { ...place.map_pack } : place.map_pack,
   };
-  document.querySelectorAll(".area-choice-btn").forEach((btn) => {
-    btn.classList.toggle("is-selected", Number(btn.dataset.areaI) === index);
-  });
+  syncAreaChoiceList(index);
   setFixedLevelName(selectedPlace.label);
   document.getElementById("previewTitle").textContent = selectedPlace.label;
   document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
     ? selectedPlace.boundary?.type
-      ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
+      ? `Sub-region · ${fmtArea(selectedPlace.area_km2)} — tap another colour to switch`
       : "Loading sub-region boundary..."
-    : "Whole city";
+    : `Whole city · ${fmtArea(selectedPlace.area_km2)} — tap a sub-region on the map to narrow`;
   fillConfirm();
   setAreaNextEnabled(false);
   ensurePreviewMap();
+  paintAreaChoicesMap(index);
 
   if (selectedPlace.boundary && selectedPlace.boundary.type) {
     selectedPlace.boundary_approximate = false;
-    paintPreview(selectedPlace);
-    document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-      ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
-      : `City boundary · ${fmtArea(selectedPlace.area_km2)}`;
     setAreaNextEnabled(true);
     return;
   }
 
-  paintPreview(selectedPlace);
   try {
     const params = new URLSearchParams();
     if (selectedPlace.osm_relation_id != null) {
@@ -537,10 +762,16 @@ async function selectAreaOption(index) {
         boundary_approximate: false,
         bbox: bData.bbox || selectedPlace.bbox,
       };
+      areaOptions[index] = {
+        ...areaOptions[index],
+        boundary: bData.boundary,
+        bbox: bData.bbox || areaOptions[index].bbox,
+        boundary_approximate: false,
+      };
       document.getElementById("previewSub").textContent = isDistrict(selectedPlace)
-        ? `Sub-region boundary · ${fmtArea(selectedPlace.area_km2)}`
-        : `City boundary · ${fmtArea(selectedPlace.area_km2)}`;
-      paintPreview(selectedPlace);
+        ? `Sub-region · ${fmtArea(selectedPlace.area_km2)} — tap another colour to switch`
+        : `Whole city · ${fmtArea(selectedPlace.area_km2)} — tap a sub-region on the map to narrow`;
+      paintAreaChoicesMap(index);
       setAreaNextEnabled(true);
     } else {
       document.getElementById("previewSub").textContent =
@@ -657,8 +888,9 @@ async function pollJob() {
     clearInterval(pollTimer);
     pollTimer = null;
     document.getElementById("progressFill").style.width = "100%";
+    document.getElementById("progressFill")?.classList.remove("is-running");
     const readyName = document.getElementById("levelName")?.value || selectedPlace?.label || "Region";
-    document.getElementById("doneText").textContent = `${readyName} is ready.`;
+    document.getElementById("doneText").innerHTML = `<span data-place-name>${escapeHtml(readyName)}</span> is ready.`;
     goStep("done");
     document.getElementById("stepDone").classList.add("celebrate");
     await loadLevels();
@@ -667,6 +899,7 @@ async function pollJob() {
   if (job.status === "error") {
     clearInterval(pollTimer);
     pollTimer = null;
+    document.getElementById("progressFill")?.classList.remove("is-running");
     showToast(job.error || "Build failed", true);
     goStep(3);
   }
@@ -680,8 +913,9 @@ async function generateLevel() {
   const name = selectedPlace.label;
   setFixedLevelName(name);
   goStep(4);
-  document.getElementById("progressTitle").textContent = `Building ${name}…`;
+  document.getElementById("progressTitle").innerHTML = `Building <span data-place-name>${escapeHtml(name)}</span>…`;
   document.getElementById("progressFill").style.width = "2%";
+  document.getElementById("progressFill")?.classList.add("is-running");
   setStage("extract");
 
   const payload = {
@@ -707,6 +941,7 @@ async function generateLevel() {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    document.getElementById("progressFill")?.classList.remove("is-running");
     showToast(body.detail || "Could not start", true);
     goStep(3);
     return;
@@ -714,6 +949,7 @@ async function generateLevel() {
   createdLevelId = body.level?.id;
   activeJobId = body.job?.id;
   if (!activeJobId) {
+    document.getElementById("progressFill")?.classList.remove("is-running");
     showToast("Region created but no job queued", true);
     return;
   }
@@ -755,7 +991,7 @@ function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
     <article class="level-card is-part is-minimal ${isActive ? "active" : ""} ${done ? "is-complete" : ""}">
       <header>
         <h3 class="level-card-title">
-          <span class="level-card-name">${kind}${escapeHtml(title)}</span>
+          <span class="level-card-name">${kind}<span data-place-name>${escapeHtml(title)}</span></span>
         </h3>
         <span class="level-status-stack">
           ${done ? `<span class="level-complete-badge" title="≥ ${COMPLETE_PCT}% Car roads unlocked">Complete</span>` : ""}
@@ -770,13 +1006,13 @@ function levelCardHtml(lv, activeId, { nested = false, role = null } = {}) {
 
   const placeHint =
     lv.place_query && lv.place_query !== title
-      ? `<p class="muted level-place-hint">${escapeHtml(lv.place_query)}</p>`
+      ? `<p class="muted level-place-hint" data-place-name>${escapeHtml(lv.place_query)}</p>`
       : "";
   return `
     <article class="level-card is-minimal ${isActive ? "active" : ""} ${done ? "is-complete" : ""}">
       <header>
         <h3 class="level-card-title">
-          <span class="level-card-name">${kind}${escapeHtml(title)}</span>
+          <span class="level-card-name">${kind}<span data-place-name>${escapeHtml(title)}</span></span>
         </h3>
         <span class="level-status-stack">
           ${done ? `<span class="level-complete-badge" title="≥ ${COMPLETE_PCT}% Car roads unlocked">Complete</span>` : ""}
@@ -901,45 +1137,145 @@ function sortRegionEntries(entries, sortBy) {
   return list;
 }
 
+/** City short name for matching roots ↔ sub-regions (ignores "City, District"). */
+function cityGroupName(lv) {
+  if (!lv) return "";
+  const raw = isDistrict(lv)
+    ? lv.parent_label || String(lv.name || lv.place_query || "").split(",")[0]
+    : lv.name || lv.place_query || lv.parent_label || "";
+  return String(raw)
+    .split(",")[0]
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function groupLevels(levels) {
   const groups = new Map();
   const ungrouped = [];
+  /** @type {Map<string, string>} normalized city name → group key */
+  const nameToKey = new Map();
+
+  function ensureGroup(key, label) {
+    if (!groups.has(key)) {
+      groups.set(key, { key, label, city: null, parts: [] });
+    }
+    return groups.get(key);
+  }
+
+  function rememberName(name, key) {
+    const n = String(name || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!n || !key) return;
+    const prev = nameToKey.get(n);
+    // Prefer geoname keys so a later whole-city root absorbs n:-keyed parts.
+    if (!prev || (key.startsWith("g:") && !prev.startsWith("g:"))) {
+      nameToKey.set(n, key);
+    }
+  }
+
+  function mergeGroupInto(targetKey, sourceKey) {
+    if (!targetKey || !sourceKey || targetKey === sourceKey) return;
+    const target = groups.get(targetKey);
+    const src = groups.get(sourceKey);
+    if (!target || !src) return;
+    if (!target.city && src.city) target.city = src.city;
+    target.parts.push(...src.parts);
+    if (target.city && (target.city.name || target.city.place_query)) {
+      target.label = target.city.name || target.city.place_query;
+    } else if (src.label && !target.label) {
+      target.label = src.label;
+    }
+    groups.delete(sourceKey);
+    for (const [n, k] of [...nameToKey.entries()]) {
+      if (k === sourceKey) nameToKey.set(n, targetKey);
+    }
+  }
 
   for (const lv of levels) {
     const parentGn = lv.parent_geoname_id;
     const ownGn = lv.geoname_id;
     const isPart = isDistrict(lv);
+    const n = cityGroupName(lv);
     let key = null;
     let label = null;
+
     if (isPart && parentGn != null) {
       key = `g:${parentGn}`;
       label = lv.parent_label || "City";
     } else if (!isPart && ownGn != null) {
       key = `g:${ownGn}`;
       label = lv.name || lv.place_query || "City";
+      // Whole city generated after sub-regions: absorb name-keyed folder.
+      if (n && nameToKey.has(n) && nameToKey.get(n) !== key) {
+        const prior = nameToKey.get(n);
+        ensureGroup(key, label);
+        mergeGroupInto(key, prior);
+      }
     } else if (isPart && lv.parent_label) {
-      key = `n:${String(lv.parent_label).toLowerCase()}`;
+      // Prefer an existing city root (g:geoname) over a parallel n: peer.
+      key = (n && nameToKey.get(n)) || `n:${String(lv.parent_label).toLowerCase()}`;
       label = lv.parent_label;
+    } else if (!isPart && n) {
+      key = nameToKey.get(n) || `n:${n}`;
+      label = lv.name || lv.place_query || "City";
     }
 
     if (!key) {
       ungrouped.push(lv);
       continue;
     }
-    if (!groups.has(key)) {
-      groups.set(key, { key, label, city: null, parts: [] });
-    }
-    const g = groups.get(key);
+    const g = ensureGroup(key, label);
     if (isPart) g.parts.push(lv);
     else g.city = lv;
     if (!isPart && (lv.name || lv.place_query)) g.label = lv.name || lv.place_query;
     else if (isPart && lv.parent_label) g.label = lv.parent_label;
+    rememberName(g.label, key);
+    if (n) rememberName(n, key);
+  }
+
+  // Safety net: same city label still split across g: vs n: (order-independent).
+  const byName = new Map();
+  for (const g of [...groups.values()]) {
+    const n = String(g.label || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!n) continue;
+    if (!byName.has(n)) {
+      byName.set(n, g.key);
+      continue;
+    }
+    const keepKey = byName.get(n);
+    const keep = groups.get(keepKey);
+    const other = g;
+    if (!keep || keep.key === other.key) continue;
+    const preferOther =
+      (!keep.city && other.city) ||
+      (other.key.startsWith("g:") && !keep.key.startsWith("g:"));
+    if (preferOther) {
+      mergeGroupInto(other.key, keep.key);
+      byName.set(n, other.key);
+    } else {
+      mergeGroupInto(keep.key, other.key);
+    }
   }
 
   // Root cities with districts → fold groups; lone cities / orphans → single cards.
   // One flat list (no "Other regions" bucket).
   const entries = [];
   for (const g of groups.values()) {
+    // Dedupe parts if a merge ran twice (same level id)
+    const seen = new Set();
+    g.parts = g.parts.filter((p) => {
+      const id = p?.id;
+      if (id == null) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
     g.parts.sort((a, b) =>
       String(a.name || a.place_query || "").localeCompare(
         String(b.name || b.place_query || "")
@@ -963,7 +1299,11 @@ async function generateFromUnloaded(place) {
     return;
   }
   const label = place.label || place.name || "Region";
-  showToast(`Loading boundary for ${label}…`);
+  showToast(
+    `Loading boundary for <span data-place-name>${escapeHtml(label)}</span>…`,
+    false,
+    { html: true }
+  );
   let boundary = place.boundary;
   let bbox = place.bbox;
   try {
@@ -1125,7 +1465,7 @@ async function loadLevels() {
         <article class="level-card level-group-root is-minimal ${city && activeId && String(city.id) === activeId ? "active" : ""} ${cityDone ? "is-complete" : ""}">
           <header>
             <h3 class="level-card-title">
-              <span class="level-card-name"><em class="place-kind place-kind-city">City</em>${escapeHtml(g.label)}</span>
+              <span class="level-card-name"><em class="place-kind place-kind-city">City</em><span data-place-name>${escapeHtml(g.label)}</span></span>
             </h3>
             <span class="level-status-stack">
               ${groupDone ? `<span class="level-complete-badge" title="≥ ${COMPLETE_PCT}% Car roads unlocked">Complete</span>` : ""}
@@ -1245,6 +1585,8 @@ function resetWizard() {
   selectedPlace = null;
   searchCity = null;
   areaOptions = [];
+  selectedAreaIndex = null;
+  areaMapFitKey = null;
   createdLevelId = null;
   activeJobId = null;
   prepareJobId = null;
@@ -1252,6 +1594,7 @@ function resetWizard() {
   if (prepareTimer) clearInterval(prepareTimer);
   pollTimer = null;
   prepareTimer = null;
+  clearPreviewLayer();
   document.getElementById("placeResults").innerHTML = "";
   document.getElementById("areaChoices").innerHTML = "";
   document.getElementById("areaChoices").hidden = true;

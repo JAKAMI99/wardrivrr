@@ -729,6 +729,9 @@ def _prepare_valhalla_for_level_locked(
     # Prefer regional pack as clip source; fall back to whatever sits in the level dir.
     src: Path | None = None
     if isinstance(regional, Path) and regional.is_file() and regional.stat().st_size >= 1000:
+        from pbf_cache import touch_pack
+
+        touch_pack(regional)
         src = regional
     elif level_extract.is_file() and level_extract.stat().st_size >= 1000:
         src = level_extract

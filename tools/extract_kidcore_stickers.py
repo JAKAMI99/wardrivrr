@@ -1,15 +1,15 @@
 """
 Split packed Kidcore sticker sheets into individual transparent PNGs.
 
-Shippable stickers live in frontend/brand/kidcore/stickers/ (kc-*.png plus
-franchise cuts as bluey-* / winnie-* after prep).
+After prep, shippable stickers live under stickers/{bluey,winnie_pooh,
+random_character,legacy}/ + stickers.json packs.
 
 To regenerate from user-supplied local sheets (do not scrape copyrighted art):
   1. Drop sheet images into frontend/brand/kidcore/
      — Bluey: s-l1600.jpg; Winnie the Pooh: winnie* / pooh* / winniethepooh*
      (gallery links in CREDITS.md — decorative stickers are local user assets)
   2. python tools/extract_kidcore_stickers.py
-  3. python tools/prep_kidcore_stickers.py   # clean + kc-/bluey-/winnie- + manifest
+  3. python tools/prep_kidcore_stickers.py   # clean + pack folders + manifest
 
 Usage:
   python tools/extract_kidcore_stickers.py
@@ -140,18 +140,13 @@ def merge_nearby(boxes: list) -> list:
 
 
 def to_rgba(bgr_crop: np.ndarray) -> np.ndarray:
+    """Crop as fully opaque RGBA.
+
+    Do NOT punch global near-white here — that hollows eyes/teeth/fills.
+    Border-connected background is removed later by prep's edge flood-fill.
+    """
     rgb = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2RGB)
-    # Soft alpha: pure white → 0, darker → opaque
-    # Keep white sticker borders mostly opaque unless truly background.
-    mx = rgb.max(axis=2).astype(np.float32)
-    # Fully transparent only for near-white; soft fade for shadows
-    alpha = np.clip((255.0 - mx) * 6.0, 0, 255).astype(np.uint8)
-    # Force interior non-white fully opaque
-    ink = (rgb < WHITE_THRESH).any(axis=2)
-    alpha = np.where(ink, np.maximum(alpha, 230), alpha)
-    # Clean pure white corners
-    pure = (rgb >= WHITE_THRESH).all(axis=2)
-    alpha = np.where(pure, 0, alpha)
+    alpha = np.full(rgb.shape[:2], 255, np.uint8)
     return np.dstack([rgb, alpha])
 
 
@@ -192,6 +187,7 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     SHEETS.mkdir(parents=True, exist_ok=True)
 
+    skip_names = {"favicon.png", "favicon.jpg", "favicon.webp"}
     sheets = sorted(
         [
             *SRC.glob("*.jpg"),
@@ -200,8 +196,12 @@ def main() -> None:
             *SRC.glob("*.webp"),
         ]
     )
-    # Ignore already-extracted stickers folder
-    sheets = [p for p in sheets if p.parent == SRC]
+    # Ignore already-extracted stickers folder + brand chrome
+    sheets = [
+        p
+        for p in sheets
+        if p.parent == SRC and p.name.lower() not in skip_names
+    ]
 
     if not sheets:
         print(f"No sheets in {SRC}")

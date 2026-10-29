@@ -244,6 +244,8 @@ const state = {
   fogInFlight: false,
   fogLockedGeo: null,
   fogExploredGeo: null,
+  /** Last basemap style URL applied via Map / setStyle (skip no-op swaps) */
+  mapStyleUrl: null,
 };
 
 /** Poll gpsd-backed fix often enough to feed the rAF lerp (backend ~5 Hz) */
@@ -751,13 +753,13 @@ function mapStyleUrl(night) {
 }
 
 function onSiteThemeChange() {
-  applyRouteThemeColors();
-  applyFogThemeColors();
   if (state.marker) {
     state.marker.remove();
     state.marker = null;
   }
   ensureMarker();
+  // applyDayNight(true) swaps basemap only when the theme's style URL changes;
+  // same-URL themes (e.g. classic↔kidcore day) re-paint fog/route in place.
   applyDayNight(true);
 }
 
@@ -802,6 +804,28 @@ function applyFogThemeColors() {
   }
 }
 
+/**
+ * Re-add app-owned fog/route/FX layers after a basemap swap, or refresh paints
+ * when the theme changes without a style URL change.
+ */
+function restoreMapOverlays() {
+  if (!state.map) return;
+  ensureFogLayers();
+  applyFogData(state.fogLockedGeo, state.fogExploredGeo);
+  applyFogThemeColors();
+  restoreRouteLayer();
+  applyRouteThemeColors();
+  // Buildings before drive FX so we can tuck sonar/hits under extrusions
+  enableBuildings(state.view3d && state.webglOk);
+  ensureSonarLayers();
+  ensureHitLayers();
+  paintRecentHits(true);
+  placeDriveOverlaysBelowBuildings();
+  hidePoiLayers();
+  ensureMarker();
+  fixOnewayArrows();
+}
+
 function resolveWantNight() {
   const mode = String(state.mapDarkMode || "auto").toLowerCase();
   if (mode === "bright" || mode === "day" || mode === "light") return false;
@@ -827,36 +851,36 @@ function applyDayNight(force = false) {
     return;
   }
   const url = mapStyleUrl(night);
-  const sameNight = state.night === night && !force;
-  // Skip reload if night flag unchanged and we're not forcing a theme swap
-  if (sameNight && !force) {
+  const prevUrl = state.mapStyleUrl;
+  const urlChanged = prevUrl !== url;
+  // Skip no-op polls (same night + same basemap, not a forced theme refresh)
+  if (!force && state.night === night && !urlChanged) {
     document.body.dataset.navNight = night ? "1" : "0";
     return;
   }
   state.night = night;
   document.body.dataset.navNight = night ? "1" : "0";
+
+  // Same OpenFreeMap URL (classic↔kidcore liberty, crt always dark, kidcore day=night):
+  // never call setStyle — MapLibre 4.x diffs same/similar styles and often drops
+  // custom sources without firing style.load, so fog/roads vanish until F5.
+  if (!urlChanged) {
+    restoreMapOverlays();
+    return;
+  }
+
+  state.mapStyleUrl = url;
   const center = state.map.getCenter();
   const zoom = state.map.getZoom();
   const bearing = state.map.getBearing();
   const pitch = state.map.getPitch();
-  state.map.setStyle(url);
+  // Register before setStyle so a fast load cannot be missed; diff:false so
+  // style.load always fires on MapLibre 4.7 (diffed swaps skipped the event).
   state.map.once("style.load", () => {
     state.map.jumpTo({ center, zoom, bearing, pitch });
-    ensureFogLayers();
-    applyFogData(state.fogLockedGeo, state.fogExploredGeo);
-    applyFogThemeColors();
-    restoreRouteLayer();
-    applyRouteThemeColors();
-    // Buildings before drive FX so we can tuck sonar/hits under extrusions
-    enableBuildings(state.view3d && state.webglOk);
-    ensureSonarLayers();
-    ensureHitLayers();
-    paintRecentHits(true);
-    placeDriveOverlaysBelowBuildings();
-    hidePoiLayers();
-    ensureMarker();
-    fixOnewayArrows();
+    restoreMapOverlays();
   });
+  state.map.setStyle(url, { diff: false });
 }
 
 /**
@@ -1667,6 +1691,11 @@ function escToast(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/** Kidcore speech skips [data-place-name] — keep real geographic labels. */
+function placeNameHtml(name) {
+  return `<span data-place-name>${escToast(name)}</span>`;
 }
 
 /** Visible error (navHint is hidden outside ?debug=1). */
@@ -3150,10 +3179,16 @@ function showBuildOverlay(title) {
   document.querySelector(".nav-main")?.classList.add("is-building");
   const el = document.getElementById("navBuildOverlay");
   el.hidden = false;
-  document.getElementById("navBuildTitle").textContent =
-    title || `Building ${state.levelName}...`;
+  const titleEl = document.getElementById("navBuildTitle");
+  const name = state.levelName;
+  if (name && (!title || String(title).includes(name))) {
+    titleEl.innerHTML = `Building ${placeNameHtml(name)}...`;
+  } else {
+    titleEl.textContent = title || "Building your region...";
+  }
   document.getElementById("navBuildMessage").textContent = "Starting...";
   document.getElementById("navBuildFill").style.width = "2%";
+  document.getElementById("navBuildFill")?.classList.add("is-running");
   document.getElementById("navBuildPct").textContent = "0%";
   document.getElementById("navBuildEta").textContent = "estimating...";
   setBuildStage("extract");
@@ -3180,6 +3215,7 @@ function hideBuildOverlay() {
   state.building = false;
   document.querySelector(".nav-main")?.classList.remove("is-building");
   document.getElementById("navBuildOverlay").hidden = true;
+  document.getElementById("navBuildFill")?.classList.remove("is-running");
 }
 
 function setLevelPromptCopy(kind) {
@@ -4079,10 +4115,11 @@ function initMap() {
   const night = resolveWantNight();
   state.night = night;
   document.body.dataset.navNight = night ? "1" : "0";
+  state.mapStyleUrl = mapStyleUrl(night);
 
   state.map = new maplibregl.Map({
     container: "navMap",
-    style: mapStyleUrl(night),
+    style: state.mapStyleUrl,
     center: [state.lon, state.lat],
     zoom: ZOOM_DEFAULT,
     pitch: currentPitch(),
@@ -4113,18 +4150,8 @@ function initMap() {
   startRoutingPoll();
 
   state.map.on("load", () => {
-    ensureFogLayers();
-    applyFogThemeColors();
+    restoreMapOverlays();
     refreshFog(true);
-    ensureRouteLayers();
-    applyRouteThemeColors();
-    enableBuildings(state.view3d && state.webglOk);
-    ensureSonarLayers();
-    ensureHitLayers();
-    paintRecentHits(true);
-    placeDriveOverlaysBelowBuildings();
-    hidePoiLayers();
-    fixOnewayArrows();
     bindMapCameraGestures();
   });
 

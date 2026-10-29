@@ -64,7 +64,7 @@ Skip if it fights map usability; Drive should keep OS cursors.
 Keep Classic clean; dump the cuteness **only** into Kidcore slots.
 
 ### 10. Sticker sheet + favicon — done
-Shipped under `frontend/brand/kidcore/`: `favicon.png`, `stickers.json`, and PNGs in `stickers/` (`kc-*` generics). Franchise cuts (`bluey-*` / `winnie-*`) are **not** scraped by agents or CI — drop your own transparent PNGs or sheets locally (`s-l1600.jpg` for Bluey; `winnie*` / `pooh*` / `winniethepooh*` for Pooh), then run `extract_kidcore_stickers.py` + `prep_kidcore_stickers.py`. Gallery links: `CREDITS.md` (DisneyClips). Do not commit scraped Disney art. Style: flat plastic toy / Y2K — thick stroke, few colors.
+Shipped under `frontend/brand/kidcore/`: `favicon.png`, `stickers.json`, and pack folders in `stickers/` (`bluey/`, `winnie_pooh/`, `random_character/` for `kc-*`, `legacy/` for word-art). Franchise cuts are **not** scraped by agents or CI — drop your own transparent PNGs or sheets locally (`s-l1600.jpg` for Bluey; `winnie*` / `pooh*` / `winniethepooh*` for Pooh), then run `extract_kidcore_stickers.py` + `prep_kidcore_stickers.py`. Gallery links: `CREDITS.md` (DisneyClips). Do not commit scraped Disney art. Style: flat plastic toy / Y2K — thick stroke, few colors.
 
 ### 11. Kidcore cursor set (optional)
 - Default + pointer — soft toy shapes

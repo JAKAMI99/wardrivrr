@@ -1,3 +1,9 @@
+(function syncHomeVersion() {
+  const el = document.getElementById("homeKicker");
+  const v = window.WardTheme && WardTheme.APP_VERSION;
+  if (el && v) el.textContent = `wardrivrr · v${v}`;
+})();
+
 const els = {
   wifi: document.getElementById("statWifi"),
   bt: document.getElementById("statBt"),

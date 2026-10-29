@@ -201,7 +201,7 @@ html[data-theme="kawaii"] .progress-bar .muted {
 
 html[data-theme="kidcore"] .progress-body .legend-item .swatch.locked,
 html[data-theme="kawaii"] .progress-body .legend-item .swatch.locked {
-  background: #b39bc9;
+  background: #9478ad;
 }
 
 html[data-theme="kidcore"] .progress-body .legend-item .swatch.explored,
@@ -424,10 +424,23 @@ html[data-theme="crt"] .ach-card.is-mastered {
   background: rgba(20, 28, 8, 0.92);
 }
 
-/* Stacking: page-glow (0) < kidcore-decor (1) < app-shell / modules (3+) */
+/* Stacking: page-glow (0) < kidcore-decor (1) < kidcore glass (2) < app-shell / modules (3+) */
 .app-shell {
   z-index: 3;
   position: relative;
+}
+
+/* Soft frosted wash over stickers only — sits under content so UI stays sharp.
+   ~5% strength: light translucent veil + tiny backdrop-blur (not heavy glass UI). */
+html[data-theme="kidcore"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: rgba(255, 254, 248, 0.05);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
 }
 
 /* Forms / modules sit above decor; opaque candy panels so inputs stay readable */
@@ -469,7 +482,7 @@ html[data-theme="kawaii"] textarea {
   background: #fffef8 !important;
 }
 
-/* Floating stickers / toys - behind content; edge gutters only (avoid form center) */
+/* Floating stickers / toys - behind content; full-viewport scatter (avoid hero only) */
 .kidcore-decor {
   position: fixed;
   inset: 0;
@@ -488,14 +501,27 @@ html[data-theme="kawaii"] textarea {
   opacity: 0.62;
 }
 
-.kidcore-decor .kc-f1 { top: 10%; left: 2%; animation-delay: 0s; }
-.kidcore-decor .kc-f2 { top: 26%; right: 2%; animation-delay: 1.2s; font-size: 1.5rem; }
-.kidcore-decor .kc-f3 { bottom: 18%; left: 3%; animation-delay: 2.4s; }
-.kidcore-decor .kc-f4 { top: 58%; right: 3%; animation-delay: 3.6s; }
-.kidcore-decor .kc-f5 { bottom: 8%; right: 6%; animation-delay: 4.8s; font-size: 1.35rem; }
-.kidcore-decor .kc-f6 { top: 78%; left: 5%; animation-delay: 5.5s; font-size: 1.25rem; }
+/*
+  Full-viewport scatter (emoji kc-f* + PNG kc-i*) — 12 slots:
+  Rough 4×3 grid; bottom row stays left of hero (no lower-right).
+  Bands: top ~4–10% / mid ~32–42% / bottom ~74–86%
+  Columns: ~3% / ~28% / ~54% / ~86% (top+mid); bottom 4th at ~68%
+  Exclusion: only .kc-bluey-hero box (lower-right ~ right 0–18%, top≳50%).
+*/
+.kidcore-decor .kc-f1 { top: 5%; left: 3%; animation-delay: 0s; font-size: 1.15rem; }
+.kidcore-decor .kc-f2 { top: 4%; left: 28%; animation-delay: 0.55s; font-size: 1.55rem; }
+.kidcore-decor .kc-f3 { top: 8%; left: 54%; animation-delay: 1.1s; font-size: 1.25rem; }
+.kidcore-decor .kc-f4 { top: 6%; left: 88%; animation-delay: 1.65s; font-size: 1.4rem; }
+.kidcore-decor .kc-f5 { top: 36%; left: 5%; animation-delay: 2.2s; font-size: 1.1rem; }
+.kidcore-decor .kc-f6 { top: 40%; left: 30%; animation-delay: 2.75s; font-size: 1.5rem; }
+.kidcore-decor .kc-f7 { top: 34%; left: 56%; animation-delay: 3.3s; font-size: 1.2rem; }
+.kidcore-decor .kc-f8 { top: 38%; left: 86%; animation-delay: 3.85s; font-size: 1.35rem; }
+.kidcore-decor .kc-f9 { top: 76%; left: 4%; animation-delay: 4.4s; font-size: 1.3rem; }
+.kidcore-decor .kc-f10 { top: 82%; left: 26%; animation-delay: 4.95s; font-size: 1.18rem; }
+.kidcore-decor .kc-f11 { top: 78%; left: 50%; animation-delay: 5.5s; font-size: 1.45rem; }
+.kidcore-decor .kc-f12 { top: 84%; left: 68%; animation-delay: 6.05s; font-size: 1.22rem; }
 
-/* Extracted sticker PNGs (transparent) floating behind content — edge-biased */
+/* Extracted sticker PNGs (transparent) floating behind content */
 .kidcore-decor .kc-img {
   position: absolute;
   width: clamp(3.2rem, 7vw, 5.5rem);
@@ -508,86 +534,123 @@ html[data-theme="kawaii"] textarea {
   animation: kc-bob 8s ease-in-out infinite;
 }
 
-.kidcore-decor .kc-i1 { top: 6%; left: 1.5%; transform: rotate(-12deg); animation-delay: 0s; width: clamp(3.6rem, 8vw, 6rem); }
-.kidcore-decor .kc-i2 { top: 14%; right: 1.5%; transform: rotate(9deg); animation-delay: 0.9s; }
-.kidcore-decor .kc-i3 { top: 40%; left: 1%; transform: rotate(14deg); animation-delay: 1.8s; width: clamp(3rem, 6.5vw, 5rem); }
-.kidcore-decor .kc-i4 { top: 56%; right: 2%; transform: rotate(-8deg); animation-delay: 2.7s; }
-.kidcore-decor .kc-i5 { bottom: 12%; left: 2%; transform: rotate(6deg); animation-delay: 3.6s; width: clamp(3.4rem, 7.5vw, 5.8rem); }
-.kidcore-decor .kc-i6 { bottom: 6%; right: 3%; transform: rotate(-14deg); animation-delay: 4.5s; }
-.kidcore-decor .kc-i7 { top: 78%; left: 2.5%; transform: rotate(11deg); animation-delay: 5.2s; width: clamp(2.8rem, 6vw, 4.6rem); }
-.kidcore-decor .kc-i8 { top: 4%; right: 12%; transform: rotate(-5deg); animation-delay: 1.4s; width: clamp(3rem, 6.5vw, 5rem); }
-
-.kidcore-decor .kc-sticker {
-  position: absolute;
-  font-family: "Bubblegum Sans", "Comic Sans MS", cursive;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 0.35rem 0.55rem;
-  border: 3px dashed #fff;
-  border-radius: 8px;
-  transform: rotate(-8deg);
-  box-shadow: 3px 3px 0 rgba(91, 43, 107, 0.35);
-  opacity: 0.72;
-}
-
-.kidcore-decor .kc-s1 {
-  top: 5%;
-  right: 3%;
-  background: #7ee8ff;
-  color: #5b2b6b;
-  transform: rotate(7deg);
-}
-
-.kidcore-decor .kc-s2 {
-  bottom: 14%;
-  left: 2%;
-  background: #ffe566;
-  color: #ff2d95;
-  transform: rotate(-12deg);
-}
-
-.kidcore-decor .kc-s3 {
-  top: 46%;
-  right: 1.5%;
-  background: #ff5cab;
-  color: #fff;
-  transform: rotate(14deg);
-}
-
-.kidcore-decor .kc-s4 {
-  bottom: 4%;
-  left: 8%;
-  background: #b8ff00;
-  color: #5b2b6b;
-  transform: rotate(5deg);
-}
-
-.kidcore-decor .kc-s5 {
-  top: 20%;
-  left: 1.5%;
-  background: #c77dff;
-  color: #fff;
-  transform: rotate(-16deg);
-}
-
-.kidcore-decor .kc-s6 {
+/*
+  Bluey hero (bluey-19) — static large icon, mid/lower-right (always biggest).
+  Float exclusion: only this box (~ right 0–18%, top ≳ 50%). Top-right + mid-right OK.
+*/
+.kidcore-decor .kc-img.kc-bluey-hero {
+  top: auto;
+  left: auto;
+  right: 0.4%;
   bottom: 6%;
-  right: 8%;
-  background: #fff;
-  color: #ff2d95;
-  border-style: solid;
-  transform: rotate(9deg);
+  width: clamp(8.5rem, 16vw, 14rem);
+  max-width: min(14rem, 32vw);
+  opacity: 0.78;
+  animation-delay: 0.4s;
+  z-index: 0;
 }
 
-.kidcore-decor .kc-sticker.kc-emo {
-  font-size: 1.05rem;
-  letter-spacing: 0.08em;
-  border-style: solid;
-  border-width: 4px;
-  padding: 0.4rem 0.65rem;
+/*
+  Character PNGs — full-viewport scatter matching kc-f* (skip lower-right for hero).
+  Size range ~2.5–5.5rem; all smaller than hero. Behind cards OK; pointer-events none.
+*/
+.kidcore-decor .kc-i1 {
+  top: 5%;
+  left: 3%;
+  right: auto;
+  animation-delay: 0s;
+  width: clamp(2.5rem, 5vw, 3.9rem);
+}
+.kidcore-decor .kc-i2 {
+  top: 4%;
+  left: 28%;
+  right: auto;
+  animation-delay: 0.55s;
+  width: clamp(4.2rem, 8.2vw, 5.5rem);
+}
+.kidcore-decor .kc-i3 {
+  top: 8%;
+  left: 54%;
+  right: auto;
+  animation-delay: 1.1s;
+  width: clamp(3rem, 6vw, 4.6rem);
+}
+.kidcore-decor .kc-i4 {
+  top: 6%;
+  left: 88%;
+  right: auto;
+  animation-delay: 1.65s;
+  width: clamp(3.6rem, 7.2vw, 5.2rem);
+}
+.kidcore-decor .kc-i5 {
+  top: 36%;
+  left: 5%;
+  right: auto;
+  animation-delay: 2.2s;
+  width: clamp(2.6rem, 5.2vw, 4rem);
+}
+.kidcore-decor .kc-i6 {
+  top: 40%;
+  left: 30%;
+  right: auto;
+  animation-delay: 2.75s;
+  width: clamp(3.9rem, 7.8vw, 5.4rem);
+}
+.kidcore-decor .kc-i7 {
+  top: 34%;
+  left: 56%;
+  right: auto;
+  animation-delay: 3.3s;
+  width: clamp(2.8rem, 5.6vw, 4.3rem);
+}
+.kidcore-decor .kc-i8 {
+  top: 38%;
+  left: 86%;
+  right: auto;
+  animation-delay: 3.85s;
+  width: clamp(3.3rem, 6.6vw, 4.9rem);
+}
+.kidcore-decor .kc-i9 {
+  top: 76%;
+  left: 4%;
+  right: auto;
+  animation-delay: 4.4s;
+  width: clamp(3.5rem, 7vw, 5rem);
+}
+.kidcore-decor .kc-i10 {
+  top: 82%;
+  left: 26%;
+  right: auto;
+  animation-delay: 4.95s;
+  width: clamp(2.7rem, 5.4vw, 4.1rem);
+}
+.kidcore-decor .kc-i11 {
+  top: 78%;
+  left: 50%;
+  right: auto;
+  animation-delay: 5.5s;
+  width: clamp(4rem, 8vw, 5.3rem);
+}
+.kidcore-decor .kc-i12 {
+  top: 84%;
+  left: 68%;
+  right: auto;
+  animation-delay: 6.05s;
+  width: clamp(3.1rem, 6.2vw, 4.7rem);
 }
 
+/* Legacy word-art PNG — bottom mid-left, clear of gutter floats + hero */
+.kidcore-decor .kc-img.kc-legacy.kc-leg1 {
+  top: auto;
+  left: 36%;
+  right: auto;
+  bottom: 4%;
+  width: clamp(3.2rem, 7vw, 5.2rem);
+  animation-delay: 2.1s;
+  opacity: 0.7;
+}
+
+/* Vertical bob only — no rotate on floating stickers/icons */
 @keyframes kc-bob {
   0%,
   100% {
@@ -825,6 +888,36 @@ html[data-theme="kawaii"] .level-generate-btn {
   border-radius: 12px !important;
 }
 
+/* Regions progress: dark-theme tracks (white @ 8%) vanish on candy cream panels */
+html[data-theme="kidcore"] .level-progress-track,
+html[data-theme="kawaii"] .level-progress-track,
+html[data-theme="kidcore"] .level-mode-bar-track,
+html[data-theme="kawaii"] .level-mode-bar-track {
+  background: rgba(91, 43, 107, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(91, 43, 107, 0.28);
+}
+
+html[data-theme="kidcore"] .level-progress-fill,
+html[data-theme="kawaii"] .level-progress-fill {
+  background: linear-gradient(90deg, #ff2d95, #7ee8ff);
+  box-shadow: 0 0 10px rgba(255, 45, 149, 0.45);
+}
+
+html[data-theme="kidcore"] .level-mode-bar-fill,
+html[data-theme="kawaii"] .level-mode-bar-fill {
+  background: linear-gradient(90deg, #ff2d95, #ff7eb9 55%, #7ee8ff);
+}
+
+html[data-theme="kidcore"] .level-mode-bar.is-complete .level-mode-bar-fill,
+html[data-theme="kawaii"] .level-mode-bar.is-complete .level-mode-bar-fill {
+  background: linear-gradient(90deg, #6bcb3c, #b8ff00);
+}
+
+html[data-theme="kidcore"] .level-mode-bar-meta,
+html[data-theme="kawaii"] .level-mode-bar-meta {
+  color: #5b2b6b;
+}
+
 html[data-theme="crt"] .profile-icon {
   color: #33ff33;
   text-shadow: 0 0 8px rgba(51, 255, 51, 0.55);
@@ -861,15 +954,36 @@ html[data-theme="crt"] .profile-card .profile-icon {
   .theme-picker {
     grid-template-columns: 1fr;
   }
-  .kidcore-decor .kc-sticker {
-    display: none;
-  }
-  .kidcore-decor .kc-img {
+  .kidcore-decor .kc-img:not(.kc-bluey-hero) {
     width: clamp(2.6rem, 12vw, 4.2rem);
     opacity: 0.55;
   }
+  .kidcore-decor .kc-img.kc-bluey-hero {
+    width: clamp(6.5rem, 30vw, 10.5rem);
+    max-width: min(10.5rem, 36vw);
+    bottom: 4%;
+    right: 0.2%;
+    opacity: 0.7;
+  }
+  /* Fewer left floats on narrow screens — keep ~3, hero clear */
+  .kidcore-decor .kc-i4,
+  .kidcore-decor .kc-i5,
+  .kidcore-decor .kc-i6,
   .kidcore-decor .kc-i7,
-  .kidcore-decor .kc-i8 {
-    display: none; /* fewer floats on narrow screens */
+  .kidcore-decor .kc-i8,
+  .kidcore-decor .kc-i9,
+  .kidcore-decor .kc-i10,
+  .kidcore-decor .kc-i11,
+  .kidcore-decor .kc-i12,
+  .kidcore-decor .kc-f4,
+  .kidcore-decor .kc-f5,
+  .kidcore-decor .kc-f6,
+  .kidcore-decor .kc-f7,
+  .kidcore-decor .kc-f8,
+  .kidcore-decor .kc-f9,
+  .kidcore-decor .kc-f10,
+  .kidcore-decor .kc-f11,
+  .kidcore-decor .kc-f12 {
+    display: none;
   }
 }

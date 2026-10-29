@@ -25,12 +25,12 @@ function fogColors() {
     (document.documentElement.getAttribute("data-theme") || "classic").toLowerCase();
   if (theme === "kidcore" || theme === "kawaii") {
     // Bright map: driven = candy pink, never-driven = soft lilac (not near-black)
-    return { explored: "#ff2d95", locked: "#b39bc9" };
+    return { explored: "#ff2d95", locked: "#9478ad" };
   }
   if (theme === "crt") {
-    return { explored: "#00ff66", locked: "#4a6b4a" };
+    return { explored: "#00ff66", locked: "#385538" };
   }
-  return { explored: "#1a9b6c", locked: "#8a93a0" };
+  return { explored: "#1a9b6c", locked: "#6f7785" };
 }
 
 function fogBoundaryStyle() {

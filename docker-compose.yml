@@ -1,8 +1,7 @@
 # Base stack: PostGIS + Valhalla.
-# Release: WARDRIVRR_VERSION=1.0.0
 # Vehicle host (API + host Kismet): also use deploy/compose.car.yml
 #   docker compose -f docker-compose.yml -f deploy/compose.car.yml --env-file .env up -d
-# Image: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:1.0.0 (see ./run.sh)
+# Image: WARDRIVRR_IMAGE=ghcr.io/<owner>/wardrivrr:latest (see ./run.sh)
 
 services:
   postgis:
@@ -29,7 +28,7 @@ services:
       start_period: 90s
 
   # Tiles from data/valhalla/active.osm.pbf (city/district clip from level prepare).
-  # Regional packs stay in data/pbf/; Valhalla only starts after a level is ready.
+  # Regional packs cache in data/pbf/ (~7 days); Valhalla only starts after a level is ready.
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
     container_name: wardrivrr_valhalla

@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0c0d0f" />
-    <link rel="icon" href="/static/brand/kidcore/favicon.png" type="image/png" id="wardFavicon" />
+    <link rel="icon" href="/static/brand/classic/favicon.png" type="image/png" id="wardFavicon" />
     <title>Drive · wardrivrr</title>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     <link rel="stylesheet" href="/static/styles.css?v=25" />
-    <link rel="stylesheet" href="/static/themes.css?v=15" />
-    <script src="/static/theme.js?v=23"></script>
+    <link rel="stylesheet" href="/static/themes.css?v=25" />
+    <script src="/static/theme.js?v=31"></script>
     <link rel="stylesheet" href="/static/navigate.css?v=57" />
   </head>
   <body class="nav-body" data-nav-night="0">
@@ -51,7 +51,7 @@
         <div id="levelPrompt" class="nav-level-prompt" hidden>
           <div class="nav-level-card">
             <p class="nav-level-title">Preload region?</p>
-            <p class="nav-level-name" id="levelPromptName">-</p>
+            <p class="nav-level-name" id="levelPromptName" data-place-name>-</p>
             <p class="muted nav-level-sub">
               No region covers this spot yet. Auto-confirm in
               <span id="levelPromptSec">20</span>s
@@ -103,7 +103,7 @@
             <small>Blue</small>
           </div>
           <div class="nav-stat nav-stat-level" id="statLevelCell" title="Unlocked / total road tiles in this region">
-            <span id="statLevel">-</span>
+            <span id="statLevel" data-place-name>-</span>
             <small id="statTiles">-/-</small>
           </div>
           <a class="nav-stat nav-stat-xp" href="/stats" title="Stats - level, XP, achievements">
@@ -222,6 +222,6 @@
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="/static/auth.js"></script>
     <script src="/static/nav.js?v=10"></script>
-    <script src="/static/navigate.js?v=78"></script>
+    <script src="/static/navigate.js?v=79"></script>
   </body>
 </html>

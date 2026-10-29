@@ -565,6 +565,27 @@ a.module:active {
   text-decoration: none;
 }
 
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 14px;
+}
+
+.status-action-btn {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.75rem;
+}
+
+.status-action-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  flex: 1 1 12rem;
+}
+
 .status-webui-btn.is-down {
   background: #2a2e36;
   border-color: #3a404c;
@@ -2312,6 +2333,9 @@ a.module:active {
 }
 
 .area-choice-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
   text-align: left;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2319,6 +2343,20 @@ a.module:active {
   padding: 0.7rem 0.9rem;
   border-radius: 8px;
   cursor: pointer;
+}
+
+.area-choice-swatch {
+  flex: 0 0 auto;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-top: 0.35rem;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.area-choice-copy {
+  min-width: 0;
+  flex: 1;
 }
 
 .area-choice-btn:hover:not(:disabled),
@@ -2337,11 +2375,19 @@ a.module:active {
   display: block;
 }
 
-.area-choice-btn span {
+.area-choice-copy > span {
   display: block;
   font-size: 0.85rem;
   margin-top: 0.15rem;
   opacity: 0.75;
+}
+
+.level-preview-map .area-poly {
+  cursor: pointer;
+}
+
+.level-preview-map .area-poly.is-owned {
+  cursor: not-allowed;
 }
 
 .area-choices-heading {
@@ -2518,6 +2564,11 @@ a.module:active {
   transition: width var(--dur-med) var(--ease-snap);
 }
 
+/* Keep motion while % stalls between job polls */
+.level-progress-fill.is-running {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
 .level-name-fixed {
   margin: 0 0 1rem;
   font-size: 0.9rem;
@@ -2612,7 +2663,9 @@ a.module:active {
   .module-grid,
   .tools-panel,
   .btn,
-  a.module {
+  a.module,
+  .level-progress-fill.is-running,
+  .job-progress-bar.indeterminate {
     animation: none !important;
     transition: none !important;
   }
@@ -2769,7 +2822,7 @@ a.module:active {
 }
 
 .legend-item .swatch.locked {
-  background: var(--progress-fog-locked, var(--fog-locked, #8a93a0));
+  background: var(--progress-fog-locked, var(--fog-locked, #6f7785));
 }
 
 .legend-item .swatch.explored {

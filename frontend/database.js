@@ -12,14 +12,22 @@ const EUROPE_BOUNDS = [
   [71.5, 42.0], // NE
 ];
 
+/** OSM serves up to ~19; overzoom two levels past for close inspection. */
+const MAP_MAX_ZOOM = 21;
+const OSM_NATIVE_ZOOM = 19;
+
 // Default: Europe. After boot, if ≥100 networks exist, fit 100 random (invisible) points.
-const map = L.map("map", { zoomControl: true }).fitBounds(EUROPE_BOUNDS, {
-  padding: [24, 24],
-  animate: false,
-});
+const map = L.map("map", { zoomControl: true, maxZoom: MAP_MAX_ZOOM }).fitBounds(
+  EUROPE_BOUNDS,
+  {
+    padding: [24, 24],
+    animate: false,
+  }
+);
 window.addEventListener("resize", () => map.invalidateSize());
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
+  maxNativeZoom: OSM_NATIVE_ZOOM,
+  maxZoom: MAP_MAX_ZOOM,
   attribution: "&copy; OpenStreetMap",
 }).addTo(map);
 
@@ -79,7 +87,14 @@ async function fitViewToSample() {
   }
 }
 
-const clusters = L.markerClusterGroup({ chunkedLoading: true });
+const clusters = L.markerClusterGroup({
+  chunkedLoading: true,
+  // Uncluster at max zoom so stacked blobs become individual markers
+  disableClusteringAtZoom: MAP_MAX_ZOOM,
+  spiderfyOnMaxZoom: true,
+  // Tighter clusters near max zoom so nearby points separate sooner
+  maxClusterRadius: (zoom) => (zoom >= MAP_MAX_ZOOM - 2 ? 40 : 80),
+});
 map.addLayer(clusters);
 
 const form = document.getElementById("filters");

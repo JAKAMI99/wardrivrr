@@ -1,7 +1,5 @@
 # Credits
 
-wardrivrr **1.0.0**
-
 This project would not be possible without the people and organisations who publish open geographic data and keep the infrastructure behind it running.
 
 ## OpenStreetMap
@@ -67,9 +65,9 @@ Bluey and Winnie the Pooh clipart from DisneyClips for **non-commercial** use
 only. Images colored by Disneyclips.com — do not redistribute/upload as part of
 a bulk collection. **Attribution required** (link the gallery pages below).
 
-Local decorative stickers live under `frontend/brand/kidcore/stickers/` as
-`bluey-*.png` / `winnie-*.png` (plus generic `kc-*`). Respect DisneyClips and
-rights-holder terms.
+Local decorative stickers live under `frontend/brand/kidcore/stickers/` in
+packs: `bluey/`, `winnie_pooh/`, `random_character/` (`kc-*`), `legacy/`.
+Respect DisneyClips and rights-holder terms.
 
 - Bluey: https://www.disneyclips.com/images3/bluey.html
 - Bluey (more): https://www.disneyclips.com/images3/bluey2.html

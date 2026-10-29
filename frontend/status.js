@@ -263,11 +263,17 @@ function paintHost(host, storage, db) {
     setMeter("hostCpuFill", "hostCpuMeter", "hostCpuPct", null);
     setMeter("hostRamFill", "hostRamMeter", "hostRamPct", null);
     setMeter("hostDiskFill", "hostDiskMeter", "hostDiskPct", storageDiskPct);
+    const packsCount = storage?.map_packs_count;
+    const packsHuman = storage?.map_packs_human || "0 B";
     fillDl(document.getElementById("hostMeta"), [
       ["Kismet logs", `${kismetH} · ${fmt(storage?.kismet_logs_files)} files`],
       [
         "Upload queue",
         `${uploadsH} · ${fmt(storage?.uploads_files ?? storage?.raw_incoming_files)} files`,
+      ],
+      [
+        "Map packs",
+        packsCount != null ? `${packsHuman} · ${fmt(packsCount)} pack${packsCount === 1 ? "" : "s"}` : null,
       ],
       ["Database size", db?.size_human],
       ["Disk free", storage?.disk_free_human],
@@ -310,6 +316,9 @@ function paintHost(host, storage, db) {
         ? `${storage.disk_used_human} / ${storage.disk_total_human}`
         : null;
 
+  const packsCount = storage?.map_packs_count;
+  const packsHuman = storage?.map_packs_human || "0 B";
+  const packsDays = storage?.map_packs_retention_days;
   fillDl(document.getElementById("hostMeta"), [
     ["CPU", cpu.model],
     ["Clock", ghz],
@@ -326,6 +335,14 @@ function paintHost(host, storage, db) {
     [
       "Upload queue",
       `${uploadsH} · ${fmt(storage?.uploads_files ?? storage?.raw_incoming_files)} files`,
+    ],
+    [
+      "Map packs",
+      packsCount != null
+        ? `${packsHuman} · ${fmt(packsCount)} pack${packsCount === 1 ? "" : "s"}${
+            packsDays != null ? ` · keep ${packsDays}d` : ""
+          }`
+        : null,
     ],
     ["Database size", db?.size_human],
     ["Temperature", host.temperature_c != null ? `${host.temperature_c} °C` : null],
@@ -368,6 +385,50 @@ document.getElementById("refreshStatus").addEventListener("click", () => {
     statusUpdated.textContent = String(err);
   });
 });
+
+const freeStorageBtn = document.getElementById("freeStorageBtn");
+const freeStorageHint = document.getElementById("freeStorageHint");
+
+async function freeUnusedMapPacks() {
+  if (!freeStorageBtn) return;
+  const ok = window.confirm(
+    "Delete unused cached map packs now?\n\nLive routing keeps working. Packs needed for an in-progress region build are kept. Creating a new region may re-download."
+  );
+  if (!ok) return;
+  freeStorageBtn.disabled = true;
+  if (freeStorageHint) freeStorageHint.textContent = "Freeing storage…";
+  try {
+    const res = await WardAuth.apiFetch("/api/system/storage/free-packs", {
+      method: "POST",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Free storage failed");
+    if (data.ok === false) throw new Error(data.error || "Free storage skipped");
+    const n = data.deleted_count ?? 0;
+    const freed = data.freed_human || "0 B";
+    const kept = data.kept_protected ?? 0;
+    if (freeStorageHint) {
+      freeStorageHint.textContent =
+        n === 0
+          ? kept
+            ? `Nothing to free · ${fmt(kept)} pack(s) in use`
+            : "Nothing to free · no unused map packs"
+          : `Freed ${freed} · removed ${fmt(n)} pack${n === 1 ? "" : "s"}` +
+            (kept ? ` · kept ${fmt(kept)} in use` : "");
+    }
+    await loadStatus();
+  } catch (err) {
+    if (freeStorageHint) freeStorageHint.textContent = String(err.message || err);
+  } finally {
+    freeStorageBtn.disabled = false;
+  }
+}
+
+if (freeStorageBtn) {
+  freeStorageBtn.addEventListener("click", () => {
+    freeUnusedMapPacks().catch(() => {});
+  });
+}
 
 (async () => {
   await WardAuth.requireAuth();
